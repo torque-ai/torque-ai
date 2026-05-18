@@ -961,6 +961,72 @@ describe('version-control worktree manager', () => {
     expect(db.prepare('SELECT COUNT(*) AS count FROM vc_worktrees').get().count).toBe(0);
   });
 
+  it('removes stale locked worktree metadata before retrying branch creation', () => {
+    const repoPath = makeRepoRoot();
+    const branch = 'feat/stale';
+    const worktreePath = path.join(repoPath, '.worktrees', 'feat-stale');
+    const addedWorktrees = [];
+    const calls = [];
+    let addAttempts = 0;
+    let deleteAttempts = 0;
+
+    execFileSyncMock.mockImplementation((command, args) => {
+      calls.push([command, ...(Array.isArray(args) ? args : [])]);
+      if (
+        command === 'git'
+        && Array.isArray(args)
+        && args[0] === 'worktree'
+        && args[1] === 'add'
+      ) {
+        addAttempts += 1;
+        if (addAttempts === 1) {
+          const err = new Error('git worktree add failed');
+          err.stderr = `fatal: a branch named '${branch}' already exists\n`;
+          throw err;
+        }
+        const fakeGitDir = path.join(worktreePath, '..', `.gitdir-${path.basename(worktreePath)}`);
+        fs.mkdirSync(worktreePath, { recursive: true });
+        fs.mkdirSync(fakeGitDir, { recursive: true });
+        fs.writeFileSync(path.join(fakeGitDir, 'HEAD'), `ref: refs/heads/${branch}\n`);
+        fs.writeFileSync(path.join(worktreePath, '.git'), `gitdir: ${fakeGitDir}\n`);
+        addedWorktrees.push(worktreePath);
+        return '';
+      }
+      if (
+        command === 'git'
+        && Array.isArray(args)
+        && args[0] === 'branch'
+        && args[1] === '-D'
+        && args[2] === branch
+      ) {
+        deleteAttempts += 1;
+        if (deleteAttempts === 1) {
+          const err = new Error('git branch delete failed');
+          err.stderr = `error: cannot delete branch '${branch}' used by worktree at '${worktreePath}'\n`;
+          throw err;
+        }
+        return '';
+      }
+      if (command === 'git' && Array.isArray(args) && args[0] === 'worktree' && args[1] === 'list') {
+        return addedWorktrees.map((wt) => `worktree ${wt}\n`).join('');
+      }
+      return '';
+    });
+
+    const created = manager.createWorktree(repoPath, 'stale');
+
+    expect(created).toMatchObject({
+      repo_path: repoPath,
+      branch,
+      worktree_path: worktreePath,
+    });
+    expect(addAttempts).toBe(2);
+    expect(deleteAttempts).toBe(2);
+    expect(calls).toContainEqual(['git', 'worktree', 'remove', '--force', '--force', worktreePath]);
+    expect(calls).toContainEqual(['git', 'worktree', 'prune']);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM vc_worktrees').get().count).toBe(1);
+  });
+
   it('syncs tracked rows with git worktree list output and marks missing entries', () => {
     const repoPath = makeRepoRoot();
     insertWorktree({

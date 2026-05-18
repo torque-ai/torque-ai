@@ -934,13 +934,29 @@ function createWorktree(repoPath, featureName, options = {}) {
           branch,
           repoPath: repositoryPath,
         });
+        let branchDeleted = false;
         try {
           runGit(repositoryPath, ['branch', '-D', branch]);
+          branchDeleted = true;
         } catch (branchDelErr) {
           logger.warn('createWorktree: stale branch delete failed (may not exist)', {
             branch,
             err: branchDelErr && branchDelErr.message,
           });
+        }
+        if (!branchDeleted) {
+          try {
+            runGit(repositoryPath, ['worktree', 'remove', '--force', '--force', worktreePath]);
+          } catch (removeErr) {
+            logger.warn('createWorktree: stale worktree registration remove failed (may not exist)', {
+              worktreePath,
+              branch,
+              err: removeErr && removeErr.message,
+            });
+          }
+        }
+        if (fs.existsSync(worktreePath)) {
+          forceRmSync(worktreePath);
         }
         try {
           runGit(repositoryPath, ['worktree', 'prune']);
@@ -949,8 +965,16 @@ function createWorktree(repoPath, featureName, options = {}) {
             err: pruneErr && pruneErr.message,
           });
         }
-        if (fs.existsSync(worktreePath)) {
-          forceRmSync(worktreePath);
+        if (!branchDeleted) {
+          try {
+            runGit(repositoryPath, ['branch', '-D', branch]);
+            branchDeleted = true;
+          } catch (branchDelErr) {
+            logger.warn('createWorktree: stale branch delete after prune failed (may not exist)', {
+              branch,
+              err: branchDelErr && branchDelErr.message,
+            });
+          }
         }
         const retryStartPoint = resolveStartPoint(repositoryPath, branch, baseBranch);
         runGit(repositoryPath, ['worktree', 'add', '-b', branch, worktreePath, retryStartPoint]);
