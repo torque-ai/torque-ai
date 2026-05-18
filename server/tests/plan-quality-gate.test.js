@@ -306,6 +306,24 @@ Create \`server/perf/run.js\` and update \`server/perf/run.js\` in the same task
     expect(hardFails.find(f => f.rule === 'task_edit_targets_exist')).toBeUndefined();
   }));
 
+  it('normalizes leaked internal worktree prefixes before checking edit targets', () => withTempRepo((repoPath) => {
+    writeFixtureFiles(repoPath, [
+      'server/tests/provider-investigation-fixes.test.js',
+      'server/tests/workflow-runtime.test.js',
+    ]);
+
+    const plan = `## Task 1: Move pending_provider_switch cancellation test
+
+Update \`server/.tmp/worktrees/task-factory-internal-architect_cycle-project-abc/server/tests/workflow-runtime.test.js\` to add the pending_provider_switch cancellation case using the existing harness. Acceptance criteria: run npx vitest run server/tests/workflow-runtime.test.js and expect it to pass.
+
+## Task 2: Remove skipped provider investigation block
+
+Edit \`server/.tmp/worktrees/task-factory-internal-architect_cycle-project-abc/server/tests/provider-investigation-fixes.test.js\` to delete the obsolete skipped describe block. Acceptance criteria: run npx vitest run server/tests/provider-investigation-fixes.test.js and expect it to pass.`;
+    const { hardFails } = runDeterministicRules(plan, { repoPath });
+
+    expect(hardFails.find(f => f.rule === 'task_edit_targets_exist')).toBeUndefined();
+  }));
+
   it('does not truncate .json references to missing .js edit targets', () => withTempRepo((repoPath) => {
     writeFixtureFiles(repoPath, [
       'server/perf/baseline.json',

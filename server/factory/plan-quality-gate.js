@@ -225,10 +225,20 @@ function normalizePlanPathCandidate(rawValue) {
   if (!candidate || candidate.includes('://') || candidate.split('/').includes('..')) {
     return null;
   }
+  candidate = stripInternalWorktreePrefix(candidate);
   if (!new RegExp(`\\.(?:${PLAN_PATH_EXTENSIONS})$`, 'i').test(candidate)) {
     return null;
   }
   return candidate;
+}
+
+function stripInternalWorktreePrefix(candidate) {
+  const segments = String(candidate || '').split('/').filter(Boolean);
+  const tmpIndex = segments.findIndex((segment, index) => segment === '.tmp' && segments[index + 1] === 'worktrees');
+  if (tmpIndex < 0 || tmpIndex + 3 >= segments.length) {
+    return candidate;
+  }
+  return segments.slice(tmpIndex + 3).join('/');
 }
 
 function uniqueNormalizedPaths(paths) {
