@@ -34,7 +34,7 @@ const { CONTEXT_STUFFING_PROVIDERS } = require('../../utils/context-stuffing');
 const { resolveContextFiles } = require('../../utils/smart-scan');
 const { buildTaskStudyContextEnvelope } = require('../../integrations/codebase-study-engine');
 const { PROVIDER_DEFAULT_TIMEOUTS } = require('../../constants');
-const { enforceVersionIntent } = require('../../versioning/version-intent');
+const { enforceVersionIntentHttp } = require('../../versioning/version-intent');
 const logger = require('../../logger');
 
 /**
@@ -349,9 +349,9 @@ async function submitTaskCore(args) {
   // Version intent enforcement for versioned projects
   const workDir = args.working_directory || null;
   if (workDir) {
-    const intentResult = enforceVersionIntent({ versionIntent: args.version_intent, projectId: workDir });
-    if (!intentResult.valid) {
-      return makeError(ErrorCodes.INVALID_PARAM, intentResult.error.message);
+    const intentCheck = enforceVersionIntentHttp(null, workDir, args.version_intent);
+    if (!intentCheck.ok) {
+      return makeError(ErrorCodes.INVALID_PARAM, intentCheck.error);
     }
   }
 

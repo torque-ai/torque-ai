@@ -31,7 +31,7 @@ const {
 const logger = require('../../logger').child({ component: 'workflow' });
 const { parseStylesheet, resolveTaskProps } = require('../../routing/stylesheet');
 const { safeJsonParse } = require('../../utils/json');
-const { enforceVersionIntent } = require('../../versioning/version-intent');
+const { enforceVersionIntentHttp } = require('../../versioning/version-intent');
 
 const PRE_COMMIT_REVIEW_BLOCK_MODES = new Set(['fail_workflow', 'require_approval', 'warn_only']);
 
@@ -1179,16 +1179,16 @@ function handleCreateWorkflow(args) {
       // No workflow-level intent — check that every task has its own intent
       const tasksWithoutIntent = (args.tasks || []).filter(t => !t.version_intent);
       if (tasksWithoutIntent.length > 0) {
-        const intentResult = enforceVersionIntent({ versionIntent: undefined, projectId: workDir, db: getRawDb() });
-        if (!intentResult.valid) {
+        const intentCheck = enforceVersionIntentHttp(getRawDb(), workDir, undefined);
+        if (!intentCheck.ok) {
           return makeError(ErrorCodes.MISSING_REQUIRED_PARAM,
             'version_intent is required for versioned project. Set on the workflow or on every task. Use: feature, fix, breaking, or internal');
         }
       }
     } else {
-      const intentResult = enforceVersionIntent({ versionIntent: workflowIntent, projectId: workDir, db: getRawDb() });
-      if (!intentResult.valid) {
-        return makeError(ErrorCodes.INVALID_PARAM, intentResult.error.message);
+      const intentCheck = enforceVersionIntentHttp(getRawDb(), workDir, workflowIntent);
+      if (!intentCheck.ok) {
+        return makeError(ErrorCodes.INVALID_PARAM, intentCheck.error);
       }
     }
   }
