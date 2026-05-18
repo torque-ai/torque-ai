@@ -1074,17 +1074,37 @@ async function handleTaskDiff(req, res) {
   try {
     const changes = fileTracking.getTaskFileChanges ? fileTracking.getTaskFileChanges(taskId) : [];
     const filesChanged = Array.isArray(changes) ? changes : [];
+    let preview = null;
+    if (typeof fileTracking.getDiffPreview === 'function') {
+      try {
+        preview = fileTracking.getDiffPreview(taskId) || null;
+      } catch (err) {
+        logger.debug('task diff preview lookup failed', { taskId, err: err.message });
+      }
+    }
 
-    sendSuccess(res, requestId, {
+    const response = {
       task_id: taskId,
-      files_changed: filesChanged.length,
+      files_changed: filesChanged.length || Number(preview?.files_changed) || 0,
       changes: filesChanged.map(c => ({
         file: c.file_path || c.file,
         action: c.change_type || c.action || 'modified',
         lines_added: c.lines_added || 0,
         lines_removed: c.lines_removed || 0,
       })),
-    }, 200, req);
+    };
+
+    if (preview) {
+      response.diff_preview_id = preview.id || null;
+      response.diff_content = preview.diff_content || '';
+      response.lines_added = Number(preview.lines_added) || 0;
+      response.lines_removed = Number(preview.lines_removed) || 0;
+      response.status = preview.status || null;
+      response.reviewed_at = preview.reviewed_at || null;
+      response.reviewed_by = preview.reviewed_by || null;
+    }
+
+    sendSuccess(res, requestId, response, 200, req);
   } catch (err) {
     sendError(res, requestId, 'operation_failed', err.message, 500, {}, req);
   }

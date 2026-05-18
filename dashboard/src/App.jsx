@@ -85,6 +85,7 @@ function applyTaskLifecycleEvent(prevTasks, eventData) {
 function AppInner() {
   const [tasks, setTasks] = useState([]);
   const [drawerTaskId, setDrawerTaskId] = useState(null);
+  const [drawerInitialTab, setDrawerInitialTab] = useState('overview');
   const [isOnboardingDismissed, setIsOnboardingDismissed] = useState(() => {
     try {
       return localStorage.getItem('torque-onboarding-dismissed') === 'true';
@@ -206,12 +207,15 @@ function AppInner() {
     return () => controller.abort();
   }, [loadPendingApprovalCount, tasksTick]);
 
-  const openDrawer = useCallback((taskId) => {
+  const openDrawer = useCallback((taskId, options = {}) => {
+    const initialTab = typeof options === 'string' ? options : options?.initialTab;
     setStreamingOutput([]);
+    setDrawerInitialTab(initialTab || 'overview');
     setDrawerTaskId(taskId);
   }, []);
   const closeDrawer = useCallback(() => {
     setDrawerTaskId(null);
+    setDrawerInitialTab('overview');
     setStreamingOutput([]);
   }, []);
 
@@ -308,7 +312,7 @@ function AppInner() {
               <Route path="providers" element={<Providers statsVersion={statsVersion} tasksTick={tasksTick} />} />
               <Route path="infrastructure" element={<InfrastructureHub hostActivity={hostActivity} />} />
               <Route path="operations" element={<OperationsHub />} />
-              <Route path="approvals" element={<Approvals />} />
+              <Route path="approvals" element={<Approvals onOpenDrawer={openDrawer} />} />
               <Route path="factory" element={<Factory />}>
                 <Route index element={<FactoryOverview />} />
                 <Route path="intake" element={<FactoryIntake />} />
@@ -347,6 +351,7 @@ function AppInner() {
             streamingOutput={streamingOutput}
             refreshTick={drawerRefreshTick}
             relativeTimeTick={relativeTimeTick}
+            initialTab={drawerInitialTab}
           />
         </ErrorBoundary>
       )}

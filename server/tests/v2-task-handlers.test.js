@@ -7,6 +7,7 @@ const mockDb = {
   createTask: vi.fn(),
   deleteTask: vi.fn(),
   getDefaultProvider: vi.fn(),
+  getDiffPreview: vi.fn(),
   getProvider: vi.fn(),
   getTask: vi.fn(),
   getTaskFileChanges: vi.fn(),
@@ -181,6 +182,7 @@ function resetMockDefaults() {
   mockDb.countTasks.mockReturnValue(0);
   mockDb.createTask.mockReturnValue(undefined);
   mockDb.getDefaultProvider.mockReturnValue('codex');
+  mockDb.getDiffPreview.mockReturnValue(null);
   mockDb.getProvider.mockReturnValue({ enabled: true });
   mockDb.getTask.mockReturnValue(null);
   mockDb.getTaskFileChanges.mockReturnValue([]);
@@ -1550,6 +1552,55 @@ describe('api/v2-task-handlers.handleTaskDiff', () => {
           { file: 'src/new.js', action: 'added', lines_added: 10, lines_removed: 0 },
           { file: 'src/old.js', action: 'deleted', lines_added: 0, lines_removed: 4 },
         ],
+      },
+      status: 200,
+      req,
+    });
+  });
+
+  it('includes stored diff preview content when one exists', async () => {
+    const req = createReq({ params: { task_id: 'task-diff-preview' } });
+    const res = createRes();
+
+    mockDb.getTask.mockReturnValue({ id: 'task-diff-preview', status: 'pending_approval' });
+    mockDb.getTaskFileChanges.mockReturnValue([
+      {
+        file_path: 'src/changed.js',
+        change_type: 'modified',
+        lines_added: 1,
+        lines_removed: 1,
+      },
+    ]);
+    mockDb.getDiffPreview.mockReturnValue({
+      id: 'diff-preview-1',
+      task_id: 'task-diff-preview',
+      diff_content: 'diff --git a/src/changed.js b/src/changed.js\n-old\n+new\n',
+      files_changed: 1,
+      lines_added: 1,
+      lines_removed: 1,
+      status: 'pending',
+      reviewed_at: null,
+      reviewed_by: null,
+    });
+
+    await handlers.handleTaskDiff(req, res);
+
+    expect(getLastSuccess()).toEqual({
+      res,
+      requestId: 'req-123',
+      data: {
+        task_id: 'task-diff-preview',
+        files_changed: 1,
+        changes: [
+          { file: 'src/changed.js', action: 'modified', lines_added: 1, lines_removed: 1 },
+        ],
+        diff_preview_id: 'diff-preview-1',
+        diff_content: 'diff --git a/src/changed.js b/src/changed.js\n-old\n+new\n',
+        lines_added: 1,
+        lines_removed: 1,
+        status: 'pending',
+        reviewed_at: null,
+        reviewed_by: null,
       },
       status: 200,
       req,

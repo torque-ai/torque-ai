@@ -314,6 +314,7 @@ function FactoryBatchCard({
   onRejectBatch,
   onApproveTask,
   onRejectTask,
+  onOpenTaskDiff,
   busyTaskIds,
   busyBatchId,
 }) {
@@ -391,6 +392,16 @@ function FactoryBatchCard({
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {onOpenTaskDiff && (
+                    <button
+                      type="button"
+                      disabled={taskBusy || batchBusy}
+                      onClick={() => onOpenTaskDiff(task)}
+                      className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-100 transition-colors hover:bg-slate-600 disabled:opacity-50"
+                    >
+                      Diff
+                    </button>
+                  )}
                   <button
                     type="button"
                     disabled={taskBusy || batchBusy}
@@ -417,7 +428,7 @@ function FactoryBatchCard({
   );
 }
 
-export default function Approvals() {
+export default function Approvals({ onOpenDrawer } = {}) {
   const [pending, setPending] = useState([]);
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -651,6 +662,11 @@ export default function Approvals() {
     }
   }, [toast]);
 
+  const handleOpenFactoryTaskDiff = useCallback((task) => {
+    if (!task?.id || typeof onOpenDrawer !== 'function') return;
+    onOpenDrawer(task.id, { initialTab: 'diff' });
+  }, [onOpenDrawer]);
+
   const approvedToday = history.filter((h) => {
     if (h.decision !== 'approved') return false;
     if (!h.decided_at) return false;
@@ -801,6 +817,7 @@ export default function Approvals() {
                 onRejectBatch={(currentBatch) => handleFactoryBatchAction(currentBatch, 'reject')}
                 onApproveTask={(task) => handleFactoryTaskAction(task, 'approve')}
                 onRejectTask={(task) => handleFactoryTaskAction(task, 'reject')}
+                onOpenTaskDiff={typeof onOpenDrawer === 'function' ? handleOpenFactoryTaskDiff : null}
                 busyTaskIds={busyTaskIds}
                 busyBatchId={factoryActionInProgress?.batchId || null}
               />

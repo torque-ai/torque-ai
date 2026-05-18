@@ -201,7 +201,16 @@ function getProviderDecisionTrace(taskData) {
   return null;
 }
 
-export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscribe, streamingOutput = [], refreshTick = 0, relativeTimeTick = 0 }) {
+export default function TaskDetailDrawer({
+  taskId,
+  onClose,
+  subscribe,
+  unsubscribe,
+  streamingOutput = [],
+  refreshTick = 0,
+  relativeTimeTick = 0,
+  initialTab = 'overview',
+}) {
   const [task, setTask] = useState(null);
   const [logs, setLogs] = useState([]);
   const [output, setOutput] = useState([]);
@@ -264,6 +273,11 @@ export default function TaskDetailDrawer({ taskId, onClose, subscribe, unsubscri
     if (refreshTick <= 0) setLoading(true);
     loadTask();
   }, [taskId, refreshTick, loadTask]);
+
+  useEffect(() => {
+    if (!taskId) return;
+    setActiveTab(initialTab || 'overview');
+  }, [taskId, initialTab]);
 
   useEffect(() => {
     if (taskId && subscribe) {
@@ -1237,8 +1251,14 @@ function normalizeDiff(diff) {
   }
 
   const changes = Array.isArray(diff.changes) ? diff.changes.filter(Boolean) : [];
+  const hasTopLevelPatch = typeof diff.diff_content === 'string' && diff.diff_content.length > 0;
+  const changesHavePatches = changes.some((change) => (
+    typeof change?.patch === 'string' && change.patch.length > 0
+  ) || (
+    typeof change?.diff_content === 'string' && change.diff_content.length > 0
+  ));
 
-  if (changes.length > 0) {
+  if (changes.length > 0 && (!hasTopLevelPatch || changesHavePatches)) {
     const sections = changes.map((change, index) => ({
       key: `${change.file || change.file_path || 'change'}-${index}`,
       file: change.file || change.file_path || `Change ${index + 1}`,
@@ -1278,7 +1298,7 @@ function normalizeDiff(diff) {
     };
   }
 
-  if (typeof diff.diff_content === 'string' && diff.diff_content.length > 0) {
+  if (hasTopLevelPatch) {
     return {
       sections: [{
         key: 'legacy-diff',

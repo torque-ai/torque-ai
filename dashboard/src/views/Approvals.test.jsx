@@ -208,6 +208,21 @@ describe('Approvals', () => {
     ).toBeInTheDocument();
   });
 
+  it('opens a factory task directly on its diff tab', async () => {
+    const openDrawer = vi.fn();
+    tasksApi.list.mockResolvedValue({
+      tasks: [mockFactoryTasksResponse.tasks[0]],
+      total: 1,
+    });
+
+    renderWithProviders(<Approvals onOpenDrawer={openDrawer} />, { route: '/approvals?source=factory' });
+
+    const section = await screen.findByRole('region', { name: 'Factory Task Approvals' });
+    fireEvent.click(within(section).getByRole('button', { name: 'Diff' }));
+
+    expect(openDrawer).toHaveBeenCalledWith('task-approval-1', { initialTab: 'diff' });
+  });
+
   it('approves an entire factory batch and removes it from the list', async () => {
     tasksApi.list.mockResolvedValue({
       tasks: mockFactoryTasksResponse.tasks.filter((task) => task.tags.includes('factory:batch_id=batch-42')),

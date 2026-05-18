@@ -527,6 +527,52 @@ describe('TaskDetailDrawer', () => {
     });
   });
 
+  it('can open directly on the diff tab', async () => {
+    renderWithProviders(
+      <TaskDetailDrawer taskId="task-1" onClose={vi.fn()} initialTab="diff" />
+    );
+
+    await waitFor(() => {
+      expect(tasksApi.diff).toHaveBeenCalledWith('task-1');
+      expect(screen.getByText('2 files')).toBeInTheDocument();
+    });
+  });
+
+  it('renders stored preview content when v2 changes only contain summaries', async () => {
+    tasksApi.diff.mockResolvedValueOnce({
+      task_id: 'task-1',
+      files_changed: 1,
+      changes: [
+        {
+          file: 'src/summary-only.js',
+          action: 'modified',
+          lines_added: 1,
+          lines_removed: 1,
+        },
+      ],
+      diff_content: 'diff --git a/src/summary-only.js b/src/summary-only.js\n--- a/src/summary-only.js\n+++ b/src/summary-only.js\n-old value\n+new value',
+      lines_added: 1,
+      lines_removed: 1,
+      status: 'pending',
+    });
+
+    renderWithProviders(<TaskDetailDrawer taskId="task-1" onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('diff')).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      screen.getByText('diff').click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('--- a/src/summary-only.js')).toBeInTheDocument();
+      expect(screen.getByText('+new value')).toBeInTheDocument();
+      expect(screen.queryByText('No inline patch available from v2 diff endpoint')).toBeNull();
+    });
+  });
+
   it('renders legacy task diff payloads in the diff tab', async () => {
     tasksApi.diff.mockResolvedValueOnce({
       files_changed: 1,
