@@ -1,11 +1,5 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
-// Mock the project-config dependency so we control getEffectiveProjectProvider
-vi.mock('../factory/shared/project-config', () => ({
-  getEffectiveProjectProvider: vi.fn(() => null),
-}));
-
-import { getEffectiveProjectProvider } from '../factory/shared/project-config';
 import {
   DEFAULT_PLAN_GENERATION_TIMEOUT_MINUTES,
   PLAN_GENERATION_HARD_CAP_EXTENSION_MINUTES,
@@ -15,6 +9,25 @@ import {
   buildPlanGenerationActivityTimeoutPolicy,
   clearPlanGenerationWaitFields,
 } from '../factory/plan-generation/timeout-policy.js';
+
+// Helper: build a project object whose getEffectiveProjectProvider resolves to
+// the given provider name. The real function reads
+// config.provider_lane_policy.expected_provider, so we embed that structure.
+function projectWithProvider(provider, extraConfig = {}) {
+  const cfg = { ...extraConfig };
+  if (provider) {
+    cfg.provider_lane_policy = { expected_provider: provider };
+  }
+  return { config_json: JSON.stringify(cfg) };
+}
+
+function projectWithProviderAndTimeout(provider, timeoutKey, timeoutValue) {
+  const cfg = { [timeoutKey]: timeoutValue };
+  if (provider) {
+    cfg.provider_lane_policy = { expected_provider: provider };
+  }
+  return { config_json: JSON.stringify(cfg) };
+}
 
 // ---------------------------------------------------------------------------
 // Constants sanity checks
@@ -41,49 +54,37 @@ describe('exported constants', () => {
 // resolvePlanGenerationTimeoutMinutes
 // ---------------------------------------------------------------------------
 describe('resolvePlanGenerationTimeoutMinutes', () => {
-  afterEach(() => {
-    vi.mocked(getEffectiveProjectProvider).mockReset();
-  });
-
   it('returns 30 when config_json is null and provider is not ollama', () => {
-    getEffectiveProjectProvider.mockReturnValue(null);
     expect(resolvePlanGenerationTimeoutMinutes({ config_json: null })).toBe(30);
   });
 
   it('returns 30 when config_json is undefined and provider is not ollama', () => {
-    getEffectiveProjectProvider.mockReturnValue(null);
     expect(resolvePlanGenerationTimeoutMinutes({})).toBe(30);
   });
 
   it('returns 30 when project is null', () => {
-    getEffectiveProjectProvider.mockReturnValue(null);
     expect(resolvePlanGenerationTimeoutMinutes(null)).toBe(30);
   });
 
   it('returns 30 when project is undefined', () => {
-    getEffectiveProjectProvider.mockReturnValue(null);
     expect(resolvePlanGenerationTimeoutMinutes(undefined)).toBe(30);
   });
 
   it('returns 10 when provider is ollama', () => {
-    getEffectiveProjectProvider.mockReturnValue('ollama');
-    expect(resolvePlanGenerationTimeoutMinutes({})).toBe(10);
+    expect(resolvePlanGenerationTimeoutMinutes(projectWithProvider('ollama'))).toBe(10);
   });
 
   it('respects plan_generation_timeout_minutes in config_json string', () => {
-    getEffectiveProjectProvider.mockReturnValue(null);
     const project = { config_json: JSON.stringify({ plan_generation_timeout_minutes: 60 }) };
     expect(resolvePlanGenerationTimeoutMinutes(project)).toBe(60);
   });
 
   it('respects factory_plan_generation_timeout_minutes as fallback key', () => {
-    getEffectiveProjectProvider.mockReturnValue(null);
     const project = { config_json: JSON.stringify({ factory_plan_generation_timeout_minutes: 45 }) };
     expect(resolvePlanGenerationTimeoutMinutes(project)).toBe(45);
   });
 
   it('prefers plan_generation_timeout_minutes over factory_ variant', () => {
-    getEffectiveProjectProvider.mockReturnValue(null);
     const project = {
       config_json: JSON.stringify({
         plan_generation_timeout_minutes: 50,
@@ -94,58 +95,60 @@ describe('resolvePlanGenerationTimeoutMinutes', () => {
   });
 
   it('clamps configured value to minimum 1', () => {
-    getEffectiveProjectProvider.mockReturnValue(null);
     const project = { config_json: JSON.stringify({ plan_generation_timeout_minutes: 0.3 }) };
     expect(resolvePlanGenerationTimeoutMinutes(project)).toBe(1);
   });
 
   it('falls through to default when configured value is 0', () => {
     // 0 is not > 0, so Number.isFinite(0) && 0 > 0 is false — falls through
-    getEffectiveProjectProvider.mockReturnValue(null);
     const project = { config_json: JSON.stringify({ plan_generation_timeout_minutes: 0 }) };
     expect(resolvePlanGenerationTimeoutMinutes(project)).toBe(30);
   });
 
   it('falls through to default when configured value is negative', () => {
-    getEffectiveProjectProvider.mockReturnValue(null);
     const project = { config_json: JSON.stringify({ plan_generation_timeout_minutes: -5 }) };
     expect(resolvePlanGenerationTimeoutMinutes(project)).toBe(30);
   });
 
   it('clamps configured value to maximum 120', () => {
-    getEffectiveProjectProvider.mockReturnValue(null);
     const project = { config_json: JSON.stringify({ plan_generation_timeout_minutes: 999 }) };
     expect(resolvePlanGenerationTimeoutMinutes(project)).toBe(120);
   });
 
   it('ceils fractional values', () => {
-    getEffectiveProjectProvider.mockReturnValue(null);
     const project = { config_json: JSON.stringify({ plan_generation_timeout_minutes: 29.1 }) };
     expect(resolvePlanGenerationTimeoutMinutes(project)).toBe(30);
   });
 
   it('falls back to provider default on malformed config_json string', () => {
-    getEffectiveProjectProvider.mockReturnValue(null);
     const project = { config_json: 'not-json' };
     expect(resolvePlanGenerationTimeoutMinutes(project)).toBe(30);
   });
 
   it('falls back to ollama default on malformed config_json when provider is ollama', () => {
-    getEffectiveProjectProvider.mockReturnValue('ollama');
-    const project = { config_json: 'not-json' };
+    // Malformed config_json means JSON.parse throws, so configured stays null.
+    // But getEffectiveProjectProvider also parses config_json — and it also
+    // catches the parse error and returns null. So even though the project is
+    // "ollama", the malformed JSON prevents detection. The function correctly
+    // falls through to the non-ollama default (30).
+    // To get the ollama path with malformed config_json, supply a pre-parsed
+    // config object (the real getEffectiveProjectProvider checks project.config
+    // first before falling back to config_json).
+    const project = {
+      config_json: 'not-json',
+      config: { provider_lane_policy: { expected_provider: 'ollama' } },
+    };
     expect(resolvePlanGenerationTimeoutMinutes(project)).toBe(10);
   });
 
   it('treats non-numeric config value as unconfigured', () => {
-    getEffectiveProjectProvider.mockReturnValue(null);
     const project = { config_json: JSON.stringify({ plan_generation_timeout_minutes: 'fast' }) };
     expect(resolvePlanGenerationTimeoutMinutes(project)).toBe(30);
   });
 
   it('overrides provider default when an explicit timeout is configured', () => {
     // Even if provider is ollama, a configured value wins
-    getEffectiveProjectProvider.mockReturnValue('ollama');
-    const project = { config_json: JSON.stringify({ plan_generation_timeout_minutes: 60 }) };
+    const project = projectWithProviderAndTimeout('ollama', 'plan_generation_timeout_minutes', 60);
     expect(resolvePlanGenerationTimeoutMinutes(project)).toBe(60);
   });
 });
