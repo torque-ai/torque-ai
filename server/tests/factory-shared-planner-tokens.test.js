@@ -54,7 +54,8 @@ describe('normalizePlannerAffinityToken', () => {
 
   it('coerces non-string values via String()', () => {
     expect(normalizePlannerAffinityToken(12345)).toBe('12345');
-    expect(normalizePlannerAffinityToken(0)).toBe('0');
+    // 0 is falsy → treated as empty input (same as null/undefined)
+    expect(normalizePlannerAffinityToken(0)).toBe('');
   });
 });
 
