@@ -72,6 +72,18 @@ Acceptance:
 - `server/factory/loop-controller.js` no longer owns the extracted policy constants and pure helpers.
 - `npx vitest run tests/factory-needs-replan-policy.test.js` passes.
 
+### Plan 4 - Normalize Provider Defaults Back to Codex Primary
+
+Status: implemented in follow-up branch `feat/codex-primary-provider-defaults`.
+
+Work:
+- Change fresh database seeds so `default_provider` and `smart_routing_default_provider` start at `codex`, while `claude-cli` and local `ollama` are not enabled by default.
+- Add migration `61` to move legacy `ollama` defaults and the temporary `preset-codex-down-failover` active template back to Codex-primary settings without rewriting unrelated custom config keys.
+
+Validation:
+- `npx vitest run tests/schema-seeds.test.js tests/db-migrations.test.js`
+- Post-restart provider check shows `codex` as default, Claude disabled, and Ollama disabled.
+
 ## Post-Implementation Evidence
 
 - `server/scripts/check-no-direct-db-import.js --summary`: `0` source direct database imports, `0` stale allowed entries, `0` unauthorized test imports.
@@ -79,6 +91,7 @@ Acceptance:
 - `server/factory/loop-controller.js`: reduced from `6865` to `6781` lines.
 - `server/factory/needs-replan-policy.js`: new `97` line pure policy module with focused tests.
 - `docs/architecture.md`: main architecture guide now reflects `685` built-in tools, `90` handler files, and `90` DB modules.
+- `server/db/migrations.js`: migration `61` normalizes legacy provider defaults to Codex-primary routing while preserving unrelated custom config keys.
 
 ## Larger Follow-Up Recommendations
 

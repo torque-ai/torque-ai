@@ -33,8 +33,8 @@ const TEST_MODELS = {
 };
 
 const TEST_CONFIG_DEFAULTS = {
-  default_provider: 'ollama',
-  smart_routing_default_provider: 'ollama',
+  default_provider: 'codex',
+  smart_routing_default_provider: 'codex',
   v2_auth_mode: 'permissive',
   default_timeout: '300',
   budget_check_enabled: '1',

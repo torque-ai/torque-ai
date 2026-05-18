@@ -1441,6 +1441,45 @@ const MIGRATIONS = [
     },
     down: 'DROP TABLE IF EXISTS candidate_patches',
   },
+  {
+    version: 61,
+    name: 'codex_primary_provider_defaults',
+    up: function(sqliteDb) {
+      const hasConfig = sqliteDb.prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='config'"
+      ).get();
+      if (!hasConfig) return;
+
+      sqliteDb.prepare(`
+        INSERT INTO config (key, value)
+        VALUES ('default_provider', 'codex')
+        ON CONFLICT(key) DO UPDATE SET value = 'codex'
+        WHERE value IN ('ollama', 'claude-cli', 'claude-code-sdk', 'claude-ollama', 'ollama-cloud')
+      `).run();
+
+      sqliteDb.prepare(`
+        INSERT INTO config (key, value)
+        VALUES ('smart_routing_default_provider', 'codex')
+        ON CONFLICT(key) DO UPDATE SET value = 'codex'
+        WHERE value IN ('ollama', 'claude-cli', 'claude-code-sdk', 'claude-ollama', 'ollama-cloud')
+      `).run();
+
+      sqliteDb.prepare(`
+        INSERT INTO config (key, value)
+        VALUES ('strategic_provider', 'deepinfra')
+        ON CONFLICT(key) DO UPDATE SET value = 'deepinfra'
+        WHERE value = 'ollama'
+      `).run();
+
+      sqliteDb.prepare(`
+        UPDATE config
+        SET value = 'preset-codex-primary'
+        WHERE key = 'active_routing_template'
+          AND value = 'preset-codex-down-failover'
+      `).run();
+    },
+    down: '',
+  },
 ];
 
 function ensureMigrationTable(sqliteDb) {

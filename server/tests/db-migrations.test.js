@@ -1001,5 +1001,27 @@ describe('db/migrations', () => {
       expect(indexExists(db, 'idx_fge_batch')).toBe(true);
       expect(getAppliedVersions(db)).toContain(37);
     });
+
+    it('migration 61 normalizes legacy provider defaults to codex-primary routing', () => {
+      createBaseSchema(db);
+      const setConfig = db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)');
+      setConfig.run('default_provider', 'ollama');
+      setConfig.run('smart_routing_default_provider', 'ollama');
+      setConfig.run('strategic_provider', 'ollama');
+      setConfig.run('active_routing_template', 'preset-codex-down-failover');
+      setConfig.run('custom_provider_preference', 'ollama');
+      seedAppliedVersions(db, subject.MIGRATIONS.filter((migration) => migration.version < 61));
+
+      expect(subject.runMigrations(db)).toBe(1);
+
+      const configRows = db.prepare('SELECT key, value FROM config').all();
+      const config = Object.fromEntries(configRows.map((row) => [row.key, row.value]));
+      expect(config.default_provider).toBe('codex');
+      expect(config.smart_routing_default_provider).toBe('codex');
+      expect(config.strategic_provider).toBe('deepinfra');
+      expect(config.active_routing_template).toBe('preset-codex-primary');
+      expect(config.custom_provider_preference).toBe('ollama');
+      expect(getAppliedVersions(db)).toContain(61);
+    });
   });
 });

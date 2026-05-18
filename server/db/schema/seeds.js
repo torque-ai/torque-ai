@@ -66,10 +66,10 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertConfig.run('stale_queued_minutes', '120');
   insertConfig.run('api_rate_limit', '200');
   insertConfig.run('task_retention_count', '5000');
-  insertConfig.run('default_provider', 'ollama');
+  insertConfig.run('default_provider', 'codex');
   insertConfig.run('strategic_auto_diagnose', '0');
   insertConfig.run('strategic_auto_review', '0');
-  insertConfig.run('strategic_provider', 'ollama');
+  insertConfig.run('strategic_provider', 'deepinfra');
   // Legacy: populated dynamically by discovery engine
   insertConfig.run('strategic_model', '');
   insertConfig.run('codex_overflow_to_local', '0');
@@ -132,7 +132,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   insertProvider.run('codex-spark', 1, 2, 'codex', 'hybrid', null, JSON.stringify([
       'quota exceeded', 'rate limit', 'weekly limit', 'usage limit', 'too many requests', '429'
     ]), 10, now);
-  insertProvider.run('claude-cli', 1, 2, 'claude', 'cli', null, JSON.stringify([
+  insertProvider.run('claude-cli', 0, 2, 'claude', 'cli', null, JSON.stringify([
       'hit your limit', 'rate limit', 'resets', '429', 'quota exceeded', 'too many requests'
     ]), 10, now);
   insertProvider.run('claude-code-sdk', 0, 4, 'claude', 'cli', null, JSON.stringify([
@@ -142,7 +142,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
       'hit your limit', 'rate limit', 'resets', '429', 'quota exceeded', 'too many requests',
       'connection refused', 'timeout', 'ECONNREFUSED', 'model not found'
     ]), 1, now);
-  insertProvider.run('ollama', 1, 3, 'api', 'api', null, JSON.stringify([
+  insertProvider.run('ollama', 0, 3, 'api', 'api', null, JSON.stringify([
       'connection refused', 'timeout', 'ECONNREFUSED', 'model not found'
     ]), 2, now);
   // anthropic provider not seeded by default — add via provider CRUD if you have an API key
@@ -230,7 +230,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   // Legacy: populated dynamically by discovery engine
   insertConfig.run('ollama_model', '');
   insertConfig.run('smart_routing_enabled', '1');
-  insertConfig.run('smart_routing_default_provider', 'ollama');
+  insertConfig.run('smart_routing_default_provider', 'codex');
   insertConfig.run('ollama_fallback_provider', 'codex');
   insertConfig.run('ollama_health_check_enabled', '1');
   insertConfig.run('ollama_temperature', '0.3');
