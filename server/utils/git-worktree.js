@@ -418,9 +418,16 @@ function isProtectedWorktreePath(worktreePath, protectedPaths) {
   return false;
 }
 
+function normalizeCleanupCutoff(value) {
+  if (value === null || value === undefined) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 /**
  * Clean up any orphaned worktrees in the base directory.
- * Call this during server startup to handle worktrees from crashed processes.
+ * Prefer cleanupOrphanedWorktreesAsync for server startup so large deletes do
+ * not block API/MCP port binding.
  *
  * @param {string} [baseDir] - Override worktree base directory (for testing)
  * @param {{ protectedPaths?: string[]|Set<string> }} [options]
@@ -457,6 +464,80 @@ function cleanupOrphanedWorktrees(baseDir, options = {}) {
   }
 }
 
+/**
+ * Clean up orphaned worktrees without blocking the event loop on large deletes.
+ *
+ * @param {string} [baseDir] - Override worktree base directory (for testing)
+ * @param {{ protectedPaths?: string[]|Set<string>, createdBeforeMs?: number }} [options]
+ * @returns {Promise<{ baseDir: string, totalEntries: number, cleaned: string[], preserved: string[], skipped: Array<{ path: string, reason: string }>, failed: Array<{ path: string, error: string }> }>}
+ */
+async function cleanupOrphanedWorktreesAsync(baseDir, options = {}) {
+  const dir = baseDir || WORKTREE_BASE_DIR;
+  const protectedPaths = normalizeProtectedWorktreePaths(options.protectedPaths);
+  const createdBeforeMs = normalizeCleanupCutoff(options.createdBeforeMs);
+  const result = {
+    baseDir: dir,
+    totalEntries: 0,
+    cleaned: [],
+    preserved: [],
+    skipped: [],
+    failed: [],
+  };
+
+  let entries;
+  try {
+    entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return result;
+    logger.info(`[Worktree] Async orphan cleanup failed: ${err.message}`);
+    result.failed.push({ path: dir, error: err.message });
+    return result;
+  }
+
+  result.totalEntries = entries.length;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+
+    const fullPath = path.join(dir, entry.name);
+    try {
+      if (isProtectedWorktreePath(fullPath, protectedPaths)) {
+        logger.info(`[Worktree] Preserving active task worktree during async orphan cleanup: ${fullPath}`);
+        result.preserved.push(fullPath);
+        continue;
+      }
+
+      if (createdBeforeMs !== null) {
+        const stat = await fs.promises.stat(fullPath);
+        if (stat.mtimeMs > createdBeforeMs) {
+          result.skipped.push({ path: fullPath, reason: 'newer_than_cleanup_cutoff' });
+          continue;
+        }
+      }
+
+      logger.info(`[Worktree] Cleaning up orphaned worktree asynchronously: ${fullPath}`);
+      await fs.promises.rm(fullPath, {
+        recursive: true,
+        force: true,
+        maxRetries: 3,
+        retryDelay: 200,
+      });
+      result.cleaned.push(fullPath);
+    } catch (err) {
+      logger.info(`[Worktree] Failed to clean orphaned worktree ${entry.name} asynchronously: ${err.message}`);
+      result.failed.push({ path: fullPath, error: err.message });
+    }
+
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  logger.info(
+    `[Worktree] Async orphaned worktree cleanup complete ` +
+    `(cleaned=${result.cleaned.length}, preserved=${result.preserved.length}, ` +
+    `skipped=${result.skipped.length}, failed=${result.failed.length}, total=${result.totalEntries})`
+  );
+  return result;
+}
+
 module.exports = {
   WORKTREE_BASE_DIR,
   isGitRepo,
@@ -464,5 +545,6 @@ module.exports = {
   mergeWorktreeChanges,
   removeWorktree,
   cleanupOrphanedWorktrees,
+  cleanupOrphanedWorktreesAsync,
   generateBranchName,
 };

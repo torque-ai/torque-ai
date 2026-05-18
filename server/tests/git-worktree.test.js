@@ -277,6 +277,68 @@ describe('git-worktree', { retry: 2 }, () => {
     });
   });
 
+  // ── cleanupOrphanedWorktreesAsync ────────────────────────────────
+
+  describe('cleanupOrphanedWorktreesAsync', () => {
+    it('removes orphaned worktree directories asynchronously', async () => {
+      const orphanDir = path.join(testBaseDir, 'async-orphan-base');
+      fs.mkdirSync(orphanDir, { recursive: true });
+
+      fs.mkdirSync(path.join(orphanDir, 'task-orphan-1'), { recursive: true });
+      fs.mkdirSync(path.join(orphanDir, 'task-orphan-2'), { recursive: true });
+      fs.writeFileSync(path.join(orphanDir, 'task-orphan-1', 'file.txt'), 'stale');
+
+      const result = await gitWorktree.cleanupOrphanedWorktreesAsync(orphanDir);
+
+      expect(result.cleaned).toHaveLength(2);
+      expect(result.failed).toHaveLength(0);
+      expect(fs.existsSync(path.join(orphanDir, 'task-orphan-1'))).toBe(false);
+      expect(fs.existsSync(path.join(orphanDir, 'task-orphan-2'))).toBe(false);
+    });
+
+    it('preserves protected directories during async cleanup', async () => {
+      const orphanDir = path.join(testBaseDir, 'async-protected-orphan-base');
+      const activeDir = path.join(orphanDir, 'task-active');
+      const staleDir = path.join(orphanDir, 'task-stale');
+      fs.mkdirSync(path.join(activeDir, 'nested'), { recursive: true });
+      fs.mkdirSync(staleDir, { recursive: true });
+
+      const result = await gitWorktree.cleanupOrphanedWorktreesAsync(orphanDir, {
+        protectedPaths: [path.join(activeDir, 'nested')],
+      });
+
+      expect(result.cleaned).toContain(staleDir);
+      expect(result.preserved).toContain(activeDir);
+      expect(fs.existsSync(activeDir)).toBe(true);
+      expect(fs.existsSync(staleDir)).toBe(false);
+    });
+
+    it('skips directories newer than the cleanup cutoff', async () => {
+      const orphanDir = path.join(testBaseDir, 'async-cutoff-orphan-base');
+      const staleDir = path.join(orphanDir, 'task-stale');
+      const recentDir = path.join(orphanDir, 'task-recent');
+      fs.mkdirSync(staleDir, { recursive: true });
+      fs.mkdirSync(recentDir, { recursive: true });
+
+      const staleTime = new Date(Date.now() - 60_000);
+      fs.utimesSync(staleDir, staleTime, staleTime);
+      const cutoff = Date.now() - 1000;
+
+      const result = await gitWorktree.cleanupOrphanedWorktreesAsync(orphanDir, {
+        createdBeforeMs: cutoff,
+      });
+
+      expect(result.cleaned).toContain(staleDir);
+      expect(result.skipped).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: recentDir, reason: 'newer_than_cleanup_cutoff' }),
+        ])
+      );
+      expect(fs.existsSync(staleDir)).toBe(false);
+      expect(fs.existsSync(recentDir)).toBe(true);
+    });
+  });
+
   // ── WORKTREE_BASE_DIR ────────────────────────────────────────────
 
   describe('WORKTREE_BASE_DIR', () => {
