@@ -89,11 +89,12 @@ function createFactoryTables(db) {
   `);
 }
 
-function registerPrioritizeProject(trust_level = 'autonomous') {
+function registerPrioritizeProject(trust_level = 'autonomous', config = undefined) {
   const project = factoryHealth.registerProject({
     name: `Loop Async ${Math.random().toString(16).slice(2)}`,
     path: path.join(os.tmpdir(), `factory-loop-async-${Date.now()}-${Math.random().toString(16).slice(2)}`),
     trust_level,
+    config,
   });
 
   factoryIntake.createWorkItem({
@@ -201,6 +202,31 @@ describe('factory loop async jobs', () => {
       id: 'cycle-async-1',
       summary: 'architect complete',
     });
+  });
+
+  it('re-enters the auto-advance chain on manual advance for auto-continue projects', async () => {
+    runArchitectCycleSpy.mockResolvedValue({ id: 'cycle-auto-continue', summary: 'architect complete' });
+    const project = registerPrioritizeProject('autonomous', { loop: { auto_continue: true } });
+
+    const descriptor = loopController.advanceLoopAsyncForProject(project.id);
+    const instance = factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })[0];
+    const completed = await waitForJobStatus(project.id, descriptor.job_id, 'completed');
+
+    try {
+      expect(completed).toMatchObject({
+        status: 'completed',
+        new_state: LOOP_STATES.PLAN,
+        paused_at_stage: null,
+        error: null,
+      });
+      expect(completed.auto_advance_delay_ms).toEqual(expect.any(Number));
+      expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(instance.id))
+        .toMatchObject({ delay_ms: completed.auto_advance_delay_ms });
+    } finally {
+      if (instance?.id) {
+        loopController._internalForTests.clearScheduledAutoAdvanceForTests(instance.id);
+      }
+    }
   });
 
   it('records failed status and error details when the stage throws', async () => {

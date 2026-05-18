@@ -448,6 +448,16 @@ function hasOperatorPauseIntent(project) {
   return cfg?.loop?.operator_paused === true;
 }
 
+function isLoopConfigFlagEnabled(value) {
+  return value === true || value === 1 || value === 'true';
+}
+
+function shouldProjectAutoAdvance(project) {
+  const cfg = parseProjectConfigObject(project);
+  return isLoopConfigFlagEnabled(cfg?.loop?.auto_advance)
+    || isLoopConfigFlagEnabled(cfg?.loop?.auto_continue);
+}
+
 function isProjectPauseActive(project, { includeStatus = true } = {}) {
   if (!includeStatus) {
     return hasOperatorPauseIntent(project);
@@ -6565,6 +6575,7 @@ async function advanceLoopForProject(project_id) {
 function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
   const { project, instance } = getLoopContextOrThrow(instance_id);
   const currentState = getCurrentLoopState(instance);
+  const autoAdvanceRequested = autoAdvance || shouldProjectAutoAdvance(project);
 
   if (currentState === LOOP_STATES.IDLE) {
     throw new Error('Loop not started for this project');
@@ -6611,7 +6622,7 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
       job.paused_at_stage = result.paused_at_stage ?? null;
       job.stage_result = result.stage_result ?? null;
       job.reason = result.reason ?? null;
-      const shouldAutoAdvance = autoAdvance
+      const shouldAutoAdvance = autoAdvanceRequested
         && result.new_state !== LOOP_STATES.IDLE
         && result.new_state !== LOOP_STATES.STARVED
         && !result.paused_at_stage
@@ -6822,10 +6833,18 @@ function approveGate(instance_id, stage) {
     batch_id: updated.batch_id || null,
   });
 
+  const autoAdvanceRearmed = shouldProjectAutoAdvance(project);
+  if (autoAdvanceRearmed) {
+    scheduleAutoAdvance(updated.id, 0, {
+      debugMessage: 'Auto-advance after gate approval stopped',
+    });
+  }
+
   return {
     project_id: project.id,
     instance_id: updated.id,
     state: getCurrentLoopState(updated),
+    auto_advance_rearmed: autoAdvanceRearmed,
     message: 'Gate approved, loop continuing',
   };
 }

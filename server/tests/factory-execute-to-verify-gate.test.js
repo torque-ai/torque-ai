@@ -211,7 +211,7 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
     tempDir = null;
   });
 
-  function registerPlanProject() {
+  function registerPlanProject({ autoContinue = false } = {}) {
     const projectDir = path.join(tempDir, `project-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     const planPath = path.join(tempDir, `plan-${Date.now()}-${Math.random().toString(16).slice(2)}.md`);
     // Plan body must satisfy the plan-quality-gate: each task body needs
@@ -238,6 +238,7 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
       name: 'Execute Verify Gate Project',
       path: projectDir,
       trust_level: 'supervised',
+      config: autoContinue ? { loop: { auto_continue: true } } : undefined,
     });
 
     const workItem = factoryIntake.createWorkItem({
@@ -417,5 +418,34 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
         to_state: LOOP_STATES.EXECUTE,
       }),
     });
+  });
+
+  it('re-arms auto-advance after approving an auto-continue gate', () => {
+    vi.useFakeTimers();
+    let approved;
+
+    try {
+      const { project } = registerPlanProject({ autoContinue: true });
+
+      factoryHealth.updateProject(project.id, {
+        loop_state: LOOP_STATES.PAUSED,
+        loop_paused_at_stage: LOOP_STATES.EXECUTE,
+      });
+
+      approved = loopController.approveGateForProject(project.id, LOOP_STATES.EXECUTE);
+
+      expect(approved).toMatchObject({
+        project_id: project.id,
+        state: LOOP_STATES.EXECUTE,
+        auto_advance_rearmed: true,
+      });
+      expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(approved.instance_id))
+        .toMatchObject({ delay_ms: 0 });
+    } finally {
+      if (approved?.instance_id) {
+        loopController._internalForTests.clearScheduledAutoAdvanceForTests(approved.instance_id);
+      }
+      vi.useRealTimers();
+    }
   });
 });
