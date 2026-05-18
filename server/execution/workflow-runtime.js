@@ -74,6 +74,19 @@ function emitWorkflowFinalEvent(workflowId, status, tasks, failedCount) {
   } catch { /* non-critical */ }
 }
 
+function emitWorkflowEvent(workflowId, type, payload = {}) {
+  try {
+    const { emitTaskEvent } = require('../events/event-emitter');
+    emitTaskEvent({
+      task_id: workflowId,
+      workflow_id: workflowId,
+      type,
+      actor: 'workflow-runtime',
+      payload,
+    });
+  } catch { /* non-critical */ }
+}
+
 function scheduleWorkflowBundleBuild(workflowId) {
   try {
     const { buildBundle } = require('../runs/build-bundle');
@@ -82,6 +95,25 @@ function scheduleWorkflowBundleBuild(workflowId) {
       logger.info(`[workflow-runtime] Bundle build failed for ${workflowId}: ${err.message}`);
     });
   } catch { /* runs module unavailable */ }
+}
+
+function scheduleWorkflowRetroBuild(workflowId) {
+  try {
+    const { defaultContainer } = require('../container');
+    const retrospectives = defaultContainer.peek?.('retrospectives');
+    if (!retrospectives) return;
+    const { createRetrospectiveGenerator } = require('../factory/retrospective-generator');
+    const workflowEngine = require('../db/workflow-engine');
+    const generator = createRetrospectiveGenerator({
+      retrospectives,
+      getWorkflowTasks: workflowEngine.getWorkflowTasks,
+      getWorkflow: workflowEngine.getWorkflow,
+      getTaskTokenUsage: () => null,
+    });
+    Promise.resolve().then(() => generator.generateRetrospective(workflowId, null)).catch(err => {
+      logger.info(`[workflow-runtime] Retrospective build failed for ${workflowId}: ${err.message}`);
+    });
+  } catch { /* retrospective support unavailable */ }
 }
 
 /**
@@ -873,6 +905,42 @@ function getTaskDependencyStates(taskId) {
   return deps.map((dep) => evaluateTaskDependencyState(dep));
 }
 
+function getTaskMetadata(task) {
+  return normalizeMetadata(task?.metadata);
+}
+
+function getFanoutLimit(task) {
+  const metadata = getTaskMetadata(task);
+  if (metadata.kind !== 'parallel_fanout') return null;
+  const parsed = Number.parseInt(metadata.max_parallel, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function shouldHoldForFanoutLimit(parentTask, dependentTaskId, maxParallel) {
+  if (!maxParallel) return false;
+  const dependents = db.getTaskDependents(parentTask.id) || [];
+  let active = 0;
+  for (const dep of dependents) {
+    if (dep.task_id === dependentTaskId) continue;
+    const task = db.getTask(dep.task_id);
+    if (task && ['queued', 'pending', 'running', 'pending_provider_switch'].includes(task.status)) {
+      active += 1;
+    }
+  }
+  return active >= maxParallel;
+}
+
+function releaseFanoutParentsForCompletedBranch(completedTask, workflowId) {
+  if (!completedTask?.id || !workflowId || typeof db.getTaskDependencies !== 'function') return;
+  const parents = db.getTaskDependencies(completedTask.id) || [];
+  for (const dep of parents) {
+    const parentTask = db.getTask(dep.depends_on_task_id);
+    if (getFanoutLimit(parentTask)) {
+      evaluateWorkflowDependencies(parentTask.id, workflowId);
+    }
+  }
+}
+
 function formatBlockedDependencyList(dependencies) {
   const labels = dependencies
     .map((dependency) => dependency.node_id || dependency.task_id || 'unknown')
@@ -1458,6 +1526,7 @@ function evaluateWorkflowDependencies(taskId, workflowId, _skipDepth = 0) {
 
   // Get all dependencies where this task is the prerequisite
   const dependents = db.getTaskDependents(taskId);
+  const fanoutLimit = getFanoutLimit(completedTask);
 
   for (const dep of dependents) {
     // Build context for condition evaluation
@@ -1486,9 +1555,15 @@ function evaluateWorkflowDependencies(taskId, workflowId, _skipDepth = 0) {
     if (conditionPassed) {
       // Check if all dependencies for this task are now satisfied
       const allDeps = db.getTaskDependencies(dep.task_id);
-      const allSatisfied = allDeps.every((otherDep) => evaluateTaskDependencyState(otherDep).satisfied);
+      const allSatisfied = typeof db.isTaskUnblockable === 'function'
+        ? db.isTaskUnblockable(dep.task_id)
+        : allDeps.every((otherDep) => evaluateTaskDependencyState(otherDep).satisfied);
 
       if (allSatisfied) {
+        if (shouldHoldForFanoutLimit(completedTask, dep.task_id, fanoutLimit)) {
+          persistTaskBlockerSnapshot(dep.task_id, buildTaskBlockerSnapshot(dep.task_id, workflowId));
+          continue;
+        }
         // Inject dependency outputs into the task description before unblocking
         applyOutputInjection(dep.task_id, workflowId);
         unblockTask(dep.task_id);
@@ -1517,6 +1592,7 @@ function evaluateWorkflowDependencies(taskId, workflowId, _skipDepth = 0) {
   // Process audit task results when a completed task has audit tags
   if (completedTask.status === 'completed') {
     maybeProcessAuditTaskResult(completedTask);
+    releaseFanoutParentsForCompletedBranch(completedTask, workflowId);
   }
 
   refreshWorkflowBlockerSnapshots(workflowId, { workflow });
@@ -1545,6 +1621,13 @@ function unblockTask(taskId) {
 
   try {
     clearTaskBlockerSnapshot(taskId, { status: 'queued' });
+    try {
+      const { EVENT_TYPES } = require('../events/event-types');
+      emitWorkflowEvent(task.workflow_id, EVENT_TYPES.WORKFLOW_DEPENDENCY_UNBLOCKED, {
+        task_id: taskId,
+        node_id: resolveWorkflowNodeId(task, task.workflow_id),
+      });
+    } catch { /* event emission is advisory */ }
     eventBus.emitQueueChanged();
     return true;
   } catch (err) {
@@ -1671,6 +1754,20 @@ function cancelDependentTasks(taskId, workflowId, reason, visited = new Set()) {
   }
 }
 
+function findGoalGateViolations(tasks) {
+  return (Array.isArray(tasks) ? tasks : [])
+    .filter((task) => {
+      const metadata = getTaskMetadata(task);
+      return metadata.goal_gate === true && !['completed', 'skipped'].includes(task.status);
+    })
+    .map((task) => ({
+      task_id: task.id,
+      node_id: task.workflow_node_id || task.node_id || null,
+      status: task.status,
+      failure_class: getTaskMetadata(task).failure_class || null,
+    }));
+}
+
 /**
  * Check if a workflow is complete (all tasks in terminal state).
  * Updates workflow counters and determines final status:
@@ -1722,19 +1819,38 @@ function checkWorkflowCompletion(workflowId) {
   if (terminalCount >= stats.total) {
     // Workflow is complete
     let finalStatus;
+    const goalGateViolations = findGoalGateViolations(effectiveTasks);
     if (effectiveFailed === 0 && effectiveCancelled === 0) {
       finalStatus = 'completed';
+    } else if (goalGateViolations.length > 0) {
+      finalStatus = 'failed';
     } else if (effectiveCompleted > 0) {
       finalStatus = 'completed_with_errors';
     } else {
       finalStatus = 'failed';
     }
-    db.updateWorkflow(workflowId, {
+    const nextWorkflowFields = {
       status: finalStatus,
       completed_at: new Date().toISOString()
-    });
+    };
+    if (goalGateViolations.length > 0) {
+      const existingCtx = workflow && typeof workflow.context === 'object' && workflow.context ? workflow.context : {};
+      nextWorkflowFields.context = {
+        ...existingCtx,
+        goal_gate_violations: goalGateViolations,
+      };
+      try {
+        const { EVENT_TYPES } = require('../events/event-types');
+        emitWorkflowEvent(workflowId, EVENT_TYPES.GOAL_GATE_EVALUATED, {
+          passed: false,
+          violations: goalGateViolations,
+        });
+      } catch { /* advisory */ }
+    }
+    db.updateWorkflow(workflowId, nextWorkflowFields);
     emitWorkflowFinalEvent(workflowId, finalStatus, tasks, stats.failed);
     scheduleWorkflowBundleBuild(workflowId);
+    scheduleWorkflowRetroBuild(workflowId);
     // Finalize audit run status when audit workflow completes
     maybeFinalizeAuditRun(workflowId, finalStatus);
 
@@ -1787,6 +1903,7 @@ function checkWorkflowCompletion(workflowId) {
       });
       emitWorkflowFinalEvent(workflowId, 'failed', tasks, stats.failed);
       scheduleWorkflowBundleBuild(workflowId);
+      scheduleWorkflowRetroBuild(workflowId);
       refreshWorkflowBlockerSnapshots(workflowId, { workflow: db.getWorkflow(workflowId) });
       // Clean up terminal guards now that the workflow has reached a final state (deadlock)
       terminalGuards.delete(workflowId);

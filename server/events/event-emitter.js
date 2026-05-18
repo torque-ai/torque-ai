@@ -146,8 +146,9 @@ function createEventEmitter(initialDeps = {}) {
       LIMIT ?
     `).all(...params);
 
-    return rows.map((row) => ({
+    return rows.map((row, index) => ({
       ...row,
+      seq: Number(row.id || index + 1),
       payload: parsePayload(row.payload_json),
     }));
   }

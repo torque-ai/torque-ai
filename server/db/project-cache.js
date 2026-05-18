@@ -119,15 +119,17 @@ function cosineSimilarity(vec1, vec2) {
  * Cache a task result
  * @param {string} taskId - Task identifier.
  * @param {number} [ttlHours=24] - Cache time-to-live in hours.
+ * @param {object|null} [contextOverride] - Optional hash context, used by opt-in task cache versions.
  * @returns {object|null} Cache record or null when not cached.
  */
-function cacheTaskResult(taskId, ttlHours = 24) {
+function cacheTaskResult(taskId, ttlHours = 24, contextOverride = undefined) {
   const task = getTask(taskId);
   if (!task || task.status !== 'completed') {
     return null;
   }
 
-  const contentHash = computeContentHash(task.task_description, task.working_directory, task.context);
+  const hashContext = contextOverride === undefined ? task.context : contextOverride;
+  const contentHash = computeContentHash(task.task_description, task.working_directory, hashContext);
   const embedding = computeEmbedding(task.task_description);
   const now = new Date().toISOString().replace('T', ' ').replace('Z', '');
   const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000).toISOString().replace('T', ' ').replace('Z', '');

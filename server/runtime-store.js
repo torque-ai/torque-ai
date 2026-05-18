@@ -188,14 +188,14 @@ const ALLOWED_MIGRATION_TABLES = new Set([
   // Debugging
   'breakpoints', 'task_breakpoints', 'debug_sessions', 'debug_captures',
   // Workflows & templates
-  'workflows', 'workflow_steps', 'workflow_templates', 'workflow_forks',
+  'workflows', 'workflow_steps', 'workflow_templates', 'workflow_forks', 'workflow_retros',
   'template_conditions', 'task_dependencies',
   // Caching & priorities
   'construction_cache', 'task_cache', 'cache_config', 'cache_stats',
   'task_priority_scores', 'priority_config',
   // Intelligence & experiments
-  'experiments', 'strategy_experiments', 'intelligence_log',
-  'task_suggestions', 'similar_tasks', 'task_patterns',
+  'experiments', 'experiment_runs', 'strategy_experiments', 'intelligence_log',
+  'task_suggestions', 'similar_tasks', 'task_patterns', 'task_experiences',
   // Agents & coordination
   'agents', 'agent_groups', 'agent_group_members', 'agent_metrics',
   'task_claims', 'routing_rules', 'task_routing_rules',

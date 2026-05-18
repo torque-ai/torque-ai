@@ -209,6 +209,14 @@ const tools = [
                     const: 'crew'
                   }
                 }
+              },
+              {
+                required: ['kind'],
+                properties: {
+                  kind: {
+                    enum: ['parallel_fanout', 'merge']
+                  }
+                }
               }
             ],
             properties: {
@@ -218,8 +226,8 @@ const tools = [
               },
               kind: {
                 type: 'string',
-                enum: ['crew'],
-                description: 'Optional task kind. Use crew for multi-role crew execution.'
+                enum: ['agent', 'crew', 'parallel_fanout', 'merge'],
+                description: 'Optional task kind. Use crew for multi-role crew execution; parallel_fanout and merge create workflow coordination nodes.'
               },
               crew: CREW_SCHEMA,
               task_description: {
@@ -275,6 +283,34 @@ const tools = [
               verify_skip: {
                 type: 'boolean',
                 description: 'Skip the auto-verify stage for this task entirely.'
+              },
+              goal_gate: {
+                type: 'boolean',
+                description: 'When true, a failure on this node fails the workflow rather than completing with errors.'
+              },
+              join_policy: {
+                type: 'string',
+                enum: ['wait_all', 'first_success'],
+                description: 'Merge node policy for dependency completion.'
+              },
+              max_parallel: {
+                type: 'integer',
+                minimum: 1,
+                maximum: 32,
+                description: 'Maximum active branches released by a parallel_fanout node.'
+              },
+              cacheable: {
+                type: 'boolean',
+                description: 'Enable exact task-result cache reuse for this node.'
+              },
+              cache_version: {
+                type: 'string',
+                description: 'Cache namespace/version used when cacheable is true.'
+              },
+              cache_ttl_seconds: {
+                type: 'integer',
+                minimum: 1,
+                description: 'Task-result cache TTL in seconds.'
               },
               provider: {
                 type: 'string',
@@ -356,8 +392,8 @@ const tools = [
         },
         kind: {
           type: 'string',
-          enum: ['crew'],
-          description: 'Optional task kind. Use crew for multi-role crew execution.'
+          enum: ['agent', 'crew', 'parallel_fanout', 'merge'],
+          description: 'Optional task kind. Use crew for multi-role crew execution; parallel_fanout and merge create workflow coordination nodes.'
         },
         crew: CREW_SCHEMA,
         depends_on: {
@@ -378,6 +414,34 @@ const tools = [
         alternate_node_id: {
           type: 'string',
           description: 'Node to run if on_fail is run_alternate'
+        },
+        goal_gate: {
+          type: 'boolean',
+          description: 'When true, a failure on this node fails the workflow rather than completing with errors.'
+        },
+        join_policy: {
+          type: 'string',
+          enum: ['wait_all', 'first_success'],
+          description: 'Merge node policy for dependency completion.'
+        },
+        max_parallel: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 32,
+          description: 'Maximum active branches released by a parallel_fanout node.'
+        },
+        cacheable: {
+          type: 'boolean',
+          description: 'Enable exact task-result cache reuse for this node.'
+        },
+        cache_version: {
+          type: 'string',
+          description: 'Cache namespace/version used when cacheable is true.'
+        },
+        cache_ttl_seconds: {
+          type: 'integer',
+          minimum: 1,
+          description: 'Task-result cache TTL in seconds.'
         },
         timeout_minutes: {
           type: 'number',

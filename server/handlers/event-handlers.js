@@ -53,4 +53,16 @@ function handleListTaskEvents(args = {}) {
   }
 }
 
-module.exports = { handleListTaskEvents };
+function handleListWorkflowTimeline(args = {}) {
+  if (!args.workflow_id || typeof args.workflow_id !== 'string') {
+    return makeError(ErrorCodes.INVALID_PARAM, 'workflow_id is required');
+  }
+  return handleListTaskEvents({
+    workflow_id: args.workflow_id,
+    type: args.type,
+    since: args.since,
+    limit: args.limit,
+  });
+}
+
+module.exports = { handleListTaskEvents, handleListWorkflowTimeline };

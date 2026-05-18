@@ -159,6 +159,21 @@ function createWorkflowState({ db } = {}) {
       normalizedWorkflowId,
     );
 
+    try {
+      const { emitTaskEvent } = require('../events/event-emitter');
+      const { EVENT_TYPES } = require('../events/event-types');
+      emitTaskEvent({
+        task_id: normalizedWorkflowId,
+        workflow_id: normalizedWorkflowId,
+        type: EVENT_TYPES.WORKFLOW_STATE_PATCHED,
+        actor: 'workflow-state',
+        payload: {
+          patch_keys: Object.keys(patch),
+          version: (meta.version || 1) + 1,
+        },
+      });
+    } catch { /* event emission is advisory */ }
+
     return {
       ok: true,
       state: nextState,

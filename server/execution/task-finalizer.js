@@ -866,6 +866,19 @@ function buildValidationMetadata(task, ctx, rawExitCode) {
   const priorFinalization = (metadata.finalization && typeof metadata.finalization === 'object')
     ? metadata.finalization
     : {};
+  if (ctx.status === 'failed' || ctx.status === 'cancelled') {
+    try {
+      const { classifyFailure } = require('../validation/failure-classifier');
+      const classified = classifyFailure({
+        output: ctx.output,
+        error_output: ctx.errorOutput,
+        validation: ctx.validationStages,
+      });
+      metadata.failure_class = classified.class;
+      metadata.failure_class_pattern = classified.matched_pattern;
+      metadata.failure_class_confidence = classified.confidence;
+    } catch { /* classification is advisory */ }
+  }
   return {
     ...metadata,
     finalization: {
@@ -877,6 +890,40 @@ function buildValidationMetadata(task, ctx, rawExitCode) {
       validation_stage_outcomes: ctx.validationStages,
     },
   };
+}
+
+function recordTaskExperience(ctx, sanitizedOutput) {
+  if (ctx.status !== 'completed') return;
+  try {
+    const task = ctx.task || {};
+    const { recordExperience } = require('../experience/store');
+    recordExperience({
+      project: task.project || null,
+      task_description: task.task_description || '',
+      output_summary: String(sanitizedOutput || '').replace(/\s+/g, ' ').slice(0, 1000),
+      files_modified: ctx.filesModified || [],
+      provider: task.provider || null,
+      success_score: 1,
+    }, getRawDbInstance());
+  } catch (err) {
+    logger.info(`[finalizer] Experience recording failed: ${err.message}`);
+  }
+}
+
+function maybeCacheTaskResult(taskId, metadata) {
+  if (!metadata || metadata.cacheable !== true) return;
+  try {
+    const cacheVersion = metadata.cache_version || 'default';
+    const ttlHours = metadata.cache_ttl_seconds
+      ? Math.max(1, Number(metadata.cache_ttl_seconds) / 3600)
+      : 24;
+    const dbFacade = getDeps().db;
+    if (dbFacade && typeof dbFacade.cacheTaskResult === 'function') {
+      dbFacade.cacheTaskResult(taskId, ttlHours, { cache_version: cacheVersion });
+    }
+  } catch (err) {
+    logger.info(`[finalizer] Task result caching failed for ${taskId}: ${err.message}`);
+  }
 }
 
 function categorizeFailure(ctx) {
@@ -1443,6 +1490,8 @@ async function finalizeTask(taskId, options = {}) {
     updateTaskStatus(taskId, ctx.status, statusFields);
 
     ctx.task = getDeps().db.getTask(taskId) || task;
+    recordTaskExperience(ctx, sanitizedOutput);
+    maybeCacheTaskResult(taskId, metadata);
     const workflowState = options.state !== undefined ? options.state : procState.state;
     const workflowStateVersion = options.stateVersion !== undefined
       ? options.stateVersion

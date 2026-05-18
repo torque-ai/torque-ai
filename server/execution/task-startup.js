@@ -384,13 +384,13 @@ async function buildExecutionDescriptionWithMentions(task, taskId) {
 
   const parsed = parseMentions(description);
   if (!Array.isArray(parsed.mentions) || parsed.mentions.length === 0) {
-    return description;
+    return applyTaskPromptInjections(description, task, taskId);
   }
 
   const resolver = getMentionResolver();
   if (!resolver || typeof resolver.resolve !== 'function') {
     logger.debug(`[MentionContext] Mention resolver unavailable for task ${taskId}`);
-    return description;
+    return applyTaskPromptInjections(description, task, taskId);
   }
 
   try {
@@ -410,15 +410,47 @@ async function buildExecutionDescriptionWithMentions(task, taskId) {
     }
 
     if (resolvedBlocks.length === 0) {
-      return description;
+      return applyTaskPromptInjections(description, task, taskId);
     }
 
     logger.info(`[MentionContext] Resolved ${resolvedBlocks.length}/${resolved.length} @-mention(s) for task ${taskId}`);
-    return `${resolvedBlocks.join('\n\n')}\n\n---\n\n${description}`;
+    return applyTaskPromptInjections(`${resolvedBlocks.join('\n\n')}\n\n---\n\n${description}`, task, taskId);
   } catch (err) {
     logger.info(`[MentionContext] Non-fatal mention resolution error for task ${taskId}: ${err.message}`);
-    return description;
+    return applyTaskPromptInjections(description, task, taskId);
   }
+}
+
+function getStartupRawDb() {
+  if (db && typeof db.getDbInstance === 'function') return db.getDbInstance();
+  return db;
+}
+
+function applyTaskPromptInjections(description, task, taskId) {
+  let next = description;
+  try {
+    const { injectRules } = require('../rules/rule-context');
+    next = injectRules(next, task);
+  } catch (err) {
+    logger.debug(`[TaskContext] Rule injection skipped for ${taskId}: ${err.message}`);
+  }
+
+  try {
+    const metadata = getTaskMetadataObject(task);
+    if (metadata.experience_memory !== false) {
+      const { injectRelatedExperiences } = require('../experience/inject');
+      next = injectRelatedExperiences(next, {
+        project: task.project || null,
+        task_description: task.task_description,
+        db: getStartupRawDb(),
+        limit: metadata.experience_memory_limit || 3,
+      });
+    }
+  } catch (err) {
+    logger.debug(`[TaskContext] Experience injection skipped for ${taskId}: ${err.message}`);
+  }
+
+  return next;
 }
 
 /**
@@ -1650,6 +1682,67 @@ async function buildStartupExecutionTask(task, taskId) {
     : { ...task, execution_description: executionDescription };
 }
 
+function maybeCompleteParallelFanout(task, taskId) {
+  const metadata = getTaskMetadataObject(task);
+  if (metadata.kind !== 'parallel_fanout') return null;
+  const nextMetadata = {
+    ...metadata,
+    fanout_released_at: new Date().toISOString(),
+  };
+  const updated = updateTaskStatusForStartup(taskId, 'completed', {
+    exit_code: 0,
+    output: 'parallel_fanout released dependent branches',
+    error_output: '',
+    progress_percent: 100,
+    metadata: nextMetadata,
+  });
+  return {
+    queued: false,
+    completed: true,
+    fanout: true,
+    task: updated || db.getTask(taskId),
+  };
+}
+
+function maybeCompleteFromCache(task, taskId, taskMetadata = {}) {
+  if (!taskMetadata || taskMetadata.cacheable !== true) return null;
+  if (typeof db.lookupCache !== 'function') return null;
+
+  const cacheContext = { cache_version: taskMetadata.cache_version || 'default' };
+  const hit = db.lookupCache(task.task_description, task.working_directory, cacheContext, 1.0);
+  if (!hit) return null;
+
+  const filesModified = (() => {
+    try {
+      const parsed = JSON.parse(hit.result_files_modified || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  })();
+  const nextMetadata = {
+    ...taskMetadata,
+    cache_hit: true,
+    cache_id: hit.id,
+    cache_match_type: hit.match_type,
+  };
+  const updated = updateTaskStatusForStartup(taskId, 'completed', {
+    exit_code: Number.isFinite(hit.result_exit_code) ? hit.result_exit_code : 0,
+    output: hit.result_output || '',
+    error_output: '',
+    files_modified: filesModified,
+    progress_percent: 100,
+    metadata: nextMetadata,
+  });
+
+  return {
+    queued: false,
+    completed: true,
+    cacheHit: true,
+    task: updated || db.getTask(taskId),
+  };
+}
+
 function prepareOllamaExecutionTask(task, taskId, executionTask) {
   const resolvedOllamaModel = resolveRunnableOllamaModel(task);
   if (resolvedOllamaModel && task.model !== resolvedOllamaModel) {
@@ -1890,6 +1983,10 @@ async function startTask(taskId) {
     logger.info(`Task already running: ${taskId}, skipping duplicate start`);
     return { queued: false, alreadyRunning: true };
   }
+
+  const fanoutCompleted = maybeCompleteParallelFanout(task, taskId);
+  if (fanoutCompleted) return fanoutCompleted;
+
   if (task.provider !== 'system' && ['pending', 'queued'].includes(task.status)) {
     const barrier = isRestartBarrierActive(db);
     if (barrier) {
@@ -1906,6 +2003,9 @@ async function startTask(taskId) {
   if (preClaim.earlyResult) return preClaim.earlyResult;
 
   let { provider, taskMetadata } = preClaim;
+  const cacheCompleted = maybeCompleteFromCache(task, taskId, taskMetadata);
+  if (cacheCompleted) return cacheCompleted;
+
   const claimed = claimStartupResourcesForTask({
     task,
     taskId,

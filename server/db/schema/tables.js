@@ -52,6 +52,8 @@ const VALID_TABLE_NAMES = new Set([
   'duplicate_file_detections',
   'duration_predictions',
   'email_notifications',
+  'experiment_runs',
+  'experiments',
   'expected_output_paths',
   'failover_config',
   'failover_events',
@@ -163,6 +165,7 @@ const VALID_TABLE_NAMES = new Set([
   'task_claims',
   'task_comments',
   'task_complexity_scores',
+  'task_experiences',
   'task_dependencies',
   'task_event_subscriptions',
   'task_events',
@@ -188,6 +191,7 @@ const VALID_TABLE_NAMES = new Set([
   'validation_results',
   'validation_rules',
   'verification_checks',
+  'workflow_retros',
   'vulnerability_scans',
   'webhook_deliveries',
   'webhook_logs',
@@ -1559,6 +1563,19 @@ function createTables(db, logger) {
       )
     `);
   db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_retros (
+        id TEXT PRIMARY KEY,
+        workflow_id TEXT NOT NULL UNIQUE,
+        generated_at TEXT NOT NULL,
+        stats_json TEXT NOT NULL,
+        narrative_json TEXT NOT NULL,
+        narrative_status TEXT NOT NULL DEFAULT 'deterministic',
+        narrative_error TEXT,
+        smoothness TEXT,
+        FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
+      )
+    `);
+  db.exec(`
       CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status);
       CREATE INDEX IF NOT EXISTS idx_workflows_priority ON workflows(priority);
       CREATE INDEX IF NOT EXISTS idx_workflows_status_priority ON workflows(status, priority DESC);
@@ -1566,6 +1583,8 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_workflow_checkpoints_wf_time ON workflow_checkpoints(workflow_id, taken_at);
       CREATE INDEX IF NOT EXISTS idx_workflow_checkpoints_step ON workflow_checkpoints(workflow_id, step_id);
       CREATE INDEX IF NOT EXISTS idx_workflow_state_updated ON workflow_state(updated_at);
+      CREATE INDEX IF NOT EXISTS idx_workflow_retros_workflow ON workflow_retros(workflow_id);
+      CREATE INDEX IF NOT EXISTS idx_workflow_retros_smoothness ON workflow_retros(smoothness);
       CREATE INDEX IF NOT EXISTS idx_task_deps_workflow ON task_dependencies(workflow_id);
       CREATE INDEX IF NOT EXISTS idx_task_deps_task ON task_dependencies(task_id);
       CREATE INDEX IF NOT EXISTS idx_task_deps_depends_on ON task_dependencies(depends_on_task_id);
@@ -1598,6 +1617,19 @@ function createTables(db, logger) {
         confidence_score REAL DEFAULT 1.0,
         created_at TEXT NOT NULL,
         expires_at TEXT
+      )
+    `);
+  db.exec(`
+      CREATE TABLE IF NOT EXISTS task_experiences (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project TEXT,
+        task_description TEXT NOT NULL,
+        task_description_embedding TEXT NOT NULL,
+        output_summary TEXT,
+        files_modified TEXT,
+        provider TEXT,
+        success_score REAL DEFAULT 1.0,
+        recorded_at TEXT NOT NULL
       )
     `);
   db.exec(`
@@ -1664,6 +1696,33 @@ function createTables(db, logger) {
       )
     `);
   db.exec(`
+      CREATE TABLE IF NOT EXISTS experiments (
+        experiment_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        task_spec_json TEXT,
+        parent_experiment_id TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at TEXT NOT NULL,
+        finished_at TEXT
+      )
+    `);
+  db.exec(`
+      CREATE TABLE IF NOT EXISTS experiment_runs (
+        run_id TEXT PRIMARY KEY,
+        experiment_id TEXT NOT NULL,
+        variant_label TEXT NOT NULL,
+        provider TEXT,
+        prompt_template TEXT,
+        task_id TEXT,
+        output_text TEXT,
+        duration_ms INTEGER,
+        error TEXT,
+        scores_json TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (experiment_id) REFERENCES experiments(experiment_id) ON DELETE CASCADE
+      )
+    `);
+  db.exec(`
       CREATE TABLE IF NOT EXISTS cache_config (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
@@ -1691,6 +1750,7 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_construction_surface ON construction_cache(surface);
       CREATE INDEX IF NOT EXISTS idx_cache_hash ON task_cache(content_hash);
       CREATE INDEX IF NOT EXISTS idx_cache_expires ON task_cache(expires_at);
+      CREATE INDEX IF NOT EXISTS idx_task_experiences_project_success ON task_experiences(project, success_score DESC);
       CREATE INDEX IF NOT EXISTS idx_priority_combined ON task_priority_scores(combined_score DESC);
       CREATE INDEX IF NOT EXISTS idx_patterns_type ON failure_patterns(pattern_type);
       CREATE INDEX IF NOT EXISTS idx_patterns_confidence ON failure_patterns(confidence DESC);
@@ -1699,6 +1759,9 @@ function createTables(db, logger) {
       CREATE INDEX IF NOT EXISTS idx_intel_outcome ON intelligence_log(outcome);
       CREATE INDEX IF NOT EXISTS idx_experiments_status ON strategy_experiments(status);
       CREATE INDEX IF NOT EXISTS idx_experiments_type ON strategy_experiments(strategy_type);
+      CREATE INDEX IF NOT EXISTS idx_native_experiments_status ON experiments(status);
+      CREATE INDEX IF NOT EXISTS idx_experiment_runs_experiment ON experiment_runs(experiment_id);
+      CREATE INDEX IF NOT EXISTS idx_experiment_runs_variant ON experiment_runs(experiment_id, variant_label);
       CREATE INDEX IF NOT EXISTS idx_retry_rules_pattern ON adaptive_retry_rules(error_pattern);
     `);
   db.exec(`

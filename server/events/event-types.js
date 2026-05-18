@@ -17,6 +17,8 @@ const EVENT_TYPES = {
   RETRY_SCHEDULED: 'retry.scheduled',
   GOAL_GATE_EVALUATED: 'goal_gate.evaluated',
   WORKFLOW_STARTED: 'workflow.started',
+  WORKFLOW_STATE_PATCHED: 'workflow.state_patched',
+  WORKFLOW_DEPENDENCY_UNBLOCKED: 'workflow.dependency_unblocked',
   WORKFLOW_COMPLETED: 'workflow.completed',
   WORKFLOW_FAILED: 'workflow.failed',
   BUDGET_BREACHED: 'budget.breached',

@@ -137,6 +137,12 @@ const WORKFLOW_SPEC_SCHEMA = {
             },
           },
           {
+            required: ['kind'],
+            properties: {
+              kind: { enum: ['parallel_fanout', 'merge'] },
+            },
+          },
+          {
             required: ['__remove'],
             properties: {
               __remove: { const: true },
@@ -146,7 +152,7 @@ const WORKFLOW_SPEC_SCHEMA = {
         properties: {
           node_id: { type: 'string', minLength: 1 },
           task: { type: 'string', minLength: 1 },
-          kind: { type: 'string', enum: ['crew'] },
+          kind: { type: 'string', enum: ['agent', 'crew', 'parallel_fanout', 'merge'] },
           crew: CREW_SCHEMA,
           depends_on: { type: 'array', items: { type: 'string' } },
           context_from: { type: 'array', items: { type: 'string' } },
@@ -162,6 +168,11 @@ const WORKFLOW_SPEC_SCHEMA = {
           alternate_node_id: { type: 'string' },
           condition: { type: 'string' },
           goal_gate: { type: 'boolean' },
+          join_policy: { type: 'string', enum: ['wait_all', 'first_success'] },
+          max_parallel: { type: 'integer', minimum: 1, maximum: 32 },
+          cacheable: { type: 'boolean' },
+          cache_version: { type: 'string' },
+          cache_ttl_seconds: { type: 'integer', minimum: 1 },
           signature: SIGNATURE_SCHEMA,
           __remove: { type: 'boolean' },
         },

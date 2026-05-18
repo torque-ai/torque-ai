@@ -259,10 +259,39 @@ function validateCrewTaskLike(taskLike, nodeId, workflowId) {
   if (!kind) {
     return null;
   }
+  if (kind === 'agent') {
+    return null;
+  }
+  if (kind === 'parallel_fanout') {
+    if (taskLike.max_parallel !== undefined
+      && (!Number.isInteger(taskLike.max_parallel) || taskLike.max_parallel < 1 || taskLike.max_parallel > 32)) {
+      return makeError(
+        ErrorCodes.INVALID_PARAM,
+        `parallel_fanout node '${nodeLabel}' in workflow '${workflowLabel}' requires max_parallel as an integer between 1 and 32 when provided.`
+      );
+    }
+    return null;
+  }
+  if (kind === 'merge') {
+    const joinPolicy = taskLike.join_policy || 'wait_all';
+    if (!['wait_all', 'first_success'].includes(joinPolicy)) {
+      return makeError(
+        ErrorCodes.INVALID_PARAM,
+        `merge node '${nodeLabel}' in workflow '${workflowLabel}' requires join_policy to be wait_all or first_success.`
+      );
+    }
+    if (!Array.isArray(taskLike.depends_on) || taskLike.depends_on.length === 0) {
+      return makeError(
+        ErrorCodes.INVALID_PARAM,
+        `merge node '${nodeLabel}' in workflow '${workflowLabel}' requires depends_on.`
+      );
+    }
+    return null;
+  }
   if (kind !== 'crew') {
     return makeError(
       ErrorCodes.INVALID_PARAM,
-      `Unsupported kind '${kind}' for node '${nodeLabel}' in workflow '${workflowLabel}'. Only 'crew' is currently supported.`
+      `Unsupported kind '${kind}' for node '${nodeLabel}' in workflow '${workflowLabel}'. Supported kinds: agent, crew, parallel_fanout, merge.`
     );
   }
   if (!isPlainObject(taskLike.crew)) {
@@ -380,6 +409,12 @@ function getEffectiveWorkflowTaskDescription(taskLike) {
       return `Crew objective: ${objective}`;
     }
   }
+  if (taskLike.kind === 'parallel_fanout') {
+    return 'Workflow coordination: release parallel fan-out branches.';
+  }
+  if (taskLike.kind === 'merge') {
+    return 'Workflow coordination: merge fan-out branch results.';
+  }
   return null;
 }
 
@@ -424,6 +459,27 @@ function buildWorkflowTaskMetadata(taskLike) {
   }
   if (taskLike.verify_skip === true) {
     metaObj.verify_skip = true;
+  }
+  if (taskLike.goal_gate === true) {
+    metaObj.goal_gate = true;
+  }
+  if (typeof taskLike.kind === 'string' && taskLike.kind && taskLike.kind !== 'crew') {
+    metaObj.kind = taskLike.kind;
+  }
+  if (taskLike.kind === 'merge') {
+    metaObj.join_policy = taskLike.join_policy || 'wait_all';
+  }
+  if (taskLike.kind === 'parallel_fanout' && Number.isInteger(taskLike.max_parallel)) {
+    metaObj.max_parallel = taskLike.max_parallel;
+  }
+  if (taskLike.cacheable === true) {
+    metaObj.cacheable = true;
+    metaObj.cache_version = typeof taskLike.cache_version === 'string' && taskLike.cache_version.trim()
+      ? taskLike.cache_version.trim()
+      : 'default';
+    if (Number.isFinite(taskLike.cache_ttl_seconds)) {
+      metaObj.cache_ttl_seconds = Math.max(1, Math.floor(taskLike.cache_ttl_seconds));
+    }
   }
   if (taskLike.kind === 'crew') {
     metaObj.kind = 'crew';
@@ -1389,6 +1445,12 @@ function handleAddWorkflowTask(args) {
     verify_skip: args.verify_skip,
     kind: args.kind,
     crew: args.crew,
+    goal_gate: args.goal_gate,
+    join_policy: args.join_policy,
+    max_parallel: args.max_parallel,
+    cacheable: args.cacheable,
+    cache_version: args.cache_version,
+    cache_ttl_seconds: args.cache_ttl_seconds,
   };
   const policyResult = evaluateWorkflowTaskSubmissionPolicy(policyTask, args.workflow_id, workflow.working_directory);
   if (policyResult?.blocked === true) {
