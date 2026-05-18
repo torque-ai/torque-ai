@@ -25,6 +25,7 @@ const PROJECT_BY_KIND = Object.freeze({
   // use a fast/cheap reviewer for ordinary projects while still inheriting
   // target project lane routing when that lane is configured.
   verify_review: 'factory-plan',
+  retrospective_generation: 'factory-plan',
 });
 
 const DEFAULT_ACTIVITY_TIMEOUT_MINUTES_BY_KIND = Object.freeze({
@@ -34,6 +35,7 @@ const DEFAULT_ACTIVITY_TIMEOUT_MINUTES_BY_KIND = Object.freeze({
   replan_rewrite: 30,
   plan_quality_review: 5,
   verify_review: 15,
+  retrospective_generation: 15,
 });
 
 const MAIN_WORKDIR_ISOLATION_KINDS = new Set([
