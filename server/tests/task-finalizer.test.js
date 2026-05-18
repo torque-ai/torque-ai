@@ -257,6 +257,67 @@ describe('task-finalizer', () => {
     );
   });
 
+  it('keeps scoped dependencies isolated across overlapping finalizations', async () => {
+    const dbBundleA = createTaskDb({ id: 'task-a' });
+    const dbBundleB = createTaskDb({ id: 'task-b' });
+    let releaseA;
+    let releaseB;
+
+    const makeScopedFinalizer = (dbBundle, releaseSetter) => {
+      const { db } = dbBundle;
+      return finalizer.createTaskFinalizer({
+        db,
+        safeUpdateTaskStatus: vi.fn((...args) => db.updateTaskStatus(...args)),
+        sanitizeTaskOutput: (value) => value || '',
+        extractModifiedFiles: vi.fn(() => []),
+        handleRetryLogic: vi.fn(),
+        handleSafeguardChecks: vi.fn(),
+        handleFuzzyRepair: vi.fn(),
+        handleNoFileChangeDetection: vi.fn(),
+        handleAutoValidation: vi.fn(() => new Promise((resolve) => { releaseSetter(resolve); })),
+        handleBuildTestStyleCommit: vi.fn(),
+        handleAutoVerifyRetry: vi.fn(async () => {}),
+        handleProviderFailover: vi.fn(),
+        handlePostCompletion: vi.fn(),
+      });
+    };
+
+    const scopedFinalizerA = makeScopedFinalizer(dbBundleA, (resolve) => { releaseA = resolve; });
+    const scopedFinalizerB = makeScopedFinalizer(dbBundleB, (resolve) => { releaseB = resolve; });
+
+    const first = scopedFinalizerA.finalizeTask(dbBundleA.taskId, {
+      exitCode: 0,
+      output: 'done a',
+      errorOutput: '',
+    });
+    await vi.waitFor(() => {
+      if (typeof releaseA !== 'function') throw new Error('first finalizer not waiting');
+    });
+
+    const second = scopedFinalizerB.finalizeTask(dbBundleB.taskId, {
+      exitCode: 0,
+      output: 'done b',
+      errorOutput: '',
+    });
+    await vi.waitFor(() => {
+      if (typeof releaseB !== 'function') throw new Error('second finalizer not waiting');
+    });
+
+    releaseA();
+    await expect(first).resolves.toMatchObject({ finalized: true, status: 'completed' });
+    expect(dbBundleA.getStoredTask()).toMatchObject({
+      status: 'completed',
+      output: 'done a',
+    });
+
+    releaseB();
+    await expect(second).resolves.toMatchObject({ finalized: true, status: 'completed' });
+    expect(dbBundleB.getStoredTask()).toMatchObject({
+      status: 'completed',
+      output: 'done b',
+    });
+  });
+
   it('resolves retry logic with scoped dependencies when no explicit retry handler is provided', async () => {
     const classifyError = vi.fn(() => ({ retryable: false, reason: 'synthetic_nonretryable' }));
     const dbBundle = createTaskDb();

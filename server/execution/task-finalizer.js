@@ -9,6 +9,7 @@
  */
 
 const logger = require('../logger').child({ component: 'task-finalizer' });
+const { AsyncLocalStorage } = require('async_hooks');
 const modelCapabilities = require('../db/model-capabilities');
 const perfTracker = require('../db/provider/performance');
 const { recordStudyTaskCompleted } = require('../db/study-telemetry');
@@ -34,12 +35,25 @@ const { v4: uuidv4 } = require('uuid');
 
 // ── Legacy module-level state, written only by init() (deprecated) ─────────
 // Phase 3 of the universal-DI migration. Replaces the prior stub
-// createTaskFinalizer factory with one that actually closes over deps.
+// createTaskFinalizer factory with one that actually closes over getDeps().
 let deps = {};
 let handleVerificationLedger = null;
 let handleAdversarialReview = null;
+const scopedDeps = new AsyncLocalStorage();
 const finalizationLocks = new Map();
 let ownedSharedFactoryStore = null;
+
+function getDeps() {
+  return scopedDeps.getStore()?.deps || deps;
+}
+
+function getScopedVerificationLedger() {
+  return scopedDeps.getStore()?.handleVerificationLedger || handleVerificationLedger;
+}
+
+function getScopedAdversarialReview() {
+  return scopedDeps.getStore()?.handleAdversarialReview || handleAdversarialReview;
+}
 
 const DEFAULT_STAGE_TIMEOUT_MS = 120000;
 const STAGE_TIMEOUT_MS = {
@@ -69,12 +83,12 @@ function resetForTest() {
  */
 function init(nextDeps = {}) {
   deps = { ...deps, ...nextDeps };
-  if (deps.db && typeof deps.db.getDbInstance === 'function') {
-    perfTracker.setDb(deps.db);
+  if (getDeps().db && typeof getDeps().db.getDbInstance === 'function') {
+    perfTracker.setDb(getDeps().db);
   }
 
-  handleVerificationLedger = typeof deps.handleVerificationLedger === 'function' ? deps.handleVerificationLedger : handleVerificationLedger;
-  handleAdversarialReview = typeof deps.handleAdversarialReview === 'function' ? deps.handleAdversarialReview : handleAdversarialReview;
+  handleVerificationLedger = typeof getDeps().handleVerificationLedger === 'function' ? getDeps().handleVerificationLedger : handleVerificationLedger;
+  handleAdversarialReview = typeof getDeps().handleAdversarialReview === 'function' ? getDeps().handleAdversarialReview : handleAdversarialReview;
 
   try {
     const { defaultContainer } = require('../container');
@@ -209,16 +223,16 @@ function parseTimestampMs(value) {
 }
 
 function getProviderScoringService() {
-  if (deps.providerScoring && typeof deps.providerScoring.recordTaskCompletion === 'function') {
-    return deps.providerScoring;
+  if (getDeps().providerScoring && typeof getDeps().providerScoring.recordTaskCompletion === 'function') {
+    return getDeps().providerScoring;
   }
   return require('../db/provider/scoring');
 }
 
 function getRawDbInstance() {
-  if (deps.rawDb && typeof deps.rawDb.prepare === 'function') return deps.rawDb;
-  if (deps.db && typeof deps.db.getDbInstance === 'function') return deps.db.getDbInstance();
-  if (deps.db && typeof deps.db.prepare === 'function') return deps.db;
+  if (getDeps().rawDb && typeof getDeps().rawDb.prepare === 'function') return getDeps().rawDb;
+  if (getDeps().db && typeof getDeps().db.getDbInstance === 'function') return getDeps().db.getDbInstance();
+  if (getDeps().db && typeof getDeps().db.prepare === 'function') return getDeps().db;
 
   try {
     const { getModule } = require('../container');
@@ -233,8 +247,8 @@ function getRawDbInstance() {
 }
 
 function readDbConfig(key) {
-  if (!deps.db || typeof deps.db.getConfig !== 'function') return null;
-  try { return deps.db.getConfig(key); } catch { return null; }
+  if (!getDeps().db || typeof getDeps().db.getConfig !== 'function') return null;
+  try { return getDeps().db.getConfig(key); } catch { return null; }
 }
 
 function parsePositiveInteger(value) {
@@ -339,9 +353,9 @@ function readActualChangedFiles(task) {
     : '';
   if (!workingDirectory) return [];
 
-  if (typeof deps.getActualModifiedFilesForNoFileDetection === 'function') {
+  if (typeof getDeps().getActualModifiedFilesForNoFileDetection === 'function') {
     try {
-      const files = deps.getActualModifiedFilesForNoFileDetection(workingDirectory, task);
+      const files = getDeps().getActualModifiedFilesForNoFileDetection(workingDirectory, task);
       return Array.isArray(files) ? files.filter(Boolean) : [];
     } catch (err) {
       logger.debug(`[finalizer] Actual modified-file probe failed for ${task.id}: ${err.message}`);
@@ -376,7 +390,7 @@ function augmentFactoryFilesModifiedFromGitStatus(ctx) {
 }
 
 function logFactoryNoFileChangeDecision(ctx, tags) {
-  if (typeof deps.logFactoryDecision !== 'function') return;
+  if (typeof getDeps().logFactoryDecision !== 'function') return;
   const batchId = getFactoryTagValue(tags, 'factory:batch_id=');
   const workItemId = getFactoryTagValue(tags, 'factory:work_item_id=');
   const projectId = normalizeText(ctx.task?.factory_project_id)
@@ -385,7 +399,7 @@ function logFactoryNoFileChangeDecision(ctx, tags) {
     || (batchId ? batchId.match(/^factory-([0-9a-f-]{36})-/i)?.[1] : null)
     || null;
   try {
-    deps.logFactoryDecision({
+    getDeps().logFactoryDecision({
       project_id: projectId,
       stage: 'execute',
       actor: 'executor',
@@ -417,7 +431,7 @@ function handleNoFileChangeDetection(ctx) {
 }
 
 function getSharedFactoryStore() {
-  if (deps.sharedFactoryStore) return deps.sharedFactoryStore;
+  if (getDeps().sharedFactoryStore) return getDeps().sharedFactoryStore;
 
   try {
     const { defaultContainer } = require('../container');
@@ -436,8 +450,8 @@ function getSharedFactoryStore() {
   if (ownedSharedFactoryStore) return ownedSharedFactoryStore;
   try {
     ownedSharedFactoryStore = createSharedFactoryStore({
-      config: deps.db,
-      dataDir: typeof deps.db?.getDataDir === 'function' ? deps.db.getDataDir() : undefined,
+      config: getDeps().db,
+      dataDir: typeof getDeps().db?.getDataDir === 'function' ? getDeps().db.getDataDir() : undefined,
     });
     return ownedSharedFactoryStore;
   } catch (err) {
@@ -448,7 +462,7 @@ function getSharedFactoryStore() {
 
 function resolveTaskProjectId(task) {
   const metadata = parseMetadata(task?.metadata);
-  return normalizeText(deps.projectId || deps.project_id)
+  return normalizeText(getDeps().projectId || getDeps().project_id)
     || normalizeText(process.env.TORQUE_FACTORY_PROJECT_ID)
     || normalizeText(readDbConfig('factory_project_id'))
     || normalizeText(readDbConfig('project_id'))
@@ -480,7 +494,7 @@ function releaseSharedCodexClaims(taskId, reason, task) {
 
 function releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx) {
   let currentTask = null;
-  try { currentTask = deps.db?.getTask?.(taskId) || null; } catch { currentTask = null; }
+  try { currentTask = getDeps().db?.getTask?.(taskId) || null; } catch { currentTask = null; }
   releaseSharedCodexClaims(taskId, 'queue_managed', currentTask || ctx?.task || task);
 }
 
@@ -638,8 +652,8 @@ function recordSharedVerifyFailureLearning(ctx) {
 }
 
 function getCheckpointStore() {
-  if (deps.checkpointStore && typeof deps.checkpointStore.writeCheckpoint === 'function') {
-    return deps.checkpointStore;
+  if (getDeps().checkpointStore && typeof getDeps().checkpointStore.writeCheckpoint === 'function') {
+    return getDeps().checkpointStore;
   }
 
   try {
@@ -775,8 +789,8 @@ function getQualityScoreForScoring(task, success, metadata) {
   if (normalizedExplicit !== null) return normalizedExplicit;
 
   try {
-    if (deps.db && typeof deps.db.getQualityScore === 'function' && task?.id) {
-      const row = deps.db.getQualityScore(task.id);
+    if (getDeps().db && typeof getDeps().db.getQualityScore === 'function' && task?.id) {
+      const row = getDeps().db.getQualityScore(task.id);
       const persisted = normalizeQualityScore(row?.overall_score);
       if (persisted !== null) return persisted;
     }
@@ -1035,13 +1049,13 @@ function handleDiffusionSignalDetection(ctx) {
   try {
     const signal = parseDiffusionSignal(ctx.output || '');
     if (signal) {
-      const task = deps.db.getTask(ctx.taskId);
+      const task = getDeps().db.getTask(ctx.taskId);
       const existingMeta = task && task.metadata
         ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata)
         : {};
       existingMeta.diffusion_request = signal;
-      if (typeof deps.db.updateTask === 'function') {
-        deps.db.updateTask(ctx.taskId, { metadata: JSON.stringify(existingMeta) });
+      if (typeof getDeps().db.updateTask === 'function') {
+        getDeps().db.updateTask(ctx.taskId, { metadata: JSON.stringify(existingMeta) });
       }
       logger.info(`[Diffusion] Task ${ctx.taskId} emitted diffusion request: ${signal.summary}`);
     }
@@ -1052,7 +1066,7 @@ function handleDiffusionSignalDetection(ctx) {
 
 function handleComputeApplyCreation(ctx) {
   try {
-    const task = deps.db.getTask(ctx.taskId);
+    const task = getDeps().db.getTask(ctx.taskId);
     const meta = task?.metadata
       ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata)
       : {};
@@ -1062,8 +1076,8 @@ function handleComputeApplyCreation(ctx) {
     const parsed = parseComputeOutput(ctx.output || '');
     if (!parsed) {
       logger.info(`[Diffusion] Compute task ${ctx.taskId} produced unparseable output — marking failed`);
-      if (typeof deps.db.updateTaskStatus === 'function') {
-        deps.db.updateTaskStatus(ctx.taskId, 'failed');
+      if (typeof getDeps().db.updateTaskStatus === 'function') {
+        getDeps().db.updateTaskStatus(ctx.taskId, 'failed');
       }
       ctx.status = 'failed';
       return;
@@ -1072,8 +1086,8 @@ function handleComputeApplyCreation(ctx) {
     const validation = validateComputeSchema(parsed);
     if (!validation.valid) {
       logger.info(`[Diffusion] Compute task ${ctx.taskId} schema invalid: ${validation.errors.join('; ')}`);
-      if (typeof deps.db.updateTaskStatus === 'function') {
-        deps.db.updateTaskStatus(ctx.taskId, 'failed');
+      if (typeof getDeps().db.updateTaskStatus === 'function') {
+        getDeps().db.updateTaskStatus(ctx.taskId, 'failed');
       }
       ctx.status = 'failed';
       return;
@@ -1089,7 +1103,7 @@ function handleComputeApplyCreation(ctx) {
     const applyDesc = expandApplyTaskDescription(parsed, workingDir);
     const applyId = uuidv4();
 
-    deps.db.createTask({
+    getDeps().db.createTask({
       id: applyId,
       status: 'queued',
       task_description: applyDesc,
@@ -1141,7 +1155,7 @@ function handleComputeApplyCreation(ctx) {
 }
 
 async function finalizeTask(taskId, options = {}) {
-  if (!deps.db || typeof deps.db.getTask !== 'function') {
+  if (!getDeps().db || typeof getDeps().db.getTask !== 'function') {
     throw new Error('task-finalizer not initialized with db dependency');
   }
 
@@ -1149,7 +1163,7 @@ async function finalizeTask(taskId, options = {}) {
 
   let ctx = null;
   try {
-    const task = deps.db.getTask(taskId);
+    const task = getDeps().db.getTask(taskId);
     if (!task) {
       return { finalized: false, queueManaged: false, task: null, reason: 'not_found' };
     }
@@ -1176,8 +1190,8 @@ async function finalizeTask(taskId, options = {}) {
     const combinedOutput = buildCombinedOutput(output, errorOutput);
     const filesModified = Array.isArray(options.filesModified)
       ? [...new Set(options.filesModified)]
-      : (typeof deps.extractModifiedFiles === 'function'
-        ? deps.extractModifiedFiles(combinedOutput)
+      : (typeof getDeps().extractModifiedFiles === 'function'
+        ? getDeps().extractModifiedFiles(combinedOutput)
         : []);
 
     ctx = {
@@ -1208,27 +1222,27 @@ async function finalizeTask(taskId, options = {}) {
       try { ctx.finalizationHeartbeat('finalizer:context_ready'); } catch { /* non-critical */ }
     }
 
-    await runStage(ctx, 'retry_logic', deps.handleRetryLogic, ctx.code !== 0);
+    await runStage(ctx, 'retry_logic', getDeps().handleRetryLogic, ctx.code !== 0);
     if (ctx.earlyExit) {
       releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
       return {
         finalized: false,
         queueManaged: true,
-        task: deps.db.getTask(taskId) || task,
-        status: deps.db.getTask(taskId)?.status || ctx.status,
+        task: getDeps().db.getTask(taskId) || task,
+        status: getDeps().db.getTask(taskId)?.status || ctx.status,
         validationStages: ctx.validationStages,
         reason: 'early_exit',
       };
     }
 
-    await runStage(ctx, 'safeguard_checks', deps.handleSafeguardChecks, typeof deps.handleSafeguardChecks === 'function');
+    await runStage(ctx, 'safeguard_checks', getDeps().handleSafeguardChecks, typeof getDeps().handleSafeguardChecks === 'function');
     if (ctx.earlyExit) {
       releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
       return {
         finalized: false,
         queueManaged: true,
-        task: deps.db.getTask(taskId) || task,
-        status: deps.db.getTask(taskId)?.status || ctx.status,
+        task: getDeps().db.getTask(taskId) || task,
+        status: getDeps().db.getTask(taskId)?.status || ctx.status,
         validationStages: ctx.validationStages,
         reason: 'early_exit',
       };
@@ -1239,13 +1253,13 @@ async function finalizeTask(taskId, options = {}) {
 
     await runStage(ctx, 'compute_apply_creation', handleComputeApplyCreation, ctx.code === 0);
 
-    await runStage(ctx, 'fuzzy_repair', deps.handleFuzzyRepair, typeof deps.handleFuzzyRepair === 'function');
+    await runStage(ctx, 'fuzzy_repair', getDeps().handleFuzzyRepair, typeof getDeps().handleFuzzyRepair === 'function');
     augmentFactoryFilesModifiedFromGitStatus(ctx);
-    await runStage(ctx, 'no_file_change_detection', deps.handleNoFileChangeDetection, typeof deps.handleNoFileChangeDetection === 'function');
+    await runStage(ctx, 'no_file_change_detection', getDeps().handleNoFileChangeDetection, typeof getDeps().handleNoFileChangeDetection === 'function');
     await runStage(
       ctx,
       'retry_logic_after_no_file_change',
-      deps.handleRetryLogic,
+      getDeps().handleRetryLogic,
       Boolean(ctx.noFileChangeFailure) && ctx.status === 'failed' && ctx.code !== 0
     );
     if (ctx.earlyExit) {
@@ -1253,20 +1267,20 @@ async function finalizeTask(taskId, options = {}) {
       return {
         finalized: false,
         queueManaged: true,
-        task: deps.db.getTask(taskId) || task,
-        status: deps.db.getTask(taskId)?.status || ctx.status,
+        task: getDeps().db.getTask(taskId) || task,
+        status: getDeps().db.getTask(taskId)?.status || ctx.status,
         validationStages: ctx.validationStages,
         reason: 'early_exit',
       };
     }
     await runStage(ctx, 'phantom_success_detection', (stageCtx) => runPhantomSuccessDetection(stageCtx, {
       getRawDb: getRawDbInstance,
-      logDecision: deps.logFactoryDecision,
+      logDecision: getDeps().logFactoryDecision,
     }), ctx.status === 'completed');
     await runStage(
       ctx,
       'retry_logic_after_phantom',
-      deps.handleRetryLogic,
+      getDeps().handleRetryLogic,
       Boolean(ctx.phantomSuccess) && ctx.status === 'failed' && ctx.code !== 0
     );
     if (ctx.earlyExit) {
@@ -1274,8 +1288,8 @@ async function finalizeTask(taskId, options = {}) {
       return {
         finalized: false,
         queueManaged: true,
-        task: deps.db.getTask(taskId) || task,
-        status: deps.db.getTask(taskId)?.status || ctx.status,
+        task: getDeps().db.getTask(taskId) || task,
+        status: getDeps().db.getTask(taskId)?.status || ctx.status,
         validationStages: ctx.validationStages,
         reason: 'early_exit',
       };
@@ -1292,31 +1306,41 @@ async function finalizeTask(taskId, options = {}) {
       return {
         finalized: false,
         queueManaged: true,
-        task: deps.db.getTask(taskId) || task,
-        status: deps.db.getTask(taskId)?.status || ctx.status,
+        task: getDeps().db.getTask(taskId) || task,
+        status: getDeps().db.getTask(taskId)?.status || ctx.status,
         validationStages: ctx.validationStages,
         reason: 'early_exit',
       };
     }
 
-    await runStage(ctx, 'sandbox_revert_detection', deps.handleSandboxRevertDetection, typeof deps.handleSandboxRevertDetection === 'function');
-    await runStage(ctx, 'auto_validation', deps.handleAutoValidation, typeof deps.handleAutoValidation === 'function');
-    await runStage(ctx, 'build_test_style_commit', deps.handleBuildTestStyleCommit, typeof deps.handleBuildTestStyleCommit === 'function');
-    await runStage(ctx, 'auto_verify_retry', deps.handleAutoVerifyRetry, typeof deps.handleAutoVerifyRetry === 'function');
-    await runStage(ctx, 'verification_ledger', handleVerificationLedger, typeof handleVerificationLedger === 'function');
+    await runStage(ctx, 'sandbox_revert_detection', getDeps().handleSandboxRevertDetection, typeof getDeps().handleSandboxRevertDetection === 'function');
+    await runStage(ctx, 'auto_validation', getDeps().handleAutoValidation, typeof getDeps().handleAutoValidation === 'function');
+    await runStage(ctx, 'build_test_style_commit', getDeps().handleBuildTestStyleCommit, typeof getDeps().handleBuildTestStyleCommit === 'function');
+    await runStage(ctx, 'auto_verify_retry', getDeps().handleAutoVerifyRetry, typeof getDeps().handleAutoVerifyRetry === 'function');
+    await runStage(
+      ctx,
+      'verification_ledger',
+      getScopedVerificationLedger(),
+      typeof getScopedVerificationLedger() === 'function'
+    );
     if (ctx.earlyExit) {
       releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
       return {
         finalized: false,
         queueManaged: true,
-        task: deps.db.getTask(taskId) || task,
-        status: deps.db.getTask(taskId)?.status || ctx.status,
+        task: getDeps().db.getTask(taskId) || task,
+        status: getDeps().db.getTask(taskId)?.status || ctx.status,
         validationStages: ctx.validationStages,
         reason: 'early_exit',
       };
     }
 
-    await runStage(ctx, 'adversarial_review', handleAdversarialReview, typeof handleAdversarialReview === 'function' && ctx.status === 'completed');
+    await runStage(
+      ctx,
+      'adversarial_review',
+      getScopedAdversarialReview(),
+      typeof getScopedAdversarialReview() === 'function' && ctx.status === 'completed'
+    );
 
     // Experiment 5: Smart failure diagnosis — analyzes error patterns and
     // sets recovery hints (suggested_provider, needs_escalation) for downstream stages
@@ -1332,16 +1356,16 @@ async function finalizeTask(taskId, options = {}) {
     await runStage(
       ctx,
       'provider_failover',
-      deps.handleProviderFailover,
-      typeof deps.handleProviderFailover === 'function' && !ctx.pipelineError
+      getDeps().handleProviderFailover,
+      typeof getDeps().handleProviderFailover === 'function' && !ctx.pipelineError
     );
     if (ctx.earlyExit) {
       releaseSharedCodexClaimsForEarlyExit(taskId, task, ctx);
       return {
         finalized: false,
         queueManaged: true,
-        task: deps.db.getTask(taskId) || task,
-        status: deps.db.getTask(taskId)?.status || ctx.status,
+        task: getDeps().db.getTask(taskId) || task,
+        status: getDeps().db.getTask(taskId)?.status || ctx.status,
         validationStages: ctx.validationStages,
         reason: 'early_exit',
       };
@@ -1374,8 +1398,8 @@ async function finalizeTask(taskId, options = {}) {
     }
 
     const metadata = buildValidationMetadata(task, ctx, rawExitCode);
-    const sanitizedOutput = typeof deps.sanitizeTaskOutput === 'function'
-      ? deps.sanitizeTaskOutput(ctx.output)
+    const sanitizedOutput = typeof getDeps().sanitizeTaskOutput === 'function'
+      ? getDeps().sanitizeTaskOutput(ctx.output)
       : ctx.output;
     const resumeDurationMs = getDurationMsForScoring(task);
     const resumeContext = ctx.status === 'failed'
@@ -1392,10 +1416,10 @@ async function finalizeTask(taskId, options = {}) {
     if (resumeContext) {
       statusFields.resume_context = resumeContext;
     }
-    const updateTaskStatus = deps.safeUpdateTaskStatus || deps.db.updateTaskStatus;
+    const updateTaskStatus = getDeps().safeUpdateTaskStatus || getDeps().db.updateTaskStatus;
     updateTaskStatus(taskId, ctx.status, statusFields);
 
-    ctx.task = deps.db.getTask(taskId) || task;
+    ctx.task = getDeps().db.getTask(taskId) || task;
     const workflowState = options.state !== undefined ? options.state : procState.state;
     const workflowStateVersion = options.stateVersion !== undefined
       ? options.stateVersion
@@ -1464,9 +1488,9 @@ async function finalizeTask(taskId, options = {}) {
       }
     } catch (_e) { /* non-critical */ }
 
-    if (typeof deps.handlePostCompletion === 'function') {
+    if (typeof getDeps().handlePostCompletion === 'function') {
       try {
-        await Promise.resolve(deps.handlePostCompletion(ctx));
+        await Promise.resolve(getDeps().handlePostCompletion(ctx));
       } catch (postErr) {
         logger.error(`[finalizer] Post-completion failed for ${taskId}: ${postErr.message}`);
         // Don't re-throw — the task IS completed, only the cleanup/notification step failed
@@ -1480,14 +1504,14 @@ async function finalizeTask(taskId, options = {}) {
     return {
       finalized: true,
       queueManaged: false,
-      task: deps.db.getTask(taskId) || ctx.task,
+      task: getDeps().db.getTask(taskId) || ctx.task,
       status: ctx.status,
       validationStages: ctx.validationStages,
     };
   } catch (err) {
     logger.info(`[TaskFinalizer] finalizeTask fatal error for ${taskId}: ${err.message}`);
 
-    const currentTask = deps.db.getTask(taskId);
+    const currentTask = getDeps().db.getTask(taskId);
     if (!currentTask || !isFinalizableStatus(currentTask.status)) {
       if (currentTask && ['completed', 'failed', 'cancelled'].includes(currentTask.status)) {
         releaseSharedCodexClaims(taskId, currentTask.status, currentTask);
@@ -1531,8 +1555,8 @@ async function finalizeTask(taskId, options = {}) {
       early_exit: false,
     };
 
-    const fallbackOutput = typeof deps.sanitizeTaskOutput === 'function'
-      ? deps.sanitizeTaskOutput(fallbackCtx.output)
+    const fallbackOutput = typeof getDeps().sanitizeTaskOutput === 'function'
+      ? getDeps().sanitizeTaskOutput(fallbackCtx.output)
       : fallbackCtx.output;
     const fallbackResumeContext = buildFailedTaskResumeContext(
       currentTask,
@@ -1551,18 +1575,18 @@ async function finalizeTask(taskId, options = {}) {
     if (fallbackResumeContext) {
       fallbackFields.resume_context = fallbackResumeContext;
     }
-    const updateTaskStatus = deps.safeUpdateTaskStatus || deps.db.updateTaskStatus;
+    const updateTaskStatus = getDeps().safeUpdateTaskStatus || getDeps().db.updateTaskStatus;
     updateTaskStatus(taskId, 'failed', fallbackFields);
 
-    fallbackCtx.task = deps.db.getTask(taskId) || currentTask;
+    fallbackCtx.task = getDeps().db.getTask(taskId) || currentTask;
     await indexRunArtifacts(taskId, fallbackCtx.task?.workflow_id || currentTask?.workflow_id || null);
     recordProviderScoring(fallbackCtx);
     recordSharedProviderLearning(fallbackCtx);
     recordSharedVerifyFailureLearning(fallbackCtx);
 
-    if (typeof deps.handlePostCompletion === 'function') {
+    if (typeof getDeps().handlePostCompletion === 'function') {
       try {
-        await Promise.resolve(deps.handlePostCompletion(fallbackCtx));
+        await Promise.resolve(getDeps().handlePostCompletion(fallbackCtx));
       } catch (postErr) {
         logger.info(`[TaskFinalizer] Post-completion failed after fatal finalization error for ${taskId}: ${postErr.message}`);
       }
@@ -1575,7 +1599,7 @@ async function finalizeTask(taskId, options = {}) {
     return {
       finalized: true,
       queueManaged: false,
-      task: deps.db.getTask(taskId) || fallbackCtx.task,
+      task: getDeps().db.getTask(taskId) || fallbackCtx.task,
       status: 'failed',
       validationStages: fallbackCtx.validationStages,
       reason: `fatal:${err.message}`,
@@ -1586,7 +1610,7 @@ async function finalizeTask(taskId, options = {}) {
 }
 
 // ── New factory shape (preferred) ─────────────────────────────────────────
-// Replaces the prior placeholder with one that actually closes over deps.
+// Replaces the prior placeholder with one that actually closes over getDeps().
 // finalizationLocks is a process-wide singleton (intentional — prevents
 // concurrent finalize() calls for the same taskId across the entire process)
 // and stays at module scope. handleVerificationLedger / handleAdversarialReview
@@ -1675,18 +1699,37 @@ function createTaskFinalizer(localDeps = {}) {
     const prevDeps = deps;
     const prevVL = handleVerificationLedger;
     const prevAR = handleAdversarialReview;
-    deps = { ...deps, ...resolved };
+    const activeDeps = { ...deps, ...resolved };
+    const activeVL = typeof resolved.handleVerificationLedger === 'function'
+      ? resolved.handleVerificationLedger
+      : handleVerificationLedger;
+    const activeAR = typeof resolved.handleAdversarialReview === 'function'
+      ? resolved.handleAdversarialReview
+      : handleAdversarialReview;
+
+    deps = activeDeps;
     if (typeof resolved.handleVerificationLedger === 'function') {
-      handleVerificationLedger = resolved.handleVerificationLedger;
+      handleVerificationLedger = activeVL;
     }
     if (typeof resolved.handleAdversarialReview === 'function') {
-      handleAdversarialReview = resolved.handleAdversarialReview;
+      handleAdversarialReview = activeAR;
     }
-    try { return await fn(); }
+    const store = {
+      deps: activeDeps,
+      handleVerificationLedger: activeVL,
+      handleAdversarialReview: activeAR,
+    };
+    try { return await scopedDeps.run(store, fn); }
     finally {
-      deps = prevDeps;
-      handleVerificationLedger = prevVL;
-      handleAdversarialReview = prevAR;
+      if (deps === activeDeps) {
+        deps = prevDeps;
+      }
+      if (handleVerificationLedger === activeVL) {
+        handleVerificationLedger = prevVL;
+      }
+      if (handleAdversarialReview === activeAR) {
+        handleAdversarialReview = prevAR;
+      }
     }
   }
   return {
