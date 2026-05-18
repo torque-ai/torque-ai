@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn, execFileSync } = require('child_process');
+const { normalizeDotnetTestSourceTargets } = require('../utils/dotnet-verify-normalizer');
 const { prepareLocalVerifyEnv } = require('../utils/local-verify-env');
 const { prepareWorktreeVerifyDependencies } = require('../utils/worktree-verify-deps');
 const {
@@ -731,7 +732,16 @@ function createWorktreeRunner({
     if (!branch) throw new Error('verify requires branch');
     const cwd = workingDirectory || worktreePath;
     const rawCommand = String(verifyCommand || defaultVerifyCommandForProject(cwd)).trim();
-    const command = wrapVerifyCommandForTestLane(rawCommand, { projectPath: cwd });
+    const normalizedRawCommand = normalizeDotnetTestSourceTargets(rawCommand, cwd);
+    if (normalizedRawCommand !== rawCommand && logger) {
+      logger.info('factory worktree verify: normalized dotnet test source-file target', {
+        branch,
+        original_command: rawCommand,
+        normalized_command: normalizedRawCommand,
+        cwd,
+      });
+    }
+    const command = wrapVerifyCommandForTestLane(normalizedRawCommand, { projectPath: cwd });
     const resolvedBaseBranch = baseBranch || detectDefaultBranch(cwd);
     const start = Date.now();
 
