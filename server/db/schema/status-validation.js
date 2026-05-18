@@ -894,6 +894,33 @@ function runMigrations(db, logger, safeAddColumn, extras = {}) {
 
   try {
     db.exec(`
+      CREATE TABLE IF NOT EXISTS retrospectives (
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow_id        TEXT NOT NULL UNIQUE,
+        project_id         TEXT,
+        created_at         TEXT DEFAULT (datetime('now')),
+        duration_seconds   INTEGER,
+        total_cost         REAL,
+        files_changed      INTEGER,
+        retry_count        INTEGER,
+        verify_pass_count  INTEGER,
+        verify_fail_count  INTEGER,
+        flaky_count        INTEGER,
+        smoothness_rating  TEXT,
+        narrative          TEXT,
+        learnings          TEXT,
+        friction_points    TEXT,
+        open_items         TEXT,
+        raw_stats          TEXT
+      )
+    `);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_retrospectives_project ON retrospectives(project_id)');
+  } catch (e) {
+    logger.debug(`Schema migration (retrospectives): ${e.message}`);
+  }
+
+  try {
+    db.exec(`
       CREATE TABLE IF NOT EXISTS symbol_index (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         file_path TEXT NOT NULL,

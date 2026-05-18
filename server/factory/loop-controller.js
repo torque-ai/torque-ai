@@ -6034,9 +6034,39 @@ const stageDecisionStore = createDecisionStore();
 // alongside the Step B createLearnStageRunner). loop-controller keeps this
 // one-line wiring — safeLogDecision and maybeShipWorkItemAfterLearn are
 // injected; feedback / logger / LOOP_STATES are required inside learn.js.
+//
+// Retrospective generator is wired in as an optional dep so that completed
+// batches automatically produce a retrospective. Deps are lazy-required to
+// avoid module-load cycles (same pattern as feedback inside learn.js).
+let _retrospectiveGenerator = null;
+function getRetrospectiveGenerator() {
+  if (!_retrospectiveGenerator) {
+    try {
+      const { createRetrospectiveGenerator } = require('./retrospective-generator');
+      const container = require('../container').defaultContainer;
+      const retrospectives = container.get('retrospectives');
+      const workflowEngine = require('../db/workflow-engine');
+      const costTracking = require('../db/cost-tracking');
+      _retrospectiveGenerator = createRetrospectiveGenerator({
+        retrospectives,
+        getWorkflowTasks: workflowEngine.getWorkflowTasks,
+        getWorkflow: workflowEngine.getWorkflow,
+        getTaskTokenUsage: costTracking.getTaskTokenUsage,
+      });
+    } catch (err) {
+      logger.warn('Failed to initialize retrospective generator; retrospectives disabled', {
+        err: err.message,
+      });
+      _retrospectiveGenerator = { generateRetrospective: async () => null };
+    }
+  }
+  return _retrospectiveGenerator;
+}
+
 const executeLearnStage = createLearnStage({
   safeLogDecision,
   maybeShipWorkItemAfterLearn,
+  retrospectiveGenerator: { generateRetrospective: (...args) => getRetrospectiveGenerator().generateRetrospective(...args) },
 });
 
 function getLoopInstanceForProjectOrThrow(project_id) {
