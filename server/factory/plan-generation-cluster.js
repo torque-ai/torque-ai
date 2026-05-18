@@ -1427,6 +1427,41 @@ function createPlanGenerationCluster(deps = {}) {
     return chooseRelatedReplacementFile(normalized, candidates, workItem) || candidates[0] || null;
   }
 
+  const PLAN_PATH_REPLACEMENT_GENERIC_TOKENS = new Set([
+    'file',
+    'files',
+    'helper',
+    'helpers',
+    'index',
+    'module',
+    'modules',
+    'setup',
+    'spec',
+    'test',
+    'tests',
+    'util',
+    'utils',
+  ]);
+
+  function planPathReplacementTokens(filePath) {
+    const ext = path.posix.extname(String(filePath || '').replace(/\\/g, '/').toLowerCase());
+    const stem = path.posix.basename(String(filePath || '').replace(/\\/g, '/').toLowerCase(), ext);
+    return stem
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .split(/[^a-z0-9]+/g)
+      .map((token) => (token.length > 4 && token.endsWith('s') ? token.slice(0, -1) : token))
+      .filter((token) => token.length >= 3 && !PLAN_PATH_REPLACEMENT_GENERIC_TOKENS.has(token));
+  }
+
+  function hasMeaningfulMissingPathReplacementAffinity(originalFile, replacementFile) {
+    const originalTokens = new Set(planPathReplacementTokens(originalFile));
+    if (originalTokens.size === 0) return false;
+    for (const token of planPathReplacementTokens(replacementFile)) {
+      if (originalTokens.has(token)) return true;
+    }
+    return false;
+  }
+
   function normalizeGeneratedPlanFileReferences(taskSection, workItem, project) {
     const projectPath = project?.path;
     if (!projectPath) return taskSection;
@@ -1469,12 +1504,22 @@ function createPlanGenerationCluster(deps = {}) {
       if (!normalized) continue;
       const exists = projectFileExists(projectPath, normalized);
       const alternateFilesForPath = alternateFilesByPath.get(normalized) || [];
+      const ephemeralGeneratedTarget = isEphemeralGeneratedPlanTarget(normalized);
+      const replacementAlternates = exists || ephemeralGeneratedTarget
+        ? alternateFilesForPath
+        : alternateFilesForPath.filter((candidate) => (
+            hasMeaningfulMissingPathReplacementAffinity(normalized, candidate)
+          ));
       const replacement = exists
         ? chooseRelatedReplacementFile(normalized, relatedPool, workItem)
-        : chooseMissingPlanPathReplacement(normalized, alternateFilesForPath, relatedPool, workItem);
+        : chooseMissingPlanPathReplacement(
+            normalized,
+            replacementAlternates,
+            ephemeralGeneratedTarget ? relatedPool : [],
+            workItem
+          );
       if (!replacement || replacement === normalized) continue;
 
-      const ephemeralGeneratedTarget = isEphemeralGeneratedPlanTarget(normalized);
       const shouldReplace = exists
         ? shouldReplaceExistingPlanPath(normalized, replacement, workItem, hardScopeFiles)
         : (ephemeralGeneratedTarget || !creationContext);
