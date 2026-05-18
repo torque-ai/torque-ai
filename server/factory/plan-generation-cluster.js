@@ -1340,8 +1340,11 @@ function createPlanGenerationCluster(deps = {}) {
     for (const variant of variants) {
       let index = text.indexOf(variant);
       while (index >= 0) {
-        const before = text.slice(Math.max(0, index - 180), index);
+        const before = text.slice(Math.max(0, index - 1000), index);
         const after = text.slice(index + variant.length, Math.min(text.length, index + variant.length + 100));
+        if (hasCreateActionInCurrentPlanClause(before)) {
+          return true;
+        }
         const createVerbRe = /\b(?:create|scaffold|introduce|write)\b/gi;
         let isCreateTarget = false;
         for (const match of before.matchAll(createVerbRe)) {
@@ -1358,6 +1361,27 @@ function createPlanGenerationCluster(deps = {}) {
       }
     }
     return false;
+  }
+
+  function hasCreateActionInCurrentPlanClause(beforeTarget) {
+    const text = String(beforeTarget || '');
+    let boundary = Math.max(text.lastIndexOf('\n'), text.lastIndexOf(';'));
+    for (const match of text.matchAll(/[.!?]\s+/g)) {
+      boundary = Math.max(boundary, match.index);
+    }
+    const clause = text.slice(boundary + 1).replace(/`[^`]*`/g, '');
+    const actionRe = /\b(create|scaffold|introduce|write|edit|modify|update|run|validate|test|execute|call|wire|register|add|adjust)\b/gi;
+    let lastAction = null;
+    let lastActionEnd = 0;
+    for (const match of clause.matchAll(actionRe)) {
+      lastAction = String(match[1] || '').toLowerCase();
+      lastActionEnd = match.index + match[0].length;
+    }
+    if (!['create', 'scaffold', 'introduce', 'write'].includes(lastAction)) {
+      return false;
+    }
+    const afterAction = clause.slice(lastActionEnd);
+    return !/\b(?:from|based\s+on|using|via|against|through)\b/i.test(afterAction);
   }
 
   function isEphemeralGeneratedPlanTarget(filePath) {
