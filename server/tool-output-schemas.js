@@ -100,8 +100,40 @@ const AUTOMATION_MANUAL_INTERVENTION_SCHEMA = {
       },
       required: ['scheduler_unarmed'],
     },
+    work_item_blockers: {
+      type: 'object',
+      properties: {
+        needs_review: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              project_id: { type: ['string', 'null'] },
+              project_name: { type: ['string', 'null'] },
+              status: { type: 'string', enum: ['needs_review'] },
+              count: { type: 'number' },
+            },
+            required: ['project_id', 'project_name', 'status', 'count'],
+          },
+        },
+        escalation_exhausted: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              project_id: { type: ['string', 'null'] },
+              project_name: { type: ['string', 'null'] },
+              status: { type: 'string', enum: ['escalation_exhausted'] },
+              count: { type: 'number' },
+            },
+            required: ['project_id', 'project_name', 'status', 'count'],
+          },
+        },
+      },
+      required: ['needs_review', 'escalation_exhausted'],
+    },
   },
-  required: ['required', 'reason_codes', 'counts', 'project_ids'],
+  required: ['required', 'reason_codes', 'counts', 'project_ids', 'work_item_blockers'],
 };
 
 const AUTOMATION_READINESS_SUMMARY_SCHEMA = {

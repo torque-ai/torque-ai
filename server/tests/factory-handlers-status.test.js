@@ -1770,6 +1770,17 @@ describe('factory_status', () => {
           project_ids: {
             scheduler_unarmed: ['project-hands-off-blocked'],
           },
+          work_item_blockers: {
+            needs_review: [
+              {
+                project_id: 'project-hands-off-blocked',
+                project_name: 'Hands Off Blocked',
+                status: 'needs_review',
+                count: 1,
+              },
+            ],
+            escalation_exhausted: [],
+          },
         },
       },
       manual_intervention: {
@@ -1803,6 +1814,88 @@ describe('factory_status', () => {
         needs_review: 1,
       },
     });
+  });
+
+  it('breaks down operator-owned work item blockers by project without planning work', async () => {
+    const db = rawDb();
+
+    insertFactoryProject(db, {
+      id: 'project-review-breakdown-a',
+      name: 'Review Breakdown A',
+      status: 'running',
+      trustLevel: 'dark',
+      configJson: JSON.stringify({ loop: { auto_continue: true } }),
+      testDir,
+    });
+    insertFactoryProject(db, {
+      id: 'project-review-breakdown-b',
+      name: 'Review Breakdown B',
+      status: 'running',
+      trustLevel: 'dark',
+      configJson: JSON.stringify({ loop: { auto_continue: true } }),
+      testDir,
+    });
+    factoryIntake.createWorkItem({
+      project_id: 'project-review-breakdown-a',
+      source: 'manual',
+      title: 'Needs review A',
+      status: 'needs_review',
+    });
+    factoryIntake.createWorkItem({
+      project_id: 'project-review-breakdown-b',
+      source: 'manual',
+      title: 'Needs review B',
+      status: 'needs_review',
+    });
+    factoryIntake.createWorkItem({
+      project_id: 'project-review-breakdown-b',
+      source: 'manual',
+      title: 'Escalation exhausted B',
+      status: 'escalation_exhausted',
+    });
+
+    const result = await safeTool('factory_automation_plan', {});
+
+    expect(result.isError).toBeFalsy();
+    expectStructuredDataConformsToOutputSchema('factory_automation_plan', result.structuredData);
+    expect(result.structuredData.summary.manual_intervention).toMatchObject({
+      required: true,
+      reason_codes: expect.arrayContaining([
+        'work_items_need_review',
+        'work_items_escalation_exhausted',
+      ]),
+      counts: {
+        needs_review_work_items: 2,
+        escalation_exhausted_work_items: 1,
+      },
+      work_item_blockers: {
+        needs_review: expect.arrayContaining([
+          {
+            project_id: 'project-review-breakdown-a',
+            project_name: 'Review Breakdown A',
+            status: 'needs_review',
+            count: 1,
+          },
+          {
+            project_id: 'project-review-breakdown-b',
+            project_name: 'Review Breakdown B',
+            status: 'needs_review',
+            count: 1,
+          },
+        ]),
+        escalation_exhausted: [
+          {
+            project_id: 'project-review-breakdown-b',
+            project_name: 'Review Breakdown B',
+            status: 'escalation_exhausted',
+            count: 1,
+          },
+        ],
+      },
+    });
+    expect(result.structuredData.summary.control_plane_plan.every(
+      (step) => step.processes_project_work === false
+    )).toBe(true);
   });
 
   it('reports global project-work disablement without changing project-level readiness', async () => {

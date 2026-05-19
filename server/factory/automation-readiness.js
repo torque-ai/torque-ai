@@ -373,6 +373,15 @@ function getCount(counts, key) {
   return Number.isFinite(value) ? value : 0;
 }
 
+function makeWorkItemBlockerEntry(project, status, count) {
+  return {
+    project_id: project?.id || null,
+    project_name: project?.name || null,
+    status,
+    count,
+  };
+}
+
 function normalizeIdSet(values) {
   return new Set(
     (Array.isArray(values) ? values : [])
@@ -389,10 +398,22 @@ function buildManualInterventionSummary(projects, readiness, taskQueue = null, s
   let needsReviewWorkItems = 0;
   let escalationExhaustedWorkItems = 0;
   const schedulerUnarmedProjectIds = [];
+  const workItemBlockers = {
+    needs_review: [],
+    escalation_exhausted: [],
+  };
   for (const project of projectList) {
     const counts = project?.work_item_status_counts || {};
-    needsReviewWorkItems += getCount(counts, 'needs_review');
-    escalationExhaustedWorkItems += getCount(counts, 'escalation_exhausted');
+    const projectNeedsReview = getCount(counts, 'needs_review');
+    const projectEscalationExhausted = getCount(counts, 'escalation_exhausted');
+    needsReviewWorkItems += projectNeedsReview;
+    escalationExhaustedWorkItems += projectEscalationExhausted;
+    if (projectNeedsReview > 0) {
+      workItemBlockers.needs_review.push(makeWorkItemBlockerEntry(project, 'needs_review', projectNeedsReview));
+    }
+    if (projectEscalationExhausted > 0) {
+      workItemBlockers.escalation_exhausted.push(makeWorkItemBlockerEntry(project, 'escalation_exhausted', projectEscalationExhausted));
+    }
     const projectReadiness = project?.automation_readiness || summarizeProjectAutomationReadiness(project);
     if (hasSchedulerInfo && projectReadiness.ready && project?.id && !activeTickProjectIds.has(String(project.id))) {
       schedulerUnarmedProjectIds.push(project.id);
@@ -430,6 +451,10 @@ function buildManualInterventionSummary(projects, readiness, taskQueue = null, s
     },
     project_ids: {
       scheduler_unarmed: schedulerUnarmedProjectIds.slice(0, 20),
+    },
+    work_item_blockers: {
+      needs_review: workItemBlockers.needs_review.slice(0, 20),
+      escalation_exhausted: workItemBlockers.escalation_exhausted.slice(0, 20),
     },
   };
 }

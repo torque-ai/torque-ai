@@ -162,6 +162,8 @@ describe('tool-output-schemas', () => {
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.counts.properties.scheduler_unarmed_projects).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.project_ids.properties.scheduler_unarmed).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.needs_review).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted).toBeDefined();
       expect(statusSchema.properties.projects.items.properties.automation_readiness).toBeDefined();
       expect(statusSchema.properties.projects.items.properties.work_item_status_counts).toBeDefined();
       expect(statusSchema.properties.projects.items.properties.automation_readiness.properties.control_plane_actions).toBeDefined();
@@ -193,6 +195,8 @@ describe('tool-output-schemas', () => {
       expect(planSchema.properties.summary.properties.manual_intervention).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.counts.properties.scheduler_unarmed_projects).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.project_ids.properties.scheduler_unarmed).toBeDefined();
+      expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.needs_review).toBeDefined();
+      expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted).toBeDefined();
       expect(planSchema.properties.work_item_status_counts).toBeDefined();
       expect(planSchema.properties.needs_review_work_items).toBeDefined();
       expect(planSchema.properties.needs_replan_work_items).toBeDefined();
