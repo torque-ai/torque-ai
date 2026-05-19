@@ -16,6 +16,7 @@ const {
   parseArgs,
   releaseLaneLock,
   resolveLaneConfig,
+  unavailableLanePorts,
 } = require('../../scripts/test-lane');
 
 describe('test-lane script helpers', () => {
@@ -146,6 +147,56 @@ describe('test-lane script helpers', () => {
     });
 
     expect(config.lane).toBe(3);
+    expect(release()).toBe(true);
+  });
+
+  test('reports unavailable lane ports by service label', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-lane-ports-'));
+    const laneOne = resolveLaneConfig(1, { root });
+
+    expect(unavailableLanePorts(laneOne, {
+      isPortAvailable: (port) => port !== laneOne.apiPort && port !== laneOne.dashboardDevPort,
+    })).toEqual([
+      `api=${laneOne.apiPort}`,
+      `vite=${laneOne.dashboardDevPort}`,
+    ]);
+  });
+
+  test('auto lane selection skips lanes with occupied configured ports', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-lane-auto-ports-'));
+    const laneOne = resolveLaneConfig(1, { root });
+    const checkedPorts = [];
+
+    const { config, release } = acquireSelectedLaneLock('auto', {
+      root,
+      pid: 444,
+      command: 'auto-ports',
+      isPidAlive: () => false,
+      isPortAvailable: (port) => {
+        checkedPorts.push(port);
+        return port !== laneOne.dashboardPort;
+      },
+    });
+
+    expect(config.lane).toBe(2);
+    expect(checkedPorts).toContain(laneOne.dashboardPort);
+    expect(release()).toBe(true);
+  });
+
+  test('explicit lane selection does not probe port availability', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-lane-explicit-ports-'));
+
+    const { config, release } = acquireSelectedLaneLock('1', {
+      root,
+      pid: 555,
+      command: 'explicit',
+      isPidAlive: () => false,
+      isPortAvailable: () => {
+        throw new Error('port probe should not run for explicit lanes');
+      },
+    });
+
+    expect(config.lane).toBe(1);
     expect(release()).toBe(true);
   });
 

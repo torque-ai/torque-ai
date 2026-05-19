@@ -11,6 +11,15 @@ const DEFAULT_MCP_GATEWAY_PORT = 3459;
 const DEFAULT_GPU_PORT = 9394;
 const DEFAULT_COORD_PORT = 9395;
 const DEFAULT_DASHBOARD_DEV_PORT = 5173;
+const LANE_PORT_FIELDS = [
+  ['dashboard', 'dashboardPort'],
+  ['api', 'apiPort'],
+  ['mcp', 'mcpPort'],
+  ['gateway', 'mcpGatewayPort'],
+  ['gpu', 'gpuMetricsPort'],
+  ['coord', 'coordPort'],
+  ['vite', 'dashboardDevPort'],
+];
 
 const PRESETS = new Set([
   'server-smoke',
@@ -169,6 +178,37 @@ function isLaneUnavailableError(err) {
   return Boolean(err && (err.code === 'LANE_UNAVAILABLE' || err.laneUnavailable));
 }
 
+function defaultIsPortAvailable(port, options = {}) {
+  const host = options.host || '127.0.0.1';
+  const timeoutMs = options.timeoutMs || 1500;
+  const script = [
+    "const net = require('net');",
+    'const port = Number(process.argv[1]);',
+    "const host = process.argv[2] || '127.0.0.1';",
+    'const server = net.createServer();',
+    "server.once('error', () => process.exit(1));",
+    "server.listen({ port, host, exclusive: true }, () => server.close(() => process.exit(0)));",
+    'setTimeout(() => process.exit(2), 1000).unref();',
+  ].join('');
+  const result = spawnSync(process.execPath, ['-e', script, String(port), host], {
+    stdio: 'ignore',
+    timeout: timeoutMs,
+  });
+  return result.status === 0;
+}
+
+function unavailableLanePorts(config, options = {}) {
+  const isPortAvailable = options.isPortAvailable || defaultIsPortAvailable;
+  const unavailable = [];
+  for (const [label, field] of LANE_PORT_FIELDS) {
+    const port = config[field];
+    if (!isPortAvailable(port, options)) {
+      unavailable.push(`${label}=${port}`);
+    }
+  }
+  return unavailable;
+}
+
 function acquireLaneLock(config, options = {}) {
   const pid = options.pid || process.pid;
   const alive = options.isPidAlive || isPidAlive;
@@ -227,6 +267,13 @@ function acquireSelectedLaneLock(laneValue, options = {}) {
 
   for (const lane of lanes) {
     const config = resolveLaneConfig(lane, { env, platform, root });
+    if (isAutoLane(laneValue)) {
+      const occupiedPorts = unavailableLanePorts(config, options);
+      if (occupiedPorts.length > 0) {
+        busy.push(`Lane ${config.lane} is unavailable: port(s) in use: ${occupiedPorts.join(', ')}`);
+        continue;
+      }
+    }
     ensureLaneDirs(config);
     try {
       const release = acquireLaneLock(config, options);
@@ -430,6 +477,7 @@ module.exports = {
   acquireSelectedLaneLock,
   buildLaneEnv,
   defaultLaneRoot,
+  defaultIsPortAvailable,
   ensureLaneDirs,
   getPresetCommand,
   isFocusedVitestCoverageCommand,
@@ -441,4 +489,5 @@ module.exports = {
   releaseLaneLock,
   resolveLaneConfig,
   runShellCommand,
+  unavailableLanePorts,
 };
