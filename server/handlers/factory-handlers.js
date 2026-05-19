@@ -978,6 +978,21 @@ function normalizeFactoryWorkItemBlockerQueuePreview(stats) {
   return normalized;
 }
 
+function normalizeFactoryWorkItemBlockerAutoRecoveryStats(stats) {
+  return {
+    needs_review: {
+      stranded_needs_review_sweep: Number.isFinite(Number(stats?.needs_review?.stranded_needs_review_sweep))
+        ? Number(stats.needs_review.stranded_needs_review_sweep)
+        : 0,
+    },
+    escalation_exhausted: {
+      provider_exhaustion_reopen: Number.isFinite(Number(stats?.escalation_exhausted?.provider_exhaustion_reopen))
+        ? Number(stats.escalation_exhausted.provider_exhaustion_reopen)
+        : 0,
+    },
+  };
+}
+
 function getFactoryWorkItemBlockerReasonCounts(projectId) {
   try {
     return normalizeFactoryWorkItemBlockerReasonCounts(
@@ -1029,6 +1044,27 @@ function getFactoryWorkItemBlockerQueuePreview(projectId) {
   }
 }
 
+function getFactoryWorkItemBlockerAutoRecoveryStats(projectId) {
+  try {
+    return normalizeFactoryWorkItemBlockerAutoRecoveryStats(
+      factoryIntake.getOperatorOwnedAutoRecoveryStats(projectId)
+    );
+  } catch (error) {
+    logger.debug('Failed to inspect factory operator-owned work item auto-recovery candidates', {
+      err: error.message,
+      project_id: projectId,
+    });
+    return {
+      needs_review: {
+        stranded_needs_review_sweep: 0,
+      },
+      escalation_exhausted: {
+        provider_exhaustion_reopen: 0,
+      },
+    };
+  }
+}
+
 function countOpenFactoryWorkItems(projectId) {
   return countOpenFactoryWorkItemsFromStats(getFactoryWorkItemStatusCounts(projectId));
 }
@@ -1041,6 +1077,7 @@ function stripFactoryAutomationPrivateFields(project) {
     _work_item_blocker_reason_counts,
     _work_item_blocker_queue_stats,
     _work_item_blocker_queue_preview,
+    _work_item_blocker_auto_recovery_stats,
     ...publicProject
   } = project;
   return publicProject;
@@ -1688,6 +1725,7 @@ async function handleListFactoryProjects(args = {}) {
       _work_item_blocker_reason_counts: getFactoryWorkItemBlockerReasonCounts(project.id),
       _work_item_blocker_queue_stats: getFactoryWorkItemBlockerQueueStats(project.id),
       _work_item_blocker_queue_preview: getFactoryWorkItemBlockerQueuePreview(project.id),
+      _work_item_blocker_auto_recovery_stats: getFactoryWorkItemBlockerAutoRecoveryStats(project.id),
       open_work_item_count: countOpenFactoryWorkItemsFromStats(workItemStatusCounts),
     };
   };
@@ -1760,6 +1798,7 @@ function buildFactoryAutomationPlanData(args = {}) {
       _work_item_blocker_reason_counts: getFactoryWorkItemBlockerReasonCounts(project.id),
       _work_item_blocker_queue_stats: getFactoryWorkItemBlockerQueueStats(project.id),
       _work_item_blocker_queue_preview: getFactoryWorkItemBlockerQueuePreview(project.id),
+      _work_item_blocker_auto_recovery_stats: getFactoryWorkItemBlockerAutoRecoveryStats(project.id),
       open_work_item_count: countOpenFactoryWorkItemsFromStats(workItemStatusCounts),
     };
   });
@@ -2729,6 +2768,7 @@ async function handleFactoryStatus() {
       _work_item_blocker_reason_counts: getFactoryWorkItemBlockerReasonCounts(p.id),
       _work_item_blocker_queue_stats: getFactoryWorkItemBlockerQueueStats(p.id),
       _work_item_blocker_queue_preview: getFactoryWorkItemBlockerQueuePreview(p.id),
+      _work_item_blocker_auto_recovery_stats: getFactoryWorkItemBlockerAutoRecoveryStats(p.id),
       automation_readiness: automationReadiness,
       alert_badge: alertBadge,
       balance,
@@ -2773,6 +2813,7 @@ async function handleFactoryStatus() {
     _work_item_blocker_reason_counts,
     _work_item_blocker_queue_stats,
     _work_item_blocker_queue_preview,
+    _work_item_blocker_auto_recovery_stats,
     ...summary
   }) => summary);
 

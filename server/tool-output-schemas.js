@@ -46,6 +46,63 @@ const AUTOMATION_CONTROL_PLANE_STEP_SCHEMA = {
   ],
 };
 
+const WORK_ITEM_AUTO_RECOVERY_HINT_SCHEMA = {
+  type: 'object',
+  properties: {
+    strategy: { type: 'string' },
+    reason: { type: 'string' },
+    runs_on: { type: 'string' },
+    requires_project_work_enabled: { type: 'boolean' },
+    deferred_by_project_work_disabled: { type: 'boolean' },
+  },
+  required: [
+    'strategy',
+    'reason',
+    'runs_on',
+    'requires_project_work_enabled',
+    'deferred_by_project_work_disabled',
+  ],
+};
+
+const WORK_ITEM_AUTO_RECOVERY_CANDIDATE_SCHEMA = {
+  type: 'object',
+  properties: {
+    ...WORK_ITEM_AUTO_RECOVERY_HINT_SCHEMA.properties,
+    count: { type: 'number' },
+  },
+  required: [
+    ...WORK_ITEM_AUTO_RECOVERY_HINT_SCHEMA.required,
+    'count',
+  ],
+};
+
+const WORK_ITEM_BLOCKER_AUTO_RECOVERY_SUMMARY_SCHEMA = {
+  type: 'object',
+  properties: {
+    eligible_count: { type: 'number' },
+    fully_eligible: { type: 'boolean' },
+    candidates: {
+      type: 'array',
+      items: WORK_ITEM_AUTO_RECOVERY_CANDIDATE_SCHEMA,
+    },
+  },
+  required: ['eligible_count', 'fully_eligible', 'candidates'],
+};
+
+const WORK_ITEM_BLOCKER_PREVIEW_ITEM_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'number' },
+    title: { type: ['string', 'null'] },
+    priority: { type: 'number' },
+    reject_reason: { type: ['string', 'null'] },
+    created_at: { type: ['string', 'null'] },
+    updated_at: { type: ['string', 'null'] },
+    known_auto_recovery: WORK_ITEM_AUTO_RECOVERY_HINT_SCHEMA,
+  },
+  required: ['id', 'title', 'priority', 'reject_reason', 'created_at', 'updated_at'],
+};
+
 const AUTOMATION_READINESS_SCHEMA = {
   type: 'object',
   properties: {
@@ -128,19 +185,9 @@ const AUTOMATION_MANUAL_INTERVENTION_SCHEMA = {
               },
               oldest_items: {
                 type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'number' },
-                    title: { type: ['string', 'null'] },
-                    priority: { type: 'number' },
-                    reject_reason: { type: ['string', 'null'] },
-                    created_at: { type: ['string', 'null'] },
-                    updated_at: { type: ['string', 'null'] },
-                  },
-                  required: ['id', 'title', 'priority', 'reject_reason', 'created_at', 'updated_at'],
-                },
+                items: WORK_ITEM_BLOCKER_PREVIEW_ITEM_SCHEMA,
               },
+              known_auto_recovery: WORK_ITEM_BLOCKER_AUTO_RECOVERY_SUMMARY_SCHEMA,
             },
             required: ['project_id', 'project_name', 'status', 'count'],
           },
@@ -170,19 +217,9 @@ const AUTOMATION_MANUAL_INTERVENTION_SCHEMA = {
               },
               oldest_items: {
                 type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'number' },
-                    title: { type: ['string', 'null'] },
-                    priority: { type: 'number' },
-                    reject_reason: { type: ['string', 'null'] },
-                    created_at: { type: ['string', 'null'] },
-                    updated_at: { type: ['string', 'null'] },
-                  },
-                  required: ['id', 'title', 'priority', 'reject_reason', 'created_at', 'updated_at'],
-                },
+                items: WORK_ITEM_BLOCKER_PREVIEW_ITEM_SCHEMA,
               },
+              known_auto_recovery: WORK_ITEM_BLOCKER_AUTO_RECOVERY_SUMMARY_SCHEMA,
             },
             required: ['project_id', 'project_name', 'status', 'count'],
           },

@@ -375,6 +375,24 @@ function getCount(counts, key) {
 
 const MAX_REJECT_REASON_COUNTS_PER_BLOCKER = 5;
 const MAX_WORK_ITEM_BLOCKER_PREVIEW_ITEMS = 3;
+const WORK_ITEM_AUTO_RECOVERY_DEFINITIONS = Object.freeze({
+  needs_review: Object.freeze({
+    stranded_needs_review_sweep: Object.freeze({
+      strategy: 'stranded_needs_review_sweep',
+      reason: 'zero_diff_across_retries',
+      runs_on: 'factory_tick',
+      requires_project_work_enabled: true,
+    }),
+  }),
+  escalation_exhausted: Object.freeze({
+    provider_exhaustion_reopen: Object.freeze({
+      strategy: 'provider_exhaustion_reopen',
+      reason: 'no_provider_chain',
+      runs_on: 'factory_tick',
+      requires_project_work_enabled: true,
+    }),
+  }),
+});
 
 function normalizeNullableTimestamp(value) {
   if (typeof value !== 'string') return null;
@@ -398,6 +416,62 @@ function normalizeRejectReasonCounts(project, status) {
     .slice(0, MAX_REJECT_REASON_COUNTS_PER_BLOCKER);
 }
 
+function getKnownAutoRecoveryDefinition(status, rejectReason) {
+  const normalizedReason = typeof rejectReason === 'string'
+    ? rejectReason.trim()
+    : '';
+  if (!normalizedReason) return null;
+  if (status === 'needs_review' && normalizedReason === 'zero_diff_across_retries') {
+    return WORK_ITEM_AUTO_RECOVERY_DEFINITIONS.needs_review.stranded_needs_review_sweep;
+  }
+  if (
+    status === 'escalation_exhausted'
+    && /^escalation_exhausted:\s*no_provider_chain\b/i.test(normalizedReason)
+  ) {
+    return WORK_ITEM_AUTO_RECOVERY_DEFINITIONS.escalation_exhausted.provider_exhaustion_reopen;
+  }
+  return null;
+}
+
+function makeKnownAutoRecoveryHint(definition) {
+  return {
+    strategy: definition.strategy,
+    reason: definition.reason,
+    runs_on: definition.runs_on,
+    requires_project_work_enabled: definition.requires_project_work_enabled === true,
+    deferred_by_project_work_disabled: !isFactoryProjectWorkEnabled(),
+  };
+}
+
+function normalizeAutoRecoveryStats(project, status) {
+  const byStatus = project?._work_item_blocker_auto_recovery_stats
+    || project?.work_item_blocker_auto_recovery_stats
+    || {};
+  const row = byStatus?.[status];
+  return row && typeof row === 'object' ? row : {};
+}
+
+function buildKnownAutoRecoverySummary(project, status, totalCount) {
+  const definitions = WORK_ITEM_AUTO_RECOVERY_DEFINITIONS[status] || {};
+  const stats = normalizeAutoRecoveryStats(project, status);
+  const candidates = [];
+  for (const [key, definition] of Object.entries(definitions)) {
+    const count = getCount(stats, key);
+    if (count <= 0) continue;
+    candidates.push({
+      ...makeKnownAutoRecoveryHint(definition),
+      count,
+    });
+  }
+  if (candidates.length === 0) return null;
+  const eligibleCount = candidates.reduce((sum, candidate) => sum + candidate.count, 0);
+  return {
+    eligible_count: eligibleCount,
+    fully_eligible: eligibleCount >= totalCount && totalCount > 0,
+    candidates,
+  };
+}
+
 function normalizeWorkItemBlockerQueueStats(project, status) {
   const byStatus = project?._work_item_blocker_queue_stats
     || project?.work_item_blocker_queue_stats
@@ -419,18 +493,26 @@ function normalizeWorkItemBlockerQueuePreview(project, status) {
     || {};
   const rows = Array.isArray(byStatus?.[status]) ? byStatus[status] : [];
   return rows
-    .map((row) => ({
-      id: Number.isFinite(Number(row?.id)) ? Number(row.id) : null,
-      title: typeof row?.title === 'string' && row.title.trim()
-        ? row.title
-        : null,
-      priority: Number.isFinite(Number(row?.priority)) ? Number(row.priority) : 0,
-      reject_reason: typeof row?.reject_reason === 'string' && row.reject_reason.trim()
+    .map((row) => {
+      const rejectReason = typeof row?.reject_reason === 'string' && row.reject_reason.trim()
         ? row.reject_reason
-        : null,
-      created_at: normalizeNullableTimestamp(row?.created_at),
-      updated_at: normalizeNullableTimestamp(row?.updated_at),
-    }))
+        : null;
+      const item = {
+        id: Number.isFinite(Number(row?.id)) ? Number(row.id) : null,
+        title: typeof row?.title === 'string' && row.title.trim()
+          ? row.title
+          : null,
+        priority: Number.isFinite(Number(row?.priority)) ? Number(row.priority) : 0,
+        reject_reason: rejectReason,
+        created_at: normalizeNullableTimestamp(row?.created_at),
+        updated_at: normalizeNullableTimestamp(row?.updated_at),
+      };
+      const autoRecovery = getKnownAutoRecoveryDefinition(status, rejectReason);
+      if (autoRecovery) {
+        item.known_auto_recovery = makeKnownAutoRecoveryHint(autoRecovery);
+      }
+      return item;
+    })
     .filter((row) => row.id !== null)
     .slice(0, MAX_WORK_ITEM_BLOCKER_PREVIEW_ITEMS);
 }
@@ -453,6 +535,10 @@ function makeWorkItemBlockerEntry(project, status, count) {
   const oldestItems = normalizeWorkItemBlockerQueuePreview(project, status);
   if (oldestItems.length > 0) {
     entry.oldest_items = oldestItems;
+  }
+  const knownAutoRecovery = buildKnownAutoRecoverySummary(project, status, count);
+  if (knownAutoRecovery) {
+    entry.known_auto_recovery = knownAutoRecovery;
   }
   return entry;
 }

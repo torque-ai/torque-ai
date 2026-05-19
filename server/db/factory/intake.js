@@ -511,6 +511,39 @@ function getOperatorOwnedQueuePreview(project_id, { limitPerStatus = 3 } = {}) {
   return preview;
 }
 
+function getOperatorOwnedAutoRecoveryStats(project_id) {
+  if (!project_id) throw new Error('project_id is required');
+  const row = db.prepare(`
+    SELECT
+      SUM(CASE
+        WHEN status = 'needs_review'
+          AND TRIM(COALESCE(reject_reason, '')) = 'zero_diff_across_retries'
+        THEN 1 ELSE 0
+      END) as stranded_needs_review_sweep,
+      SUM(CASE
+        WHEN status = 'escalation_exhausted'
+          AND LOWER(TRIM(COALESCE(reject_reason, ''))) LIKE 'escalation_exhausted: no_provider_chain%'
+        THEN 1 ELSE 0
+      END) as provider_exhaustion_reopen
+    FROM factory_work_items
+    WHERE project_id = ?
+      AND status IN ('needs_review', 'escalation_exhausted')
+  `).get(project_id);
+
+  return {
+    needs_review: {
+      stranded_needs_review_sweep: Number.isFinite(Number(row?.stranded_needs_review_sweep))
+        ? Number(row.stranded_needs_review_sweep)
+        : 0,
+    },
+    escalation_exhausted: {
+      provider_exhaustion_reopen: Number.isFinite(Number(row?.provider_exhaustion_reopen))
+        ? Number(row.provider_exhaustion_reopen)
+        : 0,
+    },
+  };
+}
+
 function createFromFindings(project_id, findings, source) {
   const created = [];
   const skipped = [];
@@ -638,6 +671,7 @@ module.exports = {
   getOperatorOwnedReasonStats,
   getOperatorOwnedQueueStats,
   getOperatorOwnedQueuePreview,
+  getOperatorOwnedAutoRecoveryStats,
   createFromFindings,
   VALID_SOURCES,
   VALID_STATUSES,

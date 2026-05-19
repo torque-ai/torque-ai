@@ -1856,7 +1856,7 @@ describe('factory_status', () => {
       status: 'escalation_exhausted',
     });
     factoryIntake.updateWorkItem(exhaustedB.id, {
-      reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
+      reject_reason: 'escalation_exhausted: no_provider_chain after 3x same-shape (cannot_generate_plan)',
     });
     const secondExhaustedB = factoryIntake.createWorkItem({
       project_id: 'project-review-breakdown-b',
@@ -1923,6 +1923,20 @@ describe('factory_status', () => {
                 count: 1,
               },
             ],
+            known_auto_recovery: {
+              eligible_count: 1,
+              fully_eligible: true,
+              candidates: [
+                {
+                  strategy: 'stranded_needs_review_sweep',
+                  reason: 'zero_diff_across_retries',
+                  runs_on: 'factory_tick',
+                  requires_project_work_enabled: true,
+                  deferred_by_project_work_disabled: false,
+                  count: 1,
+                },
+              ],
+            },
             oldest_items: [
               {
                 id: reviewA.id,
@@ -1931,6 +1945,13 @@ describe('factory_status', () => {
                 reject_reason: 'zero_diff_across_retries',
                 created_at: '2026-05-01T10:00:00.000Z',
                 updated_at: '2026-05-01T11:00:00.000Z',
+                known_auto_recovery: {
+                  strategy: 'stranded_needs_review_sweep',
+                  reason: 'zero_diff_across_retries',
+                  runs_on: 'factory_tick',
+                  requires_project_work_enabled: true,
+                  deferred_by_project_work_disabled: false,
+                },
               },
             ],
           },
@@ -1969,20 +1990,45 @@ describe('factory_status', () => {
             oldest_created_at: '2026-05-03T10:00:00.000Z',
             oldest_updated_at: '2026-05-03T11:00:00.000Z',
             newest_updated_at: '2026-05-05T10:00:00.000Z',
-            reject_reason_counts: [
+            reject_reason_counts: expect.arrayContaining([
+              {
+                reject_reason: 'escalation_exhausted: no_provider_chain after 3x same-shape (cannot_generate_plan)',
+                count: 1,
+              },
               {
                 reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
-                count: 2,
+                count: 1,
               },
-            ],
+            ]),
+            known_auto_recovery: {
+              eligible_count: 1,
+              fully_eligible: false,
+              candidates: [
+                {
+                  strategy: 'provider_exhaustion_reopen',
+                  reason: 'no_provider_chain',
+                  runs_on: 'factory_tick',
+                  requires_project_work_enabled: true,
+                  deferred_by_project_work_disabled: false,
+                  count: 1,
+                },
+              ],
+            },
             oldest_items: [
               {
                 id: exhaustedB.id,
                 title: 'Escalation exhausted B',
                 priority: 50,
-                reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
+                reject_reason: 'escalation_exhausted: no_provider_chain after 3x same-shape (cannot_generate_plan)',
                 created_at: '2026-05-03T10:00:00.000Z',
                 updated_at: '2026-05-03T11:00:00.000Z',
+                known_auto_recovery: {
+                  strategy: 'provider_exhaustion_reopen',
+                  reason: 'no_provider_chain',
+                  runs_on: 'factory_tick',
+                  requires_project_work_enabled: true,
+                  deferred_by_project_work_disabled: false,
+                },
               },
               {
                 id: secondExhaustedB.id,
