@@ -3,6 +3,7 @@ const os = require('os');
 const fs = require('fs');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
 const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
+const { enableTestProviders } = require('./test-helpers');
 
 const TEMPLATE_BUF = getVitestTemplateBufferPath();
 
@@ -95,6 +96,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   db.resetForTest(templateBuffer);
+  enableTestProviders(db, ['claude-cli', 'ollama']);
   bindCore();
   core.setProviderScoring(null);
   core.setCircuitBreaker(null);
@@ -599,7 +601,7 @@ describe('db/provider/routing-core', () => {
       expect(result.reason).toContain(`Task template '${name}'`);
     });
 
-    it('preserves task template-bound ollama routing when Ollama is unhealthy', () => {
+    it('falls through from task template-bound ollama routing when Ollama is unhealthy', () => {
       const name = `Task Template Keeps Ollama ${testSuffix}`;
       templateStore.createTemplate({
         name,
@@ -614,8 +616,8 @@ describe('db/provider/routing-core', () => {
         { taskMetadata: { _routing_template: name } },
       );
 
-      expect(result.provider).toBe('ollama');
-      expect(result.reason).toContain(`Task template '${name}'`);
+      expect(result.provider).toBe('codex');
+      expect(result.reason).toContain("Matched extension rule 'lang-javascript'");
       expect(result.fallbackApplied).toBeUndefined();
     });
 

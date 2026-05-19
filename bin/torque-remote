@@ -2004,7 +2004,8 @@ unset _arg _is_internal_fast_path
 
 # ---- Prerequisites ----
 
-command -v ssh &>/dev/null || die "ssh is required but not found in PATH"
+SSH_COMMAND="${TORQUE_COORD_SSH_BIN:-ssh}"
+command -v "$SSH_COMMAND" &>/dev/null || die "ssh is required but not found in PATH"
 
 # ---- Usage ----
 
@@ -2420,7 +2421,7 @@ probe_remote_availability() {
     probe_ssh_opts+=(-i "$SSH_KEY_PATH")
   fi
 
-  if ssh "${probe_ssh_opts[@]}" "$SSH_USER@$SSH_HOST" "echo ok" >/dev/null 2>&1; then
+  if "$SSH_COMMAND" "${probe_ssh_opts[@]}" "$SSH_USER@$SSH_HOST" "echo ok" >/dev/null 2>&1; then
     printf 'available:%s@%s\n' "$SSH_USER" "$SSH_HOST"
     return 0
   fi

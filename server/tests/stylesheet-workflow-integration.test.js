@@ -1,6 +1,7 @@
 'use strict';
 
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
+const { enableTestProviders } = require('./test-helpers');
 
 let db;
 let testDir;
@@ -9,6 +10,7 @@ beforeAll(() => {
   const env = setupTestDb('stylesheet-workflow-integration');
   db = env.db;
   testDir = env.testDir;
+  enableTestProviders(db, ['ollama']);
 });
 
 afterAll(() => teardownTestDb());

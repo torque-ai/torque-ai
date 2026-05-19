@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { enableTestProviders } = require('./test-helpers');
 const { handleRunWorkflowSpec } = require('../handlers/workflow-spec-handlers');
 
 let db, testDir;
@@ -10,6 +11,7 @@ beforeAll(() => {
   const env = setupTestDbOnly('wf-spec-integration');
   db = env.db;
   testDir = env.testDir;
+  enableTestProviders(db, ['ollama']);
 });
 afterAll(() => teardownTestDb());
 

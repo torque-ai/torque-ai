@@ -4428,6 +4428,7 @@ function readEnabledProviderConfigChain() {
   try {
     const db = getDatabaseHandle();
     if (!db || typeof db.prepare !== 'function') return [];
+    // @full-scan: provider_config is a tiny registry table; ordering needs all enabled rows.
     const rows = db.prepare(`
       SELECT provider
       FROM provider_config

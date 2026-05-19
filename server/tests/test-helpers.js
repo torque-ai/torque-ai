@@ -58,6 +58,21 @@ function createConfigMock(overrides = {}) {
   return (key) => config[key] !== undefined ? config[key] : null;
 }
 
+function getRawDbHandle(db) {
+  if (db && typeof db.getDbInstance === 'function') return db.getDbInstance();
+  if (db && typeof db.getDb === 'function') return db.getDb();
+  return db;
+}
+
+function enableTestProviders(db, providers) {
+  const rawDb = getRawDbHandle(db);
+  if (!rawDb || typeof rawDb.prepare !== 'function') return;
+  const stmt = rawDb.prepare('UPDATE provider_config SET enabled = 1 WHERE provider = ?');
+  for (const provider of providers) {
+    stmt.run(provider);
+  }
+}
+
 /**
  * Create a unique test ID
  */
@@ -91,4 +106,12 @@ function extractTaskId(result) {
   return null;
 }
 
-module.exports = { uniqueId, sleep, extractTaskId, TEST_MODELS, TEST_CONFIG_DEFAULTS, createConfigMock };
+module.exports = {
+  uniqueId,
+  sleep,
+  extractTaskId,
+  TEST_MODELS,
+  TEST_CONFIG_DEFAULTS,
+  createConfigMock,
+  enableTestProviders,
+};

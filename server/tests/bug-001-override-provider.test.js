@@ -247,7 +247,7 @@ describe('BUG-001: explicit provider locking survives queue_task and v2 retry', 
   afterAll(() => { teardownTestDb(); });
 
   it('queue_task with explicit provider preserves user_provider_override', async () => {
-    const explicitProvider = db.getDefaultProvider() === 'codex' ? 'ollama' : 'codex';
+    const explicitProvider = 'codex-spark';
     const result = await safeTool('queue_task', {
       task: 'Queue task should keep explicit provider lock',
       provider: explicitProvider,
@@ -298,7 +298,7 @@ describe('BUG-001: explicit provider locking survives queue_task and v2 retry', 
   });
 
   it('v2 retry clone of explicitly-provided task preserves the flag', async () => {
-    const explicitProvider = db.getDefaultProvider() === 'codex' ? 'ollama' : 'codex';
+    const explicitProvider = 'codex-spark';
     const originalTaskId = randomUUID();
     db.createTask({
       id: originalTaskId,

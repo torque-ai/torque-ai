@@ -13,6 +13,7 @@
 
 const { randomUUID } = require('crypto');
 const { setupE2eDb, teardownE2eDb, registerMockHost } = require('./e2e-helpers');
+const { enableTestProviders } = require('./test-helpers');
 const { installStableTaskWorkspace } = require('./task-workspace-helpers');
 
 let ctx, db, tm;
@@ -23,6 +24,7 @@ function setup() {
   db = ctx.db;
   tm = ctx.tm;
   db.setConfig('max_concurrent', '10');
+  enableTestProviders(db, ['ollama']);
 }
 
 async function cleanup() {

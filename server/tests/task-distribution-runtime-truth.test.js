@@ -103,6 +103,8 @@ describe('task distribution runtime truth', () => {
       db.setConfig('duplicate_check_enabled', '0');
       db.setConfig('budget_check_enabled', '0');
       db.updateProvider('claude-cli', { enabled: 0 });
+      db.updateProvider('codex', { enabled: 0 });
+      db.updateProvider('codex-spark', { enabled: 0 });
     });
 
     afterEach(async () => {

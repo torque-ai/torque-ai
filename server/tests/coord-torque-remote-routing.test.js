@@ -116,12 +116,15 @@ describe('torque-remote coord routing decision', () => {
     const sshScriptPath = path.join(fakeSshDir, 'ssh');
     const argvFileForBash = toBashPath(fakeSshArgvFile);
     fs.writeFileSync(sshScriptPath, [
-      '#!/usr/bin/env bash',
+      '#!/bin/sh',
       `printf '%s\\n' "$@" > "${argvFileForBash}"`,
       `exit ${exitCode}`,
     ].join('\n'));
     fs.chmodSync(sshScriptPath, 0o755);
-    return { PATH: `${toBashPath(fakeSshDir)}:${process.env.PATH || ''}` };
+    return {
+      PATH: `${toBashPath(fakeSshDir)}:${process.env.PATH || ''}`,
+      TORQUE_COORD_SSH_BIN: toBashPath(sshScriptPath),
+    };
   }
 
   it('prints "local" when 127.0.0.1:9395 responds', async () => {

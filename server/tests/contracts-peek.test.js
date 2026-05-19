@@ -302,8 +302,15 @@ describe('contracts/peek', () => {
         name: 'browser',
         description: 'Browser capture via Chrome DevTools Protocol (Playwright/Puppeteer)',
         platforms: ['windows', 'linux', 'darwin'],
-        capabilities: ['window_capture', 'dom_tree', 'network_interception'],
-        status: 'planned',
+        capabilities: [
+          'accessibility_tree',
+          'dom_tree',
+          'browser_actions',
+          'multi_tab',
+          'storage_state',
+          'vision_fallback',
+        ],
+        status: 'implemented',
       });
     });
 
