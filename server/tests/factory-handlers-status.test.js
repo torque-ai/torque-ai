@@ -1867,6 +1867,15 @@ describe('factory_status', () => {
     factoryIntake.updateWorkItem(secondExhaustedB.id, {
       reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
     });
+    const restoredExhaustedB = factoryIntake.createWorkItem({
+      project_id: 'project-review-breakdown-b',
+      source: 'manual',
+      title: 'Restored escalation exhausted B',
+      status: 'escalation_exhausted',
+    });
+    factoryIntake.updateWorkItem(restoredExhaustedB.id, {
+      reject_reason: 'escalation_exhausted: restored terminal chain_exhausted after stale needs_replan resurrection',
+    });
     const setWorkItemTimes = db.prepare(`
       UPDATE factory_work_items
       SET created_at = ?, updated_at = ?
@@ -1892,6 +1901,11 @@ describe('factory_status', () => {
       '2026-05-05T10:00:00.000Z',
       secondExhaustedB.id
     );
+    setWorkItemTimes.run(
+      '2026-05-06T10:00:00.000Z',
+      '2026-05-06T11:00:00.000Z',
+      restoredExhaustedB.id
+    );
 
     const result = await safeTool('factory_automation_plan', {});
 
@@ -1905,7 +1919,7 @@ describe('factory_status', () => {
       ]),
       counts: {
         needs_review_work_items: 2,
-        escalation_exhausted_work_items: 2,
+        escalation_exhausted_work_items: 3,
       },
       auto_recovery_coverage: {
         needs_review: {
@@ -1922,17 +1936,12 @@ describe('factory_status', () => {
           fully_covered: false,
         },
         escalation_exhausted: {
-          total_count: 2,
-          eligible_count: 1,
-          unmatched_count: 1,
-          unmatched_reasons: [
-            {
-              reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
-              count: 1,
-            },
-          ],
+          total_count: 3,
+          eligible_count: 3,
+          unmatched_count: 0,
+          unmatched_reasons: [],
           deferred_count: 0,
-          fully_covered: false,
+          fully_covered: true,
         },
       },
       work_item_blockers: {
@@ -2020,10 +2029,10 @@ describe('factory_status', () => {
             project_id: 'project-review-breakdown-b',
             project_name: 'Review Breakdown B',
             status: 'escalation_exhausted',
-            count: 2,
+            count: 3,
             oldest_created_at: '2026-05-03T10:00:00.000Z',
             oldest_updated_at: '2026-05-03T11:00:00.000Z',
-            newest_updated_at: '2026-05-05T10:00:00.000Z',
+            newest_updated_at: '2026-05-06T11:00:00.000Z',
             reject_reason_counts: expect.arrayContaining([
               {
                 reject_reason: 'escalation_exhausted: no_provider_chain after 3x same-shape (cannot_generate_plan)',
@@ -2033,27 +2042,25 @@ describe('factory_status', () => {
                 reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
                 count: 1,
               },
+              {
+                reject_reason: 'escalation_exhausted: restored terminal chain_exhausted after stale needs_replan resurrection',
+                count: 1,
+              },
             ]),
             known_auto_recovery: {
-              eligible_count: 1,
-              fully_eligible: false,
+              eligible_count: 3,
+              fully_eligible: true,
               candidates: [
                 {
                   strategy: 'provider_exhaustion_reopen',
-                  reason: 'no_provider_chain',
+                  reason: 'provider_chain_exhausted',
                   runs_on: 'factory_tick',
                   requires_project_work_enabled: true,
                   deferred_by_project_work_disabled: false,
-                  count: 1,
+                  count: 3,
                 },
               ],
             },
-            unmatched_auto_recovery_reasons: [
-              {
-                reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
-                count: 1,
-              },
-            ],
             oldest_items: [
               {
                 id: exhaustedB.id,
@@ -2064,7 +2071,7 @@ describe('factory_status', () => {
                 updated_at: '2026-05-03T11:00:00.000Z',
                 known_auto_recovery: {
                   strategy: 'provider_exhaustion_reopen',
-                  reason: 'no_provider_chain',
+                  reason: 'provider_chain_exhausted',
                   runs_on: 'factory_tick',
                   requires_project_work_enabled: true,
                   deferred_by_project_work_disabled: false,
@@ -2077,6 +2084,28 @@ describe('factory_status', () => {
                 reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
                 created_at: '2026-05-04T10:00:00.000Z',
                 updated_at: '2026-05-05T10:00:00.000Z',
+                known_auto_recovery: {
+                  strategy: 'provider_exhaustion_reopen',
+                  reason: 'provider_chain_exhausted',
+                  runs_on: 'factory_tick',
+                  requires_project_work_enabled: true,
+                  deferred_by_project_work_disabled: false,
+                },
+              },
+              {
+                id: restoredExhaustedB.id,
+                title: 'Restored escalation exhausted B',
+                priority: 50,
+                reject_reason: 'escalation_exhausted: restored terminal chain_exhausted after stale needs_replan resurrection',
+                created_at: '2026-05-06T10:00:00.000Z',
+                updated_at: '2026-05-06T11:00:00.000Z',
+                known_auto_recovery: {
+                  strategy: 'provider_exhaustion_reopen',
+                  reason: 'provider_chain_exhausted',
+                  runs_on: 'factory_tick',
+                  requires_project_work_enabled: true,
+                  deferred_by_project_work_disabled: false,
+                },
               },
             ],
           },

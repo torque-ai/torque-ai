@@ -375,6 +375,8 @@ function getCount(counts, key) {
 
 const MAX_REJECT_REASON_COUNTS_PER_BLOCKER = 5;
 const MAX_WORK_ITEM_BLOCKER_PREVIEW_ITEMS = 3;
+const PROVIDER_CHAIN_EXHAUSTION_REJECT_REASON_RE =
+  /^escalation_exhausted:\s*(?:restored terminal\s+)?(?:no_provider_chain|chain_exhausted)\b/i;
 const WORK_ITEM_AUTO_RECOVERY_DEFINITIONS = Object.freeze({
   needs_review: Object.freeze({
     stranded_needs_review_sweep: Object.freeze({
@@ -387,7 +389,7 @@ const WORK_ITEM_AUTO_RECOVERY_DEFINITIONS = Object.freeze({
   escalation_exhausted: Object.freeze({
     provider_exhaustion_reopen: Object.freeze({
       strategy: 'provider_exhaustion_reopen',
-      reason: 'no_provider_chain',
+      reason: 'provider_chain_exhausted',
       runs_on: 'factory_tick',
       requires_project_work_enabled: true,
     }),
@@ -430,7 +432,7 @@ function getKnownAutoRecoveryDefinition(status, rejectReason) {
   }
   if (
     status === 'escalation_exhausted'
-    && /^escalation_exhausted:\s*no_provider_chain\b/i.test(normalizedReason)
+    && PROVIDER_CHAIN_EXHAUSTION_REJECT_REASON_RE.test(normalizedReason)
   ) {
     return WORK_ITEM_AUTO_RECOVERY_DEFINITIONS.escalation_exhausted.provider_exhaustion_reopen;
   }

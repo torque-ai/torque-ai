@@ -522,7 +522,12 @@ function getOperatorOwnedAutoRecoveryStats(project_id) {
       END) as stranded_needs_review_sweep,
       SUM(CASE
         WHEN status = 'escalation_exhausted'
-          AND LOWER(TRIM(COALESCE(reject_reason, ''))) LIKE 'escalation_exhausted: no_provider_chain%'
+          AND (
+            LOWER(TRIM(COALESCE(reject_reason, ''))) LIKE 'escalation_exhausted: no_provider_chain%'
+            OR LOWER(TRIM(COALESCE(reject_reason, ''))) LIKE 'escalation_exhausted: chain_exhausted%'
+            OR LOWER(TRIM(COALESCE(reject_reason, ''))) LIKE 'escalation_exhausted: restored terminal no_provider_chain%'
+            OR LOWER(TRIM(COALESCE(reject_reason, ''))) LIKE 'escalation_exhausted: restored terminal chain_exhausted%'
+          )
         THEN 1 ELSE 0
       END) as provider_exhaustion_reopen
     FROM factory_work_items

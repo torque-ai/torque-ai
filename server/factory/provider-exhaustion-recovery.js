@@ -13,6 +13,8 @@ const RECOVERY_STRATEGY = 'provider_exhaustion_reopen';
 const DEFAULT_MAX_REOPENS_PER_PROJECT = 10;
 const DEFAULT_SCAN_LIMIT = 250;
 const RECOVERY_HISTORY_LIMIT = 10;
+const PROVIDER_CHAIN_EXHAUSTION_REJECT_REASON_RE =
+  /^escalation_exhausted:\s*(?:restored terminal\s+)?(no_provider_chain|chain_exhausted)\b/i;
 
 function parseJsonObject(value) {
   if (!value) return {};
@@ -28,6 +30,17 @@ function parseJsonObject(value) {
 
 function normalizeProviderName(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function getRejectReasonEvidence(rejectReason) {
+  const normalized = String(rejectReason || '').trim();
+  const match = PROVIDER_CHAIN_EXHAUSTION_REJECT_REASON_RE.exec(normalized);
+  if (!match) return null;
+  return {
+    source: 'reject_reason',
+    exhaustion_kind: normalizeProviderName(match[1]),
+    reason_shape: normalized.match(/\(([^)]+)\)/)?.[1] || null,
+  };
 }
 
 function bindCapacityCheckStores(db) {
@@ -67,19 +80,16 @@ function getNoProviderChainEvidence(workItem) {
     return null;
   }
 
-  const rejectReason = String(workItem.reject_reason || '').trim();
-  if (/^escalation_exhausted:\s*no_provider_chain\b/i.test(rejectReason)) {
-    return {
-      source: 'reject_reason',
-      reason_shape: rejectReason.match(/\(([^)]+)\)/)?.[1] || null,
-    };
-  }
+  const rejectReasonEvidence = getRejectReasonEvidence(workItem.reject_reason);
+  if (rejectReasonEvidence) return rejectReasonEvidence;
 
   const origin = parseJsonObject(workItem.origin_json || workItem.origin);
   const lastEscalation = origin.last_escalation;
-  if (normalizeProviderName(lastEscalation?.kind) === 'no_provider_chain') {
+  const lastEscalationKind = normalizeProviderName(lastEscalation?.kind);
+  if (lastEscalationKind === 'no_provider_chain' || lastEscalationKind === 'chain_exhausted') {
     return {
       source: 'origin_last_escalation',
+      exhaustion_kind: lastEscalationKind,
       reason_shape: typeof lastEscalation.reason_shape === 'string'
         ? lastEscalation.reason_shape
         : null,
@@ -118,6 +128,7 @@ function buildRecoveredOrigin(workItem, evidence, nowIso) {
   const recovery = {
     recovered_at: nowIso,
     source: evidence.source,
+    exhaustion_kind: evidence.exhaustion_kind || null,
     reason_shape: evidence.reason_shape || null,
     previous_status: workItem.status,
     previous_reject_reason: workItem.reject_reason || null,
@@ -206,6 +217,7 @@ function recoverNoProviderChainExhaustedWorkItemsForProject({
       prior_status: workItem.status,
       prior_reject_reason: workItem.reject_reason || null,
       evidence_source: evidence.source,
+      exhaustion_kind: evidence.exhaustion_kind || null,
       reason_shape: evidence.reason_shape || null,
     };
     const historyJson = appendRecoveryHistory(workItem.recovery_history_json, historyEntry);
@@ -220,12 +232,13 @@ function recoverNoProviderChainExhaustedWorkItemsForProject({
       stage: RECOVERY_STAGE,
       actor: RECOVERY_ACTOR,
       action: RECOVERY_ACTION,
-      reasoning: 'Reopened a no-provider-chain exhausted work item after provider capacity became available and the project had no open work.',
+      reasoning: 'Reopened a provider-chain exhausted work item after provider capacity became available and the project had no open work.',
       inputs: {
         work_item_id: workItem.id,
         previous_status: workItem.status,
         previous_reject_reason: workItem.reject_reason || null,
         evidence_source: evidence.source,
+        exhaustion_kind: evidence.exhaustion_kind || null,
       },
       outcome: {
         work_item_id: workItem.id,

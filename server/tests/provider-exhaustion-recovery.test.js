@@ -85,39 +85,63 @@ afterEach(() => {
 });
 
 describe('provider-exhaustion recovery', () => {
-  it('identifies only no-provider-chain terminal escalations', () => {
+  it('identifies provider-chain terminal escalations', () => {
     const project = createProject();
     const noProvider = createExhaustedItem(project.id);
     const chain = createExhaustedItem(project.id, {
       kind: 'chain_exhausted',
       rejectReason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
     });
+    const restored = createExhaustedItem(project.id, {
+      kind: 'chain_exhausted',
+      rejectReason: 'escalation_exhausted: restored terminal chain_exhausted after stale needs_replan resurrection',
+    });
+    const unrelated = createExhaustedItem(project.id, {
+      kind: 'manual_review',
+      rejectReason: 'escalation_exhausted: manual_review_required',
+    });
 
     expect(getNoProviderChainEvidence(noProvider)).toMatchObject({
       source: 'reject_reason',
+      exhaustion_kind: 'no_provider_chain',
       reason_shape: 'cannot_generate_plan',
     });
-    expect(getNoProviderChainEvidence(chain)).toBeNull();
+    expect(getNoProviderChainEvidence(chain)).toMatchObject({
+      source: 'reject_reason',
+      exhaustion_kind: 'chain_exhausted',
+      reason_shape: 'cannot_generate_plan',
+    });
+    expect(getNoProviderChainEvidence(restored)).toMatchObject({
+      source: 'reject_reason',
+      exhaustion_kind: 'chain_exhausted',
+      reason_shape: null,
+    });
+    expect(getNoProviderChainEvidence(unrelated)).toBeNull();
   });
 
-  it('reopens no-provider-chain exhausted items when intake is empty and provider capacity recovered', () => {
+  it('reopens provider-chain exhausted items when intake is empty and provider capacity recovered', () => {
     const project = createProject();
     const first = createExhaustedItem(project.id, { priority: 80 });
     const second = createExhaustedItem(project.id, { priority: 70 });
+    const chain = createExhaustedItem(project.id, {
+      priority: 60,
+      kind: 'chain_exhausted',
+      rejectReason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
+    });
 
     const result = recoverNoProviderChainExhaustedWorkItemsForProject({
       db,
       project,
-      maxReopens: 2,
+      maxReopens: 3,
       hasRecoveredCapacity: () => true,
     });
 
     expect(result).toMatchObject({
-      scanned: 2,
-      reopened: 2,
-      reopened_work_item_ids: [first.id, second.id],
+      scanned: 3,
+      reopened: 3,
+      reopened_work_item_ids: [first.id, second.id, chain.id],
     });
-    for (const itemId of [first.id, second.id]) {
+    for (const itemId of [first.id, second.id, chain.id]) {
       const item = factoryIntake.getWorkItem(itemId);
       expect(item.status).toBe('pending');
       expect(item.reject_reason).toBeNull();
@@ -128,12 +152,13 @@ describe('provider-exhaustion recovery', () => {
       expect(item.origin.plan_generation_task_id).toBeUndefined();
       expect(item.origin.provider_exhaustion_recovery).toMatchObject({
         previous_status: 'escalation_exhausted',
-        previous_reject_reason: expect.stringContaining('no_provider_chain'),
+        previous_reject_reason: expect.stringMatching(/(?:no_provider_chain|chain_exhausted)/),
+        exhaustion_kind: expect.stringMatching(/^(?:no_provider_chain|chain_exhausted)$/),
       });
     }
     expect(factoryIntake.listOpenWorkItems({ project_id: project.id }).map((item) => item.id))
-      .toEqual([first.id, second.id]);
-    expect(countRecoveryDecisions()).toBe(2);
+      .toEqual([first.id, second.id, chain.id]);
+    expect(countRecoveryDecisions()).toBe(3);
   });
 
   it('uses the supplied db when checking recovered provider capacity', () => {
