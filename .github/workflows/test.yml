@@ -65,30 +65,21 @@ jobs:
           base_ref="origin/${{ github.base_ref }}"
           changed_file_list="$(mktemp)"
           git diff --name-only "${base_ref}...HEAD" -- . > "$changed_file_list"
-          CHANGED_FILE_LIST="$changed_file_list" node <<'NODE'
-          const fs = require('node:fs');
-          const { spawnSync } = require('node:child_process');
+          files=()
+          while IFS= read -r file; do
+            file="${file#server/}"
+            case "$file" in
+              *.js) files+=("$file") ;;
+            esac
+          done < "$changed_file_list"
 
-          const fileListPath = process.env.CHANGED_FILE_LIST;
-          const files = fs.readFileSync(fileListPath, 'utf8')
-            .split(/\r?\n/)
-            .map((file) => file.replace(/^server[\\/]/, ''))
-            .filter((file) => file.endsWith('.js'));
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No changed server JavaScript files to lint."
+            exit 0
+          fi
 
-          if (files.length === 0) {
-            console.log('No changed server JavaScript files to lint.');
-            process.exit(0);
-          }
-
-          console.log(`Linting ${files.length} changed server JavaScript file(s).`);
-          const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-          const result = spawnSync(npx, ['eslint', '--no-ignore', ...files], { stdio: 'inherit' });
-          if (result.error) {
-            console.error(result.error.message);
-            process.exit(1);
-          }
-          process.exit(result.status ?? 1);
-          NODE
+          echo "Linting ${#files[@]} changed server JavaScript file(s)."
+          npx eslint --no-ignore "${files[@]}"
         working-directory: server
 
       - name: Run server tests
