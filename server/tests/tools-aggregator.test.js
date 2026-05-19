@@ -24,6 +24,7 @@ function applyLiveFixup(toolName) {
   const fixups = {
     export_report_c_s_v: 'export_report_csv',
     export_report_j_s_o_n: 'export_report_json',
+    poll_git_hub_issues: 'poll_github_issues',
   };
   return fixups[toolName] || toolName;
 }
@@ -286,6 +287,19 @@ describe('tools.js aggregator source-loader', () => {
       expect(subject.mod.routeMap.has('export_report_json')).toBe(true);
       expect(subject.mod.routeMap.has('export_report_j_s_o_n')).toBe(false);
       expect(subject.mod.routeMap.get('export_report_json')).toBe(handleExportReportJSON);
+    });
+
+    it('applies the GitHub fixup for handlePollGitHubIssues', () => {
+      const handlePollGitHubIssues = vi.fn();
+      const subject = createToolsSubject({
+        modules: {
+          './handlers/factory-handlers': { handlePollGitHubIssues },
+        },
+      });
+
+      expect(subject.mod.routeMap.has('poll_github_issues')).toBe(true);
+      expect(subject.mod.routeMap.has('poll_git_hub_issues')).toBe(false);
+      expect(subject.mod.routeMap.get('poll_github_issues')).toBe(handlePollGitHubIssues);
     });
 
     it('warns and overwrites when two handlers map to the same tool name', () => {
