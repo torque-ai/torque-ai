@@ -1907,6 +1907,22 @@ describe('factory_status', () => {
         needs_review_work_items: 2,
         escalation_exhausted_work_items: 2,
       },
+      auto_recovery_coverage: {
+        needs_review: {
+          total_count: 2,
+          eligible_count: 1,
+          unmatched_count: 1,
+          deferred_count: 0,
+          fully_covered: false,
+        },
+        escalation_exhausted: {
+          total_count: 2,
+          eligible_count: 1,
+          unmatched_count: 1,
+          deferred_count: 0,
+          fully_covered: false,
+        },
+      },
       work_item_blockers: {
         needs_review: expect.arrayContaining([
           {

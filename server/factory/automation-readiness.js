@@ -472,6 +472,45 @@ function buildKnownAutoRecoverySummary(project, status, totalCount) {
   };
 }
 
+function buildAutoRecoveryCoverageForStatus(blockers) {
+  const entries = Array.isArray(blockers) ? blockers : [];
+  let totalCount = 0;
+  let eligibleCount = 0;
+  let deferredCount = 0;
+  for (const entry of entries) {
+    const count = getCount(entry, 'count');
+    totalCount += count;
+    const autoRecovery = entry?.known_auto_recovery;
+    const candidates = Array.isArray(autoRecovery?.candidates) ? autoRecovery.candidates : [];
+    const entryEligible = Math.min(
+      count,
+      getCount(autoRecovery, 'eligible_count')
+    );
+    eligibleCount += entryEligible;
+    deferredCount += Math.min(
+      entryEligible,
+      candidates
+        .filter((candidate) => candidate?.deferred_by_project_work_disabled === true)
+        .reduce((sum, candidate) => sum + getCount(candidate, 'count'), 0)
+    );
+  }
+
+  return {
+    total_count: totalCount,
+    eligible_count: eligibleCount,
+    unmatched_count: Math.max(0, totalCount - eligibleCount),
+    deferred_count: deferredCount,
+    fully_covered: totalCount > 0 && eligibleCount >= totalCount,
+  };
+}
+
+function buildAutoRecoveryCoverage(workItemBlockers) {
+  return {
+    needs_review: buildAutoRecoveryCoverageForStatus(workItemBlockers?.needs_review),
+    escalation_exhausted: buildAutoRecoveryCoverageForStatus(workItemBlockers?.escalation_exhausted),
+  };
+}
+
 function normalizeWorkItemBlockerQueueStats(project, status) {
   const byStatus = project?._work_item_blocker_queue_stats
     || project?.work_item_blocker_queue_stats
@@ -617,6 +656,7 @@ function buildManualInterventionSummary(projects, readiness, taskQueue = null, s
       needs_review: workItemBlockers.needs_review.slice(0, 20),
       escalation_exhausted: workItemBlockers.escalation_exhausted.slice(0, 20),
     },
+    auto_recovery_coverage: buildAutoRecoveryCoverage(workItemBlockers),
   };
 }
 

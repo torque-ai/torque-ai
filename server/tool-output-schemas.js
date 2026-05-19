@@ -89,6 +89,27 @@ const WORK_ITEM_BLOCKER_AUTO_RECOVERY_SUMMARY_SCHEMA = {
   required: ['eligible_count', 'fully_eligible', 'candidates'],
 };
 
+const WORK_ITEM_AUTO_RECOVERY_COVERAGE_ENTRY_SCHEMA = {
+  type: 'object',
+  properties: {
+    total_count: { type: 'number' },
+    eligible_count: { type: 'number' },
+    unmatched_count: { type: 'number' },
+    deferred_count: { type: 'number' },
+    fully_covered: { type: 'boolean' },
+  },
+  required: ['total_count', 'eligible_count', 'unmatched_count', 'deferred_count', 'fully_covered'],
+};
+
+const WORK_ITEM_AUTO_RECOVERY_COVERAGE_SCHEMA = {
+  type: 'object',
+  properties: {
+    needs_review: WORK_ITEM_AUTO_RECOVERY_COVERAGE_ENTRY_SCHEMA,
+    escalation_exhausted: WORK_ITEM_AUTO_RECOVERY_COVERAGE_ENTRY_SCHEMA,
+  },
+  required: ['needs_review', 'escalation_exhausted'],
+};
+
 const WORK_ITEM_BLOCKER_PREVIEW_ITEM_SCHEMA = {
   type: 'object',
   properties: {
@@ -227,8 +248,9 @@ const AUTOMATION_MANUAL_INTERVENTION_SCHEMA = {
       },
       required: ['needs_review', 'escalation_exhausted'],
     },
+    auto_recovery_coverage: WORK_ITEM_AUTO_RECOVERY_COVERAGE_SCHEMA,
   },
-  required: ['required', 'reason_codes', 'counts', 'project_ids', 'work_item_blockers'],
+  required: ['required', 'reason_codes', 'counts', 'project_ids', 'work_item_blockers', 'auto_recovery_coverage'],
 };
 
 const AUTOMATION_READINESS_SUMMARY_SCHEMA = {
