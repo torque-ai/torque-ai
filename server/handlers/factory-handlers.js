@@ -908,8 +908,52 @@ function getFactoryWorkItemStatusCounts(projectId) {
   }
 }
 
+function normalizeFactoryWorkItemBlockerReasonCounts(stats) {
+  const normalized = {
+    needs_review: [],
+    escalation_exhausted: [],
+  };
+  for (const status of Object.keys(normalized)) {
+    const rows = Array.isArray(stats?.[status]) ? stats[status] : [];
+    normalized[status] = rows
+      .map((row) => ({
+        reject_reason: typeof row?.reject_reason === 'string' && row.reject_reason.trim()
+          ? row.reject_reason
+          : null,
+        count: Number.isFinite(Number(row?.count)) ? Number(row.count) : 0,
+      }))
+      .filter((row) => row.count > 0);
+  }
+  return normalized;
+}
+
+function getFactoryWorkItemBlockerReasonCounts(projectId) {
+  try {
+    return normalizeFactoryWorkItemBlockerReasonCounts(
+      factoryIntake.getOperatorOwnedReasonStats(projectId)
+    );
+  } catch (error) {
+    logger.debug('Failed to count factory operator-owned work item reasons', {
+      err: error.message,
+      project_id: projectId,
+    });
+    return {
+      needs_review: [],
+      escalation_exhausted: [],
+    };
+  }
+}
+
 function countOpenFactoryWorkItems(projectId) {
   return countOpenFactoryWorkItemsFromStats(getFactoryWorkItemStatusCounts(projectId));
+}
+
+function stripFactoryAutomationPrivateFields(project) {
+  if (!project || typeof project !== 'object') {
+    return project;
+  }
+  const { _work_item_blocker_reason_counts, ...publicProject } = project;
+  return publicProject;
 }
 
 function aggregateFactoryWorkItemStatusCounts(projects) {
@@ -1551,6 +1595,7 @@ async function handleListFactoryProjects(args = {}) {
       ...project,
       automation_readiness: summarizeProjectAutomationReadiness(project),
       work_item_status_counts: workItemStatusCounts,
+      _work_item_blocker_reason_counts: getFactoryWorkItemBlockerReasonCounts(project.id),
       open_work_item_count: countOpenFactoryWorkItemsFromStats(workItemStatusCounts),
     };
   };
@@ -1588,7 +1633,7 @@ async function handleListFactoryProjects(args = {}) {
     }
     return summary;
   }));
-  const response = { projects: summaries };
+  const response = { projects: summaries.map(stripFactoryAutomationPrivateFields) };
   if (isIdleDiagnosisRequested(args)) {
     response.idle_diagnosis = buildFactoryIdleDiagnosisForProjects(summaries);
   }
@@ -1620,6 +1665,7 @@ function buildFactoryAutomationPlanData(args = {}) {
       loop_state: normalizeProjectLoopState(project.loop_state),
       automation_readiness: summarizeProjectAutomationReadiness(project),
       work_item_status_counts: workItemStatusCounts,
+      _work_item_blocker_reason_counts: getFactoryWorkItemBlockerReasonCounts(project.id),
       open_work_item_count: countOpenFactoryWorkItemsFromStats(workItemStatusCounts),
     };
   });
@@ -1643,6 +1689,8 @@ function buildFactoryAutomationPlanData(args = {}) {
         : 'Factory automation controls are ready, but operator-owned work or scheduler arming still needs intervention.')
       : `${summary.blocked_projects} project${summary.blocked_projects === 1 ? '' : 's'} need control-plane changes before hands-off cycling.`);
 
+  const publicVisibleProjects = visibleProjects.map(stripFactoryAutomationPrivateFields);
+
   return {
     ready: summary.ready,
     hands_off_ready: summary.hands_off_ready,
@@ -1658,7 +1706,7 @@ function buildFactoryAutomationPlanData(args = {}) {
     needs_replan_work_items: workItemStatusCounts.needs_replan || 0,
     manual_intervention: summary.manual_intervention,
     control_plane_plan: summary.control_plane_plan,
-    projects: visibleProjects,
+    projects: publicVisibleProjects,
   };
 }
 
@@ -2584,6 +2632,7 @@ async function handleFactoryStatus() {
       consecutive_empty_cycles: Number(p.consecutive_empty_cycles) || 0,
       open_work_item_count: openWorkItemCount,
       work_item_status_counts: workItemStatusCounts,
+      _work_item_blocker_reason_counts: getFactoryWorkItemBlockerReasonCounts(p.id),
       automation_readiness: automationReadiness,
       alert_badge: alertBadge,
       balance,
@@ -2623,7 +2672,11 @@ async function handleFactoryStatus() {
     const lastActionMs = Date.parse(summary.loop_last_action_at);
     return Number.isFinite(lastActionMs) && (nowMs - lastActionMs) >= STALL_THRESHOLD_MS;
   }).length;
-  const publicSummaries = summaries.map(({ _has_non_terminal_batch_tasks, ...summary }) => summary);
+  const publicSummaries = summaries.map(({
+    _has_non_terminal_batch_tasks,
+    _work_item_blocker_reason_counts,
+    ...summary
+  }) => summary);
 
   logger.debug('Loaded factory_status productivity snapshot', {
     'x-cache-hit-count': cacheHitCount,

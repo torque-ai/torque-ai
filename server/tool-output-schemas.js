@@ -112,6 +112,17 @@ const AUTOMATION_MANUAL_INTERVENTION_SCHEMA = {
               project_name: { type: ['string', 'null'] },
               status: { type: 'string', enum: ['needs_review'] },
               count: { type: 'number' },
+              reject_reason_counts: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    reject_reason: { type: ['string', 'null'] },
+                    count: { type: 'number' },
+                  },
+                  required: ['reject_reason', 'count'],
+                },
+              },
             },
             required: ['project_id', 'project_name', 'status', 'count'],
           },
@@ -125,6 +136,17 @@ const AUTOMATION_MANUAL_INTERVENTION_SCHEMA = {
               project_name: { type: ['string', 'null'] },
               status: { type: 'string', enum: ['escalation_exhausted'] },
               count: { type: 'number' },
+              reject_reason_counts: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    reject_reason: { type: ['string', 'null'] },
+                    count: { type: 'number' },
+                  },
+                  required: ['reject_reason', 'count'],
+                },
+              },
             },
             required: ['project_id', 'project_name', 'status', 'count'],
           },

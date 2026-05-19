@@ -1835,23 +1835,37 @@ describe('factory_status', () => {
       configJson: JSON.stringify({ loop: { auto_continue: true } }),
       testDir,
     });
-    factoryIntake.createWorkItem({
+    const reviewA = factoryIntake.createWorkItem({
       project_id: 'project-review-breakdown-a',
       source: 'manual',
       title: 'Needs review A',
       status: 'needs_review',
     });
-    factoryIntake.createWorkItem({
+    factoryIntake.updateWorkItem(reviewA.id, { reject_reason: 'zero_diff_across_retries' });
+    const reviewB = factoryIntake.createWorkItem({
       project_id: 'project-review-breakdown-b',
       source: 'manual',
       title: 'Needs review B',
       status: 'needs_review',
     });
-    factoryIntake.createWorkItem({
+    factoryIntake.updateWorkItem(reviewB.id, { reject_reason: 'plan_quality_gate_rejected_after_intrabatch_retries' });
+    const exhaustedB = factoryIntake.createWorkItem({
       project_id: 'project-review-breakdown-b',
       source: 'manual',
       title: 'Escalation exhausted B',
       status: 'escalation_exhausted',
+    });
+    factoryIntake.updateWorkItem(exhaustedB.id, {
+      reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
+    });
+    const secondExhaustedB = factoryIntake.createWorkItem({
+      project_id: 'project-review-breakdown-b',
+      source: 'manual',
+      title: 'Escalation exhausted B again',
+      status: 'escalation_exhausted',
+    });
+    factoryIntake.updateWorkItem(secondExhaustedB.id, {
+      reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
     });
 
     const result = await safeTool('factory_automation_plan', {});
@@ -1866,7 +1880,7 @@ describe('factory_status', () => {
       ]),
       counts: {
         needs_review_work_items: 2,
-        escalation_exhausted_work_items: 1,
+        escalation_exhausted_work_items: 2,
       },
       work_item_blockers: {
         needs_review: expect.arrayContaining([
@@ -1875,12 +1889,24 @@ describe('factory_status', () => {
             project_name: 'Review Breakdown A',
             status: 'needs_review',
             count: 1,
+            reject_reason_counts: [
+              {
+                reject_reason: 'zero_diff_across_retries',
+                count: 1,
+              },
+            ],
           },
           {
             project_id: 'project-review-breakdown-b',
             project_name: 'Review Breakdown B',
             status: 'needs_review',
             count: 1,
+            reject_reason_counts: [
+              {
+                reject_reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
+                count: 1,
+              },
+            ],
           },
         ]),
         escalation_exhausted: [
@@ -1888,7 +1914,13 @@ describe('factory_status', () => {
             project_id: 'project-review-breakdown-b',
             project_name: 'Review Breakdown B',
             status: 'escalation_exhausted',
-            count: 1,
+            count: 2,
+            reject_reason_counts: [
+              {
+                reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
+                count: 2,
+              },
+            ],
           },
         ],
       },

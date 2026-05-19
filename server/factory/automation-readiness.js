@@ -373,13 +373,36 @@ function getCount(counts, key) {
   return Number.isFinite(value) ? value : 0;
 }
 
+const MAX_REJECT_REASON_COUNTS_PER_BLOCKER = 5;
+
+function normalizeRejectReasonCounts(project, status) {
+  const byStatus = project?._work_item_blocker_reason_counts
+    || project?.work_item_blocker_reason_counts
+    || {};
+  const rows = Array.isArray(byStatus?.[status]) ? byStatus[status] : [];
+  return rows
+    .map((row) => ({
+      reject_reason: typeof row?.reject_reason === 'string' && row.reject_reason.trim()
+        ? row.reject_reason
+        : null,
+      count: getCount(row, 'count'),
+    }))
+    .filter((row) => row.count > 0)
+    .slice(0, MAX_REJECT_REASON_COUNTS_PER_BLOCKER);
+}
+
 function makeWorkItemBlockerEntry(project, status, count) {
-  return {
+  const entry = {
     project_id: project?.id || null,
     project_name: project?.name || null,
     status,
     count,
   };
+  const rejectReasonCounts = normalizeRejectReasonCounts(project, status);
+  if (rejectReasonCounts.length > 0) {
+    entry.reject_reason_counts = rejectReasonCounts;
+  }
+  return entry;
 }
 
 function normalizeIdSet(values) {

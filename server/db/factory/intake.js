@@ -410,6 +410,32 @@ function getIntakeStats(project_id) {
   return stats;
 }
 
+function getOperatorOwnedReasonStats(project_id) {
+  if (!project_id) throw new Error('project_id is required');
+  const statuses = ['needs_review', 'escalation_exhausted'];
+  const rows = db.prepare(`
+    SELECT status, reject_reason, COUNT(*) as count
+    FROM factory_work_items
+    WHERE project_id = ?
+      AND status IN (?, ?)
+    GROUP BY status, reject_reason
+    ORDER BY status ASC, count DESC, reject_reason ASC
+  `).all(project_id, ...statuses);
+
+  const stats = {
+    needs_review: [],
+    escalation_exhausted: [],
+  };
+  for (const row of rows) {
+    if (!statuses.includes(row.status)) continue;
+    stats[row.status].push({
+      reject_reason: row.reject_reason || null,
+      count: row.count,
+    });
+  }
+  return stats;
+}
+
 function createFromFindings(project_id, findings, source) {
   const created = [];
   const skipped = [];
@@ -534,6 +560,7 @@ module.exports = {
   findRecentDuplicateWorkItems,
   linkItems,
   getIntakeStats,
+  getOperatorOwnedReasonStats,
   createFromFindings,
   VALID_SOURCES,
   VALID_STATUSES,
