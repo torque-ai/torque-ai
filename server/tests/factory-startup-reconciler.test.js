@@ -184,13 +184,19 @@ describe('factory startup reconciler', () => {
     calls = null;
   });
 
-  function registerRunningProject({ config, loopState = LOOP_STATES.IDLE, batchId = null, pausedAtStage = null } = {}) {
+  function registerRunningProject({
+    config,
+    loopState = LOOP_STATES.IDLE,
+    batchId = null,
+    pausedAtStage = null,
+    trustLevel = 'supervised',
+  } = {}) {
     const projectDir = path.join(tempDir, `project-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     fs.mkdirSync(projectDir, { recursive: true });
     const project = factoryHealth.registerProject({
       name: 'Startup Reconciler Project',
       path: projectDir,
-      trust_level: 'supervised',
+      trust_level: trustLevel,
       config,
     });
     return factoryHealth.updateProject(project.id, {
@@ -227,8 +233,28 @@ describe('factory startup reconciler', () => {
     `).run(taskId, status, JSON.stringify([`factory:batch_id=${batchId}`]));
   }
 
-  it('advances a coherent running project once without starting a new loop', async () => {
+  it('leaves a coherent running project parked when automation controls are not ready', async () => {
     const project = registerRunningProject();
+    const instance = createInstance(project, { state: LOOP_STATES.SENSE });
+    const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
+
+    const result = reconcileFactoryProjectsOnStartup();
+    await flushImmediate();
+
+    expect(result).toMatchObject({
+      reconciled: true,
+      actions: { projects_scanned: 1, advanced: 0, restarted: 0, skipped: 1 },
+    });
+    expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeNull();
+    expect(calls.some((call) => call.type === 'advance')).toBe(false);
+    expect(calls.some((call) => call.type === 'start')).toBe(false);
+  });
+
+  it('advances an automation-ready active project once without starting a new loop', async () => {
+    const project = registerRunningProject({
+      trustLevel: 'dark',
+      config: { loop: { auto_continue: true } },
+    });
     const instance = createInstance(project, { state: LOOP_STATES.SENSE });
     const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
 
@@ -240,14 +266,52 @@ describe('factory startup reconciler', () => {
       actions: { projects_scanned: 1, advanced: 1, restarted: 0 },
     });
     expect(calls.filter((call) => call.type === 'advance')).toEqual([
-      { type: 'advance', instanceId: instance.id, options: { autoAdvance: true } },
+      { type: 'advance', instanceId: instance.id, options: { autoAdvance: false } },
     ]);
     expect(calls.some((call) => call.type === 'start')).toBe(false);
   });
 
-  it('syncs stranded auto_advance projects to IDLE and starts a fresh loop', async () => {
+  it('parks automation-ready startup work when factory project work is disabled', async () => {
+    const previous = process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED;
+    process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED = '0';
+    try {
+      const activeProject = registerRunningProject({
+        name: 'startup-work-disabled-active',
+        trustLevel: 'dark',
+        config: { loop: { auto_continue: true } },
+      });
+      createInstance(activeProject, { state: LOOP_STATES.SENSE });
+      registerRunningProject({
+        name: 'startup-work-disabled-stranded',
+        trustLevel: 'dark',
+        config: { loop: { auto_continue: true } },
+        loopState: LOOP_STATES.EXECUTE,
+        batchId: 'factory-disabled-batch',
+      });
+      const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
+
+      const result = reconcileFactoryProjectsOnStartup();
+      await flushImmediate();
+
+      expect(result).toMatchObject({
+        reconciled: true,
+        actions: { projects_scanned: 2, advanced: 0, restarted: 0, skipped: 2 },
+      });
+      expect(calls.some((call) => call.type === 'advance')).toBe(false);
+      expect(calls.some((call) => call.type === 'start')).toBe(false);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED;
+      } else {
+        process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED = previous;
+      }
+    }
+  });
+
+  it('syncs stranded automation-ready projects to IDLE and starts a fresh loop', async () => {
     const project = registerRunningProject({
-      config: { loop: { auto_advance: true } },
+      trustLevel: 'dark',
+      config: { loop: { auto_continue: true } },
       loopState: LOOP_STATES.EXECUTE,
       batchId: 'factory-batch-1',
     });
@@ -268,8 +332,52 @@ describe('factory startup reconciler', () => {
     expect(calls.some((call) => call.type === 'advance')).toBe(false);
   });
 
+  it('does not restart stranded dark auto-advance projects without auto-continue', async () => {
+    const project = registerRunningProject({
+      trustLevel: 'dark',
+      config: { loop: { auto_advance: true } },
+      loopState: LOOP_STATES.EXECUTE,
+      batchId: 'factory-auto-advance-only-batch',
+    });
+    const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
+
+    const result = reconcileFactoryProjectsOnStartup();
+    await flushImmediate();
+
+    expect(result.actions).toMatchObject({ restarted: 0, skipped: 1 });
+    expect(factoryHealth.getProject(project.id)).toMatchObject({
+      loop_state: LOOP_STATES.IDLE,
+      loop_batch_id: null,
+      loop_paused_at_stage: null,
+    });
+    expect(calls.some((call) => call.type === 'start')).toBe(false);
+    expect(calls.some((call) => call.type === 'advance')).toBe(false);
+  });
+
   it('syncs stranded operator-managed projects to IDLE without starting', async () => {
     const project = registerRunningProject({ loopState: LOOP_STATES.IDLE });
+    const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
+
+    const result = reconcileFactoryProjectsOnStartup();
+    await flushImmediate();
+
+    expect(result.actions).toMatchObject({ restarted: 0, skipped: 1 });
+    expect(factoryHealth.getProject(project.id)).toMatchObject({
+      loop_state: LOOP_STATES.IDLE,
+      loop_batch_id: null,
+      loop_paused_at_stage: null,
+    });
+    expect(calls.some((call) => call.type === 'start')).toBe(false);
+    expect(calls.some((call) => call.type === 'advance')).toBe(false);
+  });
+
+  it('does not restart stranded gated auto-advance projects on startup', async () => {
+    const project = registerRunningProject({
+      trustLevel: 'autonomous',
+      config: { loop: { auto_advance: true } },
+      loopState: LOOP_STATES.EXECUTE,
+      batchId: 'factory-gated-batch',
+    });
     const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
 
     const result = reconcileFactoryProjectsOnStartup();
@@ -347,7 +455,10 @@ describe('factory startup reconciler', () => {
   });
 
   it('terminates paused-at-EXECUTE instances with empty batches and starts fresh', async () => {
-    const project = registerRunningProject();
+    const project = registerRunningProject({
+      trustLevel: 'dark',
+      config: { loop: { auto_continue: true } },
+    });
     const instance = createInstance(project, {
       state: LOOP_STATES.EXECUTE,
       pausedAtStage: LOOP_STATES.EXECUTE,
@@ -365,6 +476,38 @@ describe('factory startup reconciler', () => {
     expect(calls.filter((call) => call.type === 'start')).toEqual([
       { type: 'start', projectId: project.id },
     ]);
+  });
+
+  it('terminates paused-at-EXECUTE instances but does not restart while factory project work is disabled', async () => {
+    const previous = process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED;
+    process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED = '0';
+    try {
+      const project = registerRunningProject({
+        trustLevel: 'dark',
+        config: { loop: { auto_continue: true } },
+      });
+      const instance = createInstance(project, {
+        state: LOOP_STATES.EXECUTE,
+        pausedAtStage: LOOP_STATES.EXECUTE,
+        batchId: 'factory-disabled-empty-batch',
+      });
+      const terminateSpy = vi.spyOn(loopController, 'terminateInstanceAndSync');
+      const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
+
+      const result = reconcileFactoryProjectsOnStartup();
+      await flushImmediate();
+
+      expect(result.actions).toMatchObject({ restarted: 0, advanced: 0, skipped: 1 });
+      expect(terminateSpy).toHaveBeenCalledWith(instance.id, { abandonWorktree: true });
+      expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeTruthy();
+      expect(calls.some((call) => call.type === 'start')).toBe(false);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED;
+      } else {
+        process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED = previous;
+      }
+    }
   });
 
   it('leaves paused-at-EXECUTE instances alone when their batch still has live tasks', async () => {
@@ -389,7 +532,10 @@ describe('factory startup reconciler', () => {
 
   it('advances paused-at-EXECUTE instances that are waiting on internal plan generation', async () => {
     const batchId = 'factory-plan-generation-wait';
-    const project = registerRunningProject();
+    const project = registerRunningProject({
+      trustLevel: 'dark',
+      config: { loop: { auto_continue: true } },
+    });
     const workItem = factoryIntake.createWorkItem({
       project_id: project.id,
       source: 'architect',
@@ -433,8 +579,57 @@ describe('factory startup reconciler', () => {
     expect(terminateSpy).not.toHaveBeenCalled();
     expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeNull();
     expect(calls.filter((call) => call.type === 'advance')).toEqual([
-      { type: 'advance', instanceId: instance.id, options: { autoAdvance: true } },
+      { type: 'advance', instanceId: instance.id, options: { autoAdvance: false } },
     ]);
+    expect(calls.some((call) => call.type === 'start')).toBe(false);
+  });
+
+  it('leaves deferred plan-generation waits parked when automation controls are not ready', async () => {
+    const batchId = 'factory-blocked-plan-generation-wait';
+    const project = registerRunningProject();
+    const workItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'architect',
+      title: 'Generate missing plan while blocked',
+      description: 'Exercise blocked startup recovery for deferred plan generation.',
+      requestor: 'test',
+      origin: {
+        plan_path: path.join(project.path, 'docs', 'superpowers', 'plans', 'auto-generated', 'blocked-startup-plan.md'),
+        plan_generation_task_id: 'blocked-plan-generation-task',
+      },
+      status: 'planned',
+    });
+    factoryIntake.updateWorkItem(workItem.id, {
+      batch_id: batchId,
+      claimed_by_instance_id: 'placeholder',
+    });
+    const instance = createInstance(project, {
+      state: LOOP_STATES.EXECUTE,
+      pausedAtStage: LOOP_STATES.EXECUTE,
+      batchId,
+      workItemId: workItem.id,
+    });
+    factoryIntake.updateWorkItem(workItem.id, {
+      claimed_by_instance_id: instance.id,
+    });
+    db.prepare(`
+      INSERT INTO tasks (id, status, tags)
+      VALUES (?, ?, ?)
+    `).run('blocked-plan-generation-task', 'completed', JSON.stringify([
+      'factory:internal',
+      'factory:plan_generation',
+      `factory:work_item_id=${workItem.id}`,
+    ]));
+    const terminateSpy = vi.spyOn(loopController, 'terminateInstanceAndSync');
+    const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
+
+    const result = reconcileFactoryProjectsOnStartup();
+    await flushImmediate();
+
+    expect(result.actions).toMatchObject({ restarted: 0, advanced: 0, skipped: 1 });
+    expect(terminateSpy).not.toHaveBeenCalled();
+    expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeNull();
+    expect(calls.some((call) => call.type === 'advance')).toBe(false);
     expect(calls.some((call) => call.type === 'start')).toBe(false);
   });
 
@@ -452,7 +647,10 @@ describe('factory startup reconciler', () => {
   });
 
   it('retries ready-for-stage paused instances through the normal advance path', async () => {
-    const project = registerRunningProject();
+    const project = registerRunningProject({
+      trustLevel: 'dark',
+      config: { loop: { auto_continue: true } },
+    });
     const instance = createInstance(project, {
       state: LOOP_STATES.PLAN,
       pausedAtStage: 'READY_FOR_PLAN',
@@ -464,13 +662,33 @@ describe('factory startup reconciler', () => {
 
     expect(result.actions).toMatchObject({ skipped: 0, advanced: 1, restarted: 0 });
     expect(calls.filter((call) => call.type === 'advance')).toEqual([
-      { type: 'advance', instanceId: instance.id, options: { autoAdvance: true } },
+      { type: 'advance', instanceId: instance.id, options: { autoAdvance: false } },
     ]);
     expect(calls.some((call) => call.type === 'start')).toBe(false);
   });
 
-  it('reconciles factory worktrees before advancing an active instance', async () => {
+  it('does not retry ready-for-stage paused instances when automation controls are not ready', async () => {
     const project = registerRunningProject();
+    const instance = createInstance(project, {
+      state: LOOP_STATES.PLAN,
+      pausedAtStage: 'READY_FOR_PLAN',
+    });
+    const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
+
+    const result = reconcileFactoryProjectsOnStartup();
+    await flushImmediate();
+
+    expect(result.actions).toMatchObject({ skipped: 1, advanced: 0, restarted: 0 });
+    expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeNull();
+    expect(calls.some((call) => call.type === 'advance')).toBe(false);
+    expect(calls.some((call) => call.type === 'start')).toBe(false);
+  });
+
+  it('reconciles factory worktrees before advancing an active instance', async () => {
+    const project = registerRunningProject({
+      trustLevel: 'dark',
+      config: { loop: { auto_continue: true } },
+    });
     const workItem = factoryIntake.createWorkItem({
       project_id: project.id,
       source: 'plan_file',
@@ -501,7 +719,10 @@ describe('factory startup reconciler', () => {
   });
 
   it('is idempotent after the first startup reconciliation', async () => {
-    const project = registerRunningProject();
+    const project = registerRunningProject({
+      trustLevel: 'dark',
+      config: { loop: { auto_continue: true } },
+    });
     createInstance(project, { state: LOOP_STATES.SENSE });
     const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
 
@@ -527,7 +748,10 @@ describe('factory startup reconciler', () => {
     const getSpy = vi.spyOn(defaultContainer, 'get').mockImplementation(() => {
       throw new Error('container should not be touched when db is injected');
     });
-    const project = registerRunningProject();
+    const project = registerRunningProject({
+      trustLevel: 'dark',
+      config: { loop: { auto_continue: true } },
+    });
     createInstance(project, { state: LOOP_STATES.SENSE });
     const { reconcileFactoryProjectsOnStartup } = loadFreshReconciler();
 

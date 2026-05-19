@@ -109,16 +109,61 @@ describe('factory loop LEARN terminal state', () => {
     expect(result.new_state).toBe(LOOP_STATES.IDLE);
   });
 
-  it('project with loop.auto_continue=true: LEARN advances to SENSE (legacy)', async () => {
+  it('automation-ready project with loop.auto_continue=true: LEARN advances to SENSE', async () => {
     const project = factoryHealth.registerProject({
       name: 'AutoContinueLegacy',
       path: '/test/auto-continue-' + Date.now(),
       trust_level: 'dark',
       config: { loop: { auto_continue: true } },
     });
-    factoryHealth.updateProject(project.id, { loop_state: LOOP_STATES.LEARN });
+    factoryHealth.updateProject(project.id, {
+      status: 'running',
+      loop_state: LOOP_STATES.LEARN,
+    });
 
     const result = await loopController.advanceLoopForProject(project.id);
     expect(result.new_state).toBe(LOOP_STATES.SENSE);
+  });
+
+  it('factory project work disabled stops auto-continue after LEARN', async () => {
+    const previous = process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED;
+    process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED = '0';
+    try {
+      const project = factoryHealth.registerProject({
+        name: 'AutoContinueWorkDisabled',
+        path: '/test/auto-continue-disabled-' + Date.now(),
+        trust_level: 'dark',
+        config: { loop: { auto_continue: true } },
+      });
+      factoryHealth.updateProject(project.id, {
+        status: 'running',
+        loop_state: LOOP_STATES.LEARN,
+      });
+
+      const result = await loopController.advanceLoopForProject(project.id);
+      expect(result.new_state).toBe(LOOP_STATES.IDLE);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED;
+      } else {
+        process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED = previous;
+      }
+    }
+  });
+
+  it('approval-gated project with loop.auto_continue=true: LEARN advances to IDLE', async () => {
+    const project = factoryHealth.registerProject({
+      name: 'GatedAutoContinue',
+      path: '/test/gated-auto-continue-' + Date.now(),
+      trust_level: 'autonomous',
+      config: { loop: { auto_continue: true } },
+    });
+    factoryHealth.updateProject(project.id, {
+      status: 'running',
+      loop_state: LOOP_STATES.LEARN,
+    });
+
+    const result = await loopController.advanceLoopForProject(project.id);
+    expect(result.new_state).toBe(LOOP_STATES.IDLE);
   });
 });

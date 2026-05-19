@@ -70,6 +70,92 @@ describe('auto-recovery engine.tick', () => {
     expect(p.auto_recovery_last_strategy).toBe('retry');
   });
 
+  it('skips strategy execution when automation controls are not ready', async () => {
+    db.prepare('ALTER TABLE factory_projects ADD COLUMN trust_level TEXT').run();
+    db.prepare('ALTER TABLE factory_projects ADD COLUMN config_json TEXT').run();
+    db.prepare(`INSERT INTO factory_projects
+                (id, status, loop_state, loop_paused_at_stage, loop_last_action_at, trust_level, config_json)
+                VALUES ('p-blocked', 'running', 'PAUSED', 'VERIFY_FAIL', '2026-04-21T03:00:00Z',
+                        'autonomous', '{"loop":{"auto_continue":false}}')`).run();
+    db.prepare(`INSERT INTO factory_decisions
+                (project_id, stage, actor, action, reasoning, created_at, outcome_json)
+                VALUES ('p-blocked', 'verify', 'verifier', 'worktree_verify_failed',
+                        'flaky', '2026-04-21T03:00:00Z',
+                        '{"output_preview":"being used by another process"}')`).run();
+
+    const ran = [];
+    const engine = createAutoRecoveryEngine({
+      db, logger, eventBus: { emit: () => {} },
+      rules: [{
+        name: 'file_lock', category: 'transient', priority: 100, confidence: 0.9,
+        match: { stage: 'verify', action: 'worktree_verify_failed',
+                 outcome_path: 'output_preview', outcome_regex: 'being used by another' },
+        suggested_strategies: ['retry'],
+      }],
+      strategies: [{
+        name: 'retry', applicable_categories: ['transient'],
+        async run(ctx) { ran.push(ctx.project.id); return { success: true, next_action: 'retry', outcome: {} }; },
+      }],
+      nowMs: () => Date.parse('2026-04-21T13:00:00Z'),
+    });
+
+    const summary = await engine.tick();
+
+    expect(ran).toEqual([]);
+    expect(summary.attempts).toBe(0);
+    const actions = db.prepare(`SELECT action, outcome_json FROM factory_decisions
+                                WHERE actor='auto-recovery' ORDER BY id`).all();
+    expect(actions.map(a => a.action)).toEqual([
+      'auto_recovery_skipped_automation_not_ready',
+    ]);
+    const outcome = JSON.parse(actions[0].outcome_json);
+    expect(outcome.blocker_codes).toEqual(expect.arrayContaining([
+      'auto_continue_disabled',
+      'approval_gates_enabled',
+    ]));
+  });
+
+  it('skips candidate recovery when factory project work is disabled', async () => {
+    const previous = process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED;
+    process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED = '0';
+    try {
+      db.prepare(`INSERT INTO factory_projects (id, status, loop_state, loop_paused_at_stage, loop_last_action_at)
+                  VALUES ('p-work-disabled', 'running', 'PAUSED', 'VERIFY_FAIL', '2026-04-21T03:00:00Z')`).run();
+      db.prepare(`INSERT INTO factory_decisions
+                  (project_id, stage, actor, action, reasoning, created_at, outcome_json)
+                  VALUES ('p-work-disabled', 'verify', 'verifier', 'worktree_verify_failed',
+                          'flaky', '2026-04-21T03:00:00Z',
+                          '{"output_preview":"being used by another process"}')`).run();
+
+      const ran = [];
+      const engine = createAutoRecoveryEngine({
+        db, logger, eventBus: { emit: () => {} },
+        rules: [{ name: 'any', category: 'unknown', priority: 1, match: {}, suggested_strategies: ['retry'] }],
+        strategies: [{
+          name: 'retry', applicable_categories: ['unknown', 'any'],
+          async run(ctx) { ran.push(ctx.project.id); return { success: true, next_action: 'retry', outcome: {} }; },
+        }],
+        nowMs: () => Date.parse('2026-04-21T13:00:00Z'),
+      });
+
+      const summary = await engine.tick();
+
+      expect(ran).toEqual([]);
+      expect(summary).toMatchObject({
+        candidates: 0,
+        attempts: 0,
+        rearmed: 0,
+        skipped: 'factory_project_work_disabled',
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED;
+      } else {
+        process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED = previous;
+      }
+    }
+  });
+
   it('logs _failed when strategy throws', async () => {
     db.prepare(`INSERT INTO factory_projects (id, status, loop_state, loop_paused_at_stage, loop_last_action_at)
                 VALUES ('p2', 'running', 'PAUSED', 'VERIFY_FAIL', '2026-04-21T03:00:00Z')`).run();

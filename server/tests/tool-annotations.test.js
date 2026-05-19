@@ -179,6 +179,26 @@ describe('tool-annotations', () => {
     it('compare_providers dispatches because it launches provider tasks', () => {
       expect(getAnnotations('compare_providers')).toEqual(DISPATCH);
     });
+
+    it('factory_automation_plan is read-only despite factory_* naming', () => {
+      expect(getAnnotations('factory_automation_plan')).toEqual(RO);
+    });
+
+    it('apply_factory_automation_plan is a non-destructive idempotent control-plane mutation', () => {
+      expect(getAnnotations('apply_factory_automation_plan')).toEqual(IDEMPOTENT);
+    });
+
+    it('arm_factory_tick is a non-destructive idempotent control-plane mutation', () => {
+      expect(getAnnotations('arm_factory_tick')).toEqual(IDEMPOTENT);
+    });
+
+    it('native eval scoring is read-only despite score_* naming', () => {
+      expect(getAnnotations('score_native_eval')).toEqual(RO);
+    });
+
+    it('repair candidate selection is an idempotent state update', () => {
+      expect(getAnnotations('select_best_repair_candidate')).toEqual(IDEMPOTENT);
+    });
   });
 
   describe('exact matches', () => {

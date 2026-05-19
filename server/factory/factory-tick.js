@@ -63,6 +63,10 @@ const baselineRequeue = require('./baseline-requeue');
 const baselineAutoFix = require('./baseline-auto-fix');
 const factoryNotifications = require('./notifications');
 const { LOOP_STATES } = require('./loop-states');
+const {
+  isFactoryProjectWorkEnabled,
+  shouldRunUnattendedFactoryWork,
+} = require('./automation-readiness');
 const logger = require('../logger').child({ component: 'factory-tick' });
 
 const DEFAULT_TICK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -772,14 +776,13 @@ function maybeStartAutoAdvanceLoop(projectId, reason = 'tick') {
   if (enforceOperatorPause(projectBeforeAutoStart, `auto_start:${reason}`)) {
     return false;
   }
-  const cfg = getProjectConfig(projectBeforeAutoStart);
   const activeInstances = factoryLoopInstances.listInstances({
     project_id: projectId,
     active_only: true,
   });
   const loopStateView = getProjectLoopStateSnapshot(projectBeforeAutoStart);
   if (
-    cfg?.loop?.auto_continue
+    shouldRunUnattendedFactoryWork(projectBeforeAutoStart)
     && loopStateView.loop_state !== LOOP_STATES.STARVED
     && activeInstances.length === 0
   ) {
@@ -829,6 +832,12 @@ function inspectStalePlanGenerationDeferral(planGenerationWait, taskCoreOverride
 
 async function tickProject(project) {
   try {
+    if (!isFactoryProjectWorkEnabled()) {
+      logger.info('Factory tick skipped because factory project work is disabled', {
+        project_id: project?.id,
+      });
+      return;
+    }
     const freshProject = factoryHealth.getProject(project.id);
     if (enforceOperatorPause(freshProject, 'tick_start')) {
       return;
@@ -1347,8 +1356,18 @@ async function tickProject(project) {
         }
       }
 
+      if (!pausedVerifyBatchWaitState && !shouldRunUnattendedFactoryWork(latestProject)) {
+        logger.info('Factory tick skipped active loop advance for non-ready automation project', {
+          project_id: project.id,
+          instance_id: instance.id,
+          stage: state,
+          paused_at_stage: paused,
+        });
+        continue;
+      }
+
       try {
-        loopController.advanceLoopAsync(instance.id, { autoAdvance: true });
+        loopController.advanceLoopAsync(instance.id);
         logger.debug('Factory tick: advanced instance', {
           project_id: project.id,
           instance_id: instance.id,
@@ -1365,7 +1384,7 @@ async function tickProject(project) {
       }
     }
 
-    // If no active instances exist for a running + auto_continue project,
+    // If no active instances exist for a running automation-ready project,
     // start a new loop automatically.
     const projectBeforeAutoStart = factoryHealth.getProject(project.id);
     if (!projectBeforeAutoStart || projectBeforeAutoStart.status !== 'running') {
@@ -1477,8 +1496,11 @@ async function tickProject(project) {
   }
 }
 
-function startTick(project, intervalMs = DEFAULT_TICK_INTERVAL_MS) {
-  if (activeTimers.has(project.id)) return; // already ticking
+function startTick(project, intervalMs = DEFAULT_TICK_INTERVAL_MS, options = {}) {
+  if (activeTimers.has(project.id)) {
+    return { started: false, already_active: true, project_id: project.id };
+  }
+  const immediate = options?.immediate !== false;
 
   const timer = setInterval(() => { void tickProject(project); }, intervalMs);
   // Don't keep the event loop alive on the tick alone — gracefulShutdown
@@ -1501,9 +1523,18 @@ function startTick(project, intervalMs = DEFAULT_TICK_INTERVAL_MS) {
   // startup — tickProject uses spawnSync for git worktree ops, and if those
   // hang (filesystem lock, stale lockfile) the entire server would stall
   // after binding its ports but before serving any HTTP requests.
-  setImmediate(() => {
-    void tickProject(project);
-  });
+  if (immediate) {
+    setImmediate(() => {
+      void tickProject(project);
+    });
+  }
+  return {
+    started: true,
+    already_active: false,
+    project_id: project.id,
+    interval_ms: intervalMs,
+    immediate,
+  };
 }
 
 function stopTick(projectId) {
@@ -1523,22 +1554,35 @@ function stopAll() {
   activeTimers.clear();
 }
 
+function isTickActive(projectId) {
+  return activeTimers.has(projectId);
+}
+
+function getActiveTickProjectIds() {
+  return Array.from(activeTimers.keys());
+}
+
 // Called on server startup — scan for projects that should be ticking.
-// Running projects tick normally. Paused baseline-probe projects keep ticking
-// only to check whether the broken baseline has recovered.
+// Running automation-ready projects are armed without an immediate tick so a
+// restart/cutover does not process project work before the first interval.
+// Paused baseline-probe projects keep ticking immediately only to check
+// whether the broken baseline has recovered.
 function initFactoryTicks() {
   let started = 0;
   try {
     const projects = factoryHealth.listProjects();
     for (const project of projects) {
       const cfg = getProjectConfig(project);
-      const shouldTick = project.status === 'running'
-        || (project.status === 'paused'
-          && !hasOperatorPauseIntent(project)
-          && (cfg?.baseline_broken_since || hasPausedVerifyBatchWait(project)));
-      if (!shouldTick) continue;
+      const projectWorkEnabled = isFactoryProjectWorkEnabled();
+      const shouldStartRunningTick = projectWorkEnabled
+        && project.status === 'running'
+        && shouldRunUnattendedFactoryWork(project);
+      const shouldStartRecoveryTick = projectWorkEnabled && project.status === 'paused'
+        && !hasOperatorPauseIntent(project)
+        && (cfg?.baseline_broken_since || hasPausedVerifyBatchWait(project));
+      if (!shouldStartRunningTick && !shouldStartRecoveryTick) continue;
       const intervalMs = cfg?.loop?.tick_interval_ms || DEFAULT_TICK_INTERVAL_MS;
-      startTick(project, intervalMs);
+      startTick(project, intervalMs, { immediate: shouldStartRecoveryTick });
       started++;
     }
   } catch (err) {
@@ -1552,6 +1596,8 @@ module.exports = {
   startTick,
   stopTick,
   stopAll,
+  isTickActive,
+  getActiveTickProjectIds,
   tickProject,
   _internalForTests: {
     cancelClosedFactoryWorkItemTasks,

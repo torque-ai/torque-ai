@@ -48,7 +48,7 @@ function* walkJsFiles(rootDir) {
     let entries;
     try {
       entries = fs.readdirSync(cur, { withFileTypes: true });
-    } catch (e) {
+    } catch {
       continue;
     }
     for (const ent of entries) {
@@ -90,7 +90,7 @@ function discoverEmitSites(rootDir, sourceGlobs = SOURCE_GLOBS) {
       let text;
       try {
         text = fs.readFileSync(file, 'utf8');
-      } catch (e) {
+      } catch {
         continue;
       }
 
@@ -360,7 +360,6 @@ if (require.main === module) {
   const catalogPath = path.join(rootDir, 'server/factory/decision-actions.js');
   let catalog = {};
   if (fs.existsSync(catalogPath)) {
-    // eslint-disable-next-line global-require
     catalog = require(catalogPath).DECISION_ACTIONS || {};
   }
   const report = runDecisionActionsAudit({ rootDir, catalog });

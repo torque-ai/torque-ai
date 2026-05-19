@@ -124,6 +124,67 @@ rm -rf "/tmp/cutover-test-$$"
   }
 }
 
+function runPreflight(featureName, env = {}) {
+  const wrapper = `
+#!/usr/bin/env bash
+set -euo pipefail
+
+SAFE_NAME=$(echo "${featureName}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+FAKE_REPO="/tmp/cutover-preflight-$$"
+FAKE_WORKTREE="$FAKE_REPO/.worktrees/feat-$SAFE_NAME"
+mkdir -p "$FAKE_WORKTREE"
+
+git() {
+  if [ "$1" = "-C" ]; then
+    shift 2
+  fi
+  case "$1" in
+    rev-parse)    echo "$FAKE_REPO" ;;
+    show-ref)     return 0 ;;
+    symbolic-ref) echo "main" ;;
+    diff)
+      if [ "\${2:-}" = "--name-only" ]; then
+        printf '%s\\n' "server/index.js" "docs/factory.md"
+      fi
+      return 0
+      ;;
+    merge-tree)   echo "preflight-tree-sha" ;;
+    merge)        echo "git merge must not run during preflight" >&2; return 42 ;;
+    status)       return 0 ;;
+    *)            command git "$@" ;;
+  esac
+}
+export -f git
+
+SCRIPT_BODY=$(tail -n +3 "${SCRIPT_PATH.replace(/\\/g, '/')}")
+set -- --preflight --disable-project-work "$1"
+eval "$SCRIPT_BODY" <<< ""
+rm -rf "$FAKE_REPO"
+`;
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cutover-preflight-'));
+  const wrapperPath = path.join(tmpDir, 'test-cutover-preflight.sh');
+  fs.writeFileSync(wrapperPath, wrapper, { mode: 0o755 });
+
+  try {
+    return execFileSync(BASH_EXECUTABLE, [wrapperPath, featureName], {
+      encoding: 'utf8',
+      timeout: CUTOVER_SIMULATION_TIMEOUT_MS,
+      env: {
+        ...process.env,
+        TORQUE_COORD_LOCK_HELPER: LOCK_HELPER_PATH,
+        ...env,
+      },
+      windowsHide: true,
+    });
+  } finally {
+    try {
+      fs.unlinkSync(wrapperPath);
+      fs.rmdirSync(tmpDir);
+    } catch { /* cleanup best-effort */ }
+  }
+}
+
 function runPidTurnoverSimulation(featureName, env = {}) {
   const wrapper = `
 #!/usr/bin/env bash
@@ -812,9 +873,10 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(scriptSource).toContain('trap worktree_cutover_cleanup EXIT');
 
       const lockIdx = scriptSource.indexOf('repo_coord_lock_acquire "main"');
-      const dirtyMainIdx = scriptSource.indexOf('Main working tree has uncommitted tracked changes');
+      const dirtyMainIdx = scriptSource.indexOf('if main_worktree_has_tracked_changes; then', lockIdx);
       const mergeIdx = scriptSource.indexOf('git merge "$BRANCH" --no-edit');
       expect(lockIdx).toBeGreaterThan(-1);
+      expect(dirtyMainIdx).toBeGreaterThan(-1);
       expect(lockIdx).toBeLessThan(dirtyMainIdx);
       expect(lockIdx).toBeLessThan(mergeIdx);
     });
@@ -956,13 +1018,18 @@ describe('worktree-cutover.sh barrier integration', () => {
 
   describe('dry-run mode (CUTOVER_DRY_RUN=1)', () => {
     let dryRunOutput;
+    let disabledProjectWorkDryRunOutput;
 
     beforeAll(() => {
       try {
         dryRunOutput = runDryRun('test-barrier-feature');
+        disabledProjectWorkDryRunOutput = runDryRun('test-barrier-feature', {
+          CUTOVER_DISABLE_PROJECT_WORK: '1',
+        });
       } catch (_e) {
         // If the wrapper fails (e.g. on CI without bash), skip gracefully
         dryRunOutput = null;
+        disabledProjectWorkDryRunOutput = null;
       }
     }, CUTOVER_SIMULATION_TEST_TIMEOUT_MS);
 
@@ -1004,6 +1071,27 @@ describe('worktree-cutover.sh barrier integration', () => {
       if (!dryRunOutput) return;
       expect(dryRunOutput).toContain('[dry-run] Would verify new server');
       expect(dryRunOutput).toContain('3458/sse');
+    });
+
+    it('prints the successor env override when project work is disabled for cutover', () => {
+      if (!disabledProjectWorkDryRunOutput) return;
+      expect(disabledProjectWorkDryRunOutput).toContain('[dry-run] Would write successor restart env override');
+      expect(disabledProjectWorkDryRunOutput).toContain('restart-env.json');
+      expect(disabledProjectWorkDryRunOutput).toContain('TORQUE_FACTORY_PROJECT_WORK_ENABLED=0');
+    });
+  });
+
+  describe('preflight mode (--preflight)', () => {
+    it('checks the merge and successor env path without running git merge', () => {
+      const output = runPreflight('test-barrier-feature');
+
+      expect(output).toContain('Preflight only: no merge');
+      expect(output).toContain('[ok] Merge simulation clean: preflight-tree-sha');
+      expect(output).toContain('Files that would merge: 2');
+      expect(output).toContain('Restart barrier would be required after merge');
+      expect(output).toContain('Successor restart env would force TORQUE_FACTORY_PROJECT_WORK_ENABLED=0');
+      expect(output).toContain('[ok] Cutover preflight complete; no changes made.');
+      expect(output).not.toContain('git merge must not run during preflight');
     });
   });
 

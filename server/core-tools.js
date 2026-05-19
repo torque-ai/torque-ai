@@ -32,7 +32,7 @@ const TIER_1 = [
   // Diffusion engine
   'submit_scout', 'create_diffusion_plan', 'diffusion_status',
   // Factory
-  'factory_status', 'pause_project', 'resume_project', 'pause_all_projects', 'project_health', 'trigger_architect', 'architect_backlog',
+  'factory_status', 'factory_automation_plan', 'pause_project', 'resume_project', 'pause_all_projects', 'project_health', 'trigger_architect', 'architect_backlog',
   // Schedule management
   'list_scheduled', 'pause_scheduled', 'cancel_scheduled', 'schedule_task', 'schedule_workflow_spec',
   // Context (compact session resume)
@@ -72,7 +72,7 @@ const TIER_2 = [
   // Validation & maintenance
   'normalize_interface_formatting',
   // Factory (extended)
-  'register_factory_project', 'list_factory_projects', 'scan_project_health', 'set_factory_trust_level', 'get_project_policy', 'set_project_policy',
+  'register_factory_project', 'list_factory_projects', 'scan_project_health', 'set_factory_trust_level', 'apply_factory_automation_plan', 'arm_factory_tick', 'get_project_policy', 'set_project_policy',
   // Factory intake
   'create_work_item', 'list_work_items', 'update_work_item', 'reject_work_item', 'intake_from_findings', 'scan_plans_directory', 'execute_plan_file', 'get_plan_execution_status', 'list_plan_intake_items', 'poll_github_issues', 'architect_log',
   // Replan-recovery inbox

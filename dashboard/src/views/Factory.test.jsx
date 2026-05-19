@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Factory from './Factory';
 import Overview from './factory/Overview';
 import { ToastProvider } from '../components/Toast';
@@ -20,6 +20,8 @@ vi.mock('../api', () => ({
     approveGateInstance: vi.fn(),
     rejectGateInstance: vi.fn(),
     retryVerifyInstance: vi.fn(),
+    applyAutomationPlan: vi.fn(),
+    applyProjectAutomationPlan: vi.fn(),
   },
 }));
 
@@ -64,8 +66,13 @@ function renderFactory() {
 }
 
 describe('Factory overview', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('confirm', vi.fn(() => true));
     factoryApi.cycleHistory.mockResolvedValue([{
       instance_id: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa',
       work_item_id: 42,
@@ -91,6 +98,20 @@ describe('Factory overview', () => {
     factoryApi.approveGateInstance.mockResolvedValue({});
     factoryApi.rejectGateInstance.mockResolvedValue({});
     factoryApi.retryVerifyInstance.mockResolvedValue({});
+    factoryApi.applyAutomationPlan.mockResolvedValue({
+      completed: true,
+      dry_run: true,
+      planned_steps: 0,
+      applied_steps: [],
+      processes_project_work: false,
+    });
+    factoryApi.applyProjectAutomationPlan.mockResolvedValue({
+      completed: true,
+      dry_run: true,
+      planned_steps: 0,
+      applied_steps: [],
+      processes_project_work: false,
+    });
     useFactoryShell.mockReturnValue({
       activeProjectAction: null,
       handlePauseAll,
@@ -234,6 +255,456 @@ describe('Factory overview', () => {
     expect(screen.getByText('All projects paused')).toBeInTheDocument();
     expect(screen.getByText('All registered factory projects are paused.')).toBeInTheDocument();
     expect(screen.getByText(/0 running .* 1 paused .* 0 open items .* 0 queued/i)).toBeInTheDocument();
+  });
+
+  it('surfaces automation readiness blockers above the project grid', () => {
+    const baseShell = useFactoryShell();
+    const blockedProject = {
+      ...factoryProject,
+      automation_readiness: {
+        ready: false,
+        blocker_codes: ['approval_gates_enabled'],
+        next_control_plane_action: 'set_factory_trust_level trust_level=dark',
+        control_plane_actions: [
+          'set_factory_trust_level trust_level=dark',
+          'resume_project',
+        ],
+      },
+      work_item_status_counts: {
+        needs_review: 2,
+        needs_replan: 5,
+      },
+    };
+
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      automationReadiness: {
+        ready: false,
+        hands_off_ready: false,
+        total_projects: 1,
+        ready_projects: 0,
+        blocked_projects: 1,
+        auto_continue_enabled_projects: 0,
+        dark_trust_projects: 0,
+        blockers: {
+          approval_gates_enabled: 1,
+        },
+        project_ids: {
+          ready: [],
+          blocked: ['factory-1'],
+        },
+        control_plane_plan: [
+          {
+            action: 'set_factory_trust_level trust_level=dark',
+            tool: 'set_factory_trust_level',
+            args: { project: 'factory-1', trust_level: 'dark' },
+            description: 'Remove approval gates by switching to dark trust.',
+          },
+          {
+            action: 'resume_project',
+            tool: 'resume_project',
+            args: { project: 'factory-1' },
+            description: 'Resume the project.',
+          },
+        ],
+      },
+      outletContext: {
+        ...baseShell.outletContext,
+        automationReadiness: {
+          ready: false,
+          hands_off_ready: false,
+          total_projects: 1,
+          ready_projects: 0,
+          blocked_projects: 1,
+          auto_continue_enabled_projects: 0,
+          dark_trust_projects: 0,
+          blockers: {
+            approval_gates_enabled: 1,
+          },
+          project_ids: {
+            ready: [],
+            blocked: ['factory-1'],
+          },
+          control_plane_plan: [
+            {
+              action: 'set_factory_trust_level trust_level=dark',
+              tool: 'set_factory_trust_level',
+              args: { project: 'factory-1', trust_level: 'dark' },
+              description: 'Remove approval gates by switching to dark trust.',
+            },
+            {
+              action: 'resume_project',
+              tool: 'resume_project',
+              args: { project: 'factory-1' },
+              description: 'Resume the project.',
+            },
+          ],
+        },
+        detail: {
+          ...baseShell.outletContext.detail,
+          project: blockedProject,
+        },
+        projects: [blockedProject],
+        selectedProject: blockedProject,
+        selectedProjectId: blockedProject.id,
+      },
+      projects: [blockedProject],
+      totalProjects: 1,
+    });
+
+    renderFactory();
+
+    expect(screen.getByRole('status', { name: /factory automation readiness/i })).toBeInTheDocument();
+    expect(screen.getByText('1 project blocked')).toBeInTheDocument();
+    expect(screen.getByText(/0 control-ready .* 0 auto-continue .* 0 dark trust/i)).toBeInTheDocument();
+    expect(screen.getByText('0 tick unarmed · 0 approvals · 2 needs review · 5 needs replan · 0 exhausted')).toBeInTheDocument();
+    expect(screen.getByText('Blocked: torque-public')).toBeInTheDocument();
+    expect(screen.getByText('approval gates enabled: 1')).toBeInTheDocument();
+    expect(screen.getByText(/Remove approval gates by switching to dark trust/i)).toBeInTheDocument();
+    expect(screen.getByText(/Resume the project/i)).toBeInTheDocument();
+    expect(screen.getByText(/set_factory_trust_level trust_level=dark/i)).toBeInTheDocument();
+    expect(screen.getByText(/resume_project/i)).toBeInTheDocument();
+  });
+
+  it('runs the bounded automation readiness dry run from the banner', async () => {
+    const baseShell = useFactoryShell();
+    const blockedProject = {
+      ...factoryProject,
+      automation_readiness: {
+        ready: false,
+        blocker_codes: ['approval_gates_enabled'],
+        control_plane_actions: ['set_factory_trust_level trust_level=dark'],
+      },
+    };
+    const automationReadiness = {
+      ready: false,
+      hands_off_ready: false,
+      total_projects: 1,
+      ready_projects: 0,
+      blocked_projects: 1,
+      auto_continue_enabled_projects: 0,
+      dark_trust_projects: 0,
+      blockers: { approval_gates_enabled: 1 },
+      project_ids: {
+        ready: [],
+        blocked: ['factory-1'],
+      },
+      control_plane_plan: [
+        {
+          action: 'set_factory_trust_level trust_level=dark',
+          tool: 'set_factory_trust_level',
+          args: { project: 'factory-1', trust_level: 'dark' },
+          description: 'Remove approval gates by switching to dark trust.',
+          processes_project_work: false,
+        },
+      ],
+    };
+    factoryApi.applyAutomationPlan.mockResolvedValueOnce({
+      completed: true,
+      dry_run: true,
+      planned_steps: 1,
+      applied_steps: [],
+      processes_project_work: false,
+    });
+
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      automationReadiness,
+      outletContext: {
+        ...baseShell.outletContext,
+        automationReadiness,
+        detail: {
+          ...baseShell.outletContext.detail,
+          project: blockedProject,
+        },
+        projects: [blockedProject],
+        selectedProject: blockedProject,
+        selectedProjectId: blockedProject.id,
+      },
+      projects: [blockedProject],
+      totalProjects: 1,
+    });
+
+    renderFactory();
+
+    fireEvent.click(screen.getByRole('button', { name: /dry run/i }));
+
+    await vi.waitFor(() => {
+      expect(factoryApi.applyProjectAutomationPlan).toHaveBeenCalledWith('factory-1', {
+        dry_run: true,
+      });
+    });
+    expect(factoryApi.applyAutomationPlan).not.toHaveBeenCalled();
+    expect(loadProjects).toHaveBeenCalledWith({ silent: true });
+    await vi.waitFor(() => {
+      expect(refreshSelectedProject).toHaveBeenCalled();
+    });
+  });
+
+  it('applies automation readiness control-plane steps from the banner without project work args', async () => {
+    const baseShell = useFactoryShell();
+    const automationReadiness = {
+      ready: false,
+      hands_off_ready: false,
+      total_projects: 1,
+      ready_projects: 0,
+      blocked_projects: 1,
+      auto_continue_enabled_projects: 0,
+      dark_trust_projects: 0,
+      blockers: { auto_continue_disabled: 1 },
+      project_ids: {
+        ready: [],
+        blocked: ['factory-1'],
+      },
+      control_plane_plan: [
+        {
+          action: 'set_factory_trust_level trust_level=dark config.loop.auto_continue=true',
+          tool: 'set_factory_trust_level',
+          args: {
+            project: 'factory-1',
+            trust_level: 'dark',
+            config: { loop: { auto_continue: true } },
+          },
+          description: 'Enable dark trust and continuous cycling.',
+          processes_project_work: false,
+        },
+      ],
+    };
+    factoryApi.applyAutomationPlan.mockResolvedValueOnce({
+      completed: true,
+      dry_run: false,
+      planned_steps: 1,
+      applied_steps: [{ tool: 'set_factory_trust_level', processes_project_work: false }],
+      processes_project_work: false,
+    });
+
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      automationReadiness,
+      outletContext: {
+        ...baseShell.outletContext,
+        automationReadiness,
+      },
+    });
+
+    renderFactory();
+
+    fireEvent.click(screen.getByRole('button', { name: /apply controls/i }));
+
+    await vi.waitFor(() => {
+      expect(factoryApi.applyProjectAutomationPlan).toHaveBeenCalledWith('factory-1', {
+        dry_run: false,
+      });
+    });
+    expect(factoryApi.applyAutomationPlan).not.toHaveBeenCalled();
+    expect(loadProjects).toHaveBeenCalledWith({ silent: true });
+  });
+
+  it('uses confirmed all-project apply only when readiness steps span multiple projects', async () => {
+    const baseShell = useFactoryShell();
+    const automationReadiness = {
+      ready: false,
+      hands_off_ready: false,
+      total_projects: 2,
+      ready_projects: 0,
+      blocked_projects: 2,
+      auto_continue_enabled_projects: 0,
+      dark_trust_projects: 0,
+      blockers: { auto_continue_disabled: 2 },
+      project_ids: {
+        ready: [],
+        blocked: ['factory-1', 'factory-2'],
+      },
+      control_plane_plan: [
+        {
+          action: 'set_factory_trust_level trust_level=dark',
+          tool: 'set_factory_trust_level',
+          args: { project: 'factory-1', trust_level: 'dark' },
+          description: 'Switch factory-1 to dark trust.',
+          processes_project_work: false,
+        },
+        {
+          action: 'set_factory_trust_level trust_level=dark',
+          tool: 'set_factory_trust_level',
+          args: { project: 'factory-2', trust_level: 'dark' },
+          description: 'Switch factory-2 to dark trust.',
+          processes_project_work: false,
+        },
+      ],
+    };
+    factoryApi.applyAutomationPlan.mockResolvedValueOnce({
+      completed: true,
+      dry_run: false,
+      planned_steps: 2,
+      applied_steps: [
+        { tool: 'set_factory_trust_level', processes_project_work: false },
+        { tool: 'set_factory_trust_level', processes_project_work: false },
+      ],
+      processes_project_work: false,
+    });
+
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      automationReadiness,
+      outletContext: {
+        ...baseShell.outletContext,
+        automationReadiness,
+      },
+    });
+
+    renderFactory();
+
+    fireEvent.click(screen.getByRole('button', { name: /apply controls/i }));
+
+    await vi.waitFor(() => {
+      expect(globalThis.confirm).toHaveBeenCalledWith(expect.stringContaining('2 projects'));
+      expect(factoryApi.applyAutomationPlan).toHaveBeenCalledWith({
+        all_projects: true,
+        dry_run: false,
+        confirm_all_projects: true,
+      });
+    });
+    expect(factoryApi.applyProjectAutomationPlan).not.toHaveBeenCalled();
+  });
+
+  it('does not submit multi-project automation apply when confirmation is cancelled', () => {
+    const baseShell = useFactoryShell();
+    const automationReadiness = {
+      ready: false,
+      hands_off_ready: false,
+      total_projects: 2,
+      ready_projects: 0,
+      blocked_projects: 2,
+      auto_continue_enabled_projects: 0,
+      dark_trust_projects: 0,
+      blockers: { auto_continue_disabled: 2 },
+      project_ids: {
+        ready: [],
+        blocked: ['factory-1', 'factory-2'],
+      },
+      control_plane_plan: [
+        {
+          action: 'set_factory_trust_level trust_level=dark',
+          tool: 'set_factory_trust_level',
+          args: { project: 'factory-1', trust_level: 'dark' },
+          description: 'Switch factory-1 to dark trust.',
+          processes_project_work: false,
+        },
+        {
+          action: 'set_factory_trust_level trust_level=dark',
+          tool: 'set_factory_trust_level',
+          args: { project: 'factory-2', trust_level: 'dark' },
+          description: 'Switch factory-2 to dark trust.',
+          processes_project_work: false,
+        },
+      ],
+    };
+    globalThis.confirm.mockReturnValueOnce(false);
+
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      automationReadiness,
+      outletContext: {
+        ...baseShell.outletContext,
+        automationReadiness,
+      },
+    });
+
+    renderFactory();
+
+    fireEvent.click(screen.getByRole('button', { name: /apply controls/i }));
+
+    expect(globalThis.confirm).toHaveBeenCalledWith(expect.stringContaining('2 projects'));
+    expect(factoryApi.applyAutomationPlan).not.toHaveBeenCalled();
+    expect(factoryApi.applyProjectAutomationPlan).not.toHaveBeenCalled();
+  });
+
+  it('shows manual intervention when automation controls are ready but queues are operator-owned', () => {
+    const baseShell = useFactoryShell();
+    const readyProject = {
+      ...factoryProject,
+      automation_readiness: {
+        ready: true,
+        blocker_codes: [],
+        control_plane_actions: [],
+      },
+      work_item_status_counts: {
+        needs_review: 1,
+      },
+    };
+
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      automationReadiness: {
+        ready: true,
+        hands_off_ready: false,
+        total_projects: 1,
+        ready_projects: 1,
+        blocked_projects: 0,
+        auto_continue_enabled_projects: 1,
+        dark_trust_projects: 1,
+        blockers: {},
+        project_ids: {
+          ready: ['factory-1'],
+          blocked: [],
+        },
+        manual_intervention: {
+          required: true,
+          reason_codes: ['task_approval_pending', 'work_items_need_review'],
+          counts: {
+            pending_approval_tasks: 2,
+            needs_review_work_items: 1,
+            escalation_exhausted_work_items: 0,
+            scheduler_unarmed_projects: 1,
+          },
+        },
+        control_plane_plan: [],
+      },
+      outletContext: {
+        ...baseShell.outletContext,
+        automationReadiness: {
+          ready: true,
+          hands_off_ready: false,
+          total_projects: 1,
+          ready_projects: 1,
+          blocked_projects: 0,
+          auto_continue_enabled_projects: 1,
+          dark_trust_projects: 1,
+          blockers: {},
+          project_ids: {
+            ready: ['factory-1'],
+            blocked: [],
+          },
+          manual_intervention: {
+            required: true,
+            reason_codes: ['task_approval_pending', 'work_items_need_review'],
+            counts: {
+              pending_approval_tasks: 2,
+              needs_review_work_items: 1,
+              escalation_exhausted_work_items: 0,
+              scheduler_unarmed_projects: 1,
+            },
+          },
+          control_plane_plan: [],
+        },
+        detail: {
+          ...baseShell.outletContext.detail,
+          project: readyProject,
+        },
+        projects: [readyProject],
+        selectedProject: readyProject,
+        selectedProjectId: readyProject.id,
+      },
+      projects: [readyProject],
+      totalProjects: 1,
+    });
+
+    renderFactory();
+
+    expect(screen.getByText('Automation controls ready; manual intervention queued')).toBeInTheDocument();
+    expect(screen.getByText(/1 control-ready .* 1 auto-continue .* 1 dark trust/i)).toBeInTheDocument();
+    expect(screen.getByText('1 tick unarmed · 2 approvals · 1 needs review · 0 needs replan · 0 exhausted')).toBeInTheDocument();
+    expect(screen.queryByText('Blocked: torque-public')).not.toBeInTheDocument();
   });
 
   it('renders keyed factory alert badges and ignores unkeyed alert payloads', () => {

@@ -561,4 +561,17 @@ describe('handler/tool wiring parity', () => {
       else process.env.TORQUE_WORKFLOW_NODE_ID = originalNodeId;
     }
   });
+
+  it('handles task-log disk usage inline without throwing', async () => {
+    const result = await tools.handleToolCall('get_task_log_disk_usage', {});
+
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredData).toEqual(expect.objectContaining({
+      task_count: expect.any(Number),
+      total_bytes: expect.any(Number),
+      retention_days: expect.any(Number),
+      min_free_mb: expect.any(Number),
+    }));
+    expect(getResultText(result)).toContain('Task-log disk usage');
+  });
 });

@@ -70,6 +70,11 @@ const { analyzeBatch, detectDrift, recordHumanCorrection } = require('../factory
 const { getAuditTrail, getDecisionContext, getDecisionStats } = require('../factory/decision-log');
 const { buildProviderLaneAudit } = require('../factory/provider-lane-audit');
 const { LOOP_STATES } = require('../factory/loop-states');
+const {
+  buildFactoryAutomationReadiness,
+  isFactoryProjectWorkEnabled,
+  summarizeProjectAutomationReadiness,
+} = require('../factory/automation-readiness');
 const notifications = require('../factory/notifications');
 const { ErrorCodes, makeError } = require('./error-codes');
 const logger = require('../logger').child({ component: 'factory-handlers' });
@@ -130,6 +135,16 @@ function isExplicitFalse(value) {
   return ['false', '0', 'no', 'off'].includes(value.trim().toLowerCase());
 }
 
+function isExplicitTrue(value) {
+  if (value === true || value === 1) {
+    return true;
+  }
+  if (typeof value !== 'string') {
+    return false;
+  }
+  return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
 function isBasicProjectListRequest(args = {}) {
   const summary = typeof args.summary === 'string' ? args.summary.trim().toLowerCase() : '';
   const detail = typeof args.detail === 'string' ? args.detail.trim().toLowerCase() : '';
@@ -149,8 +164,15 @@ function isIdleDiagnosisRequested(args = {}) {
     || args.includeIdleDiagnosis === 'true';
 }
 
+function isAutomationReadinessRequested(args = {}) {
+  return args.include_automation_readiness === true
+    || args.include_automation_readiness === 'true'
+    || args.includeAutomationReadiness === true
+    || args.includeAutomationReadiness === 'true';
+}
+
 function summarizeBasicFactoryProject(project) {
-  return {
+  const summary = {
     id: project.id,
     name: project.name,
     path: project.path,
@@ -158,6 +180,14 @@ function summarizeBasicFactoryProject(project) {
     status: project.status,
     loop_state: normalizeProjectLoopState(project.loop_state),
   };
+  if (project.automation_readiness) {
+    summary.automation_readiness = project.automation_readiness;
+  }
+  if (project.work_item_status_counts) {
+    summary.work_item_status_counts = project.work_item_status_counts;
+    summary.open_work_item_count = project.open_work_item_count || 0;
+  }
+  return summary;
 }
 
 function nowIso() {
@@ -171,6 +201,31 @@ function parseProjectConfig(projectConfigJson) {
     void _e;
     return {};
   }
+}
+
+function isPlainConfigObject(value) {
+  return Boolean(value)
+    && typeof value === 'object'
+    && !Array.isArray(value);
+}
+
+function mergeProjectConfig(existing, patch) {
+  if (!isPlainConfigObject(existing)) {
+    return isPlainConfigObject(patch) ? { ...patch } : {};
+  }
+  if (!isPlainConfigObject(patch)) {
+    return { ...existing };
+  }
+
+  const merged = { ...existing };
+  for (const [key, value] of Object.entries(patch)) {
+    if (isPlainConfigObject(value) && isPlainConfigObject(merged[key])) {
+      merged[key] = mergeProjectConfig(merged[key], value);
+    } else {
+      merged[key] = value;
+    }
+  }
+  return merged;
 }
 
 function markOperatorPausedConfig(project, args = {}) {
@@ -505,6 +560,24 @@ function factoryHandlerError(errorCode, message, status, details = null) {
   };
 }
 
+function factoryProjectWorkDisabledError(action, project = null) {
+  const projectLabel = project?.name || project?.id || project?.path || 'factory project';
+  return makeError(
+    ErrorCodes.CONFLICT,
+    `Factory project work is disabled; ${action} for "${projectLabel}" is blocked until factory_project_work_enabled is enabled.`,
+    {
+      reason_code: 'factory_project_work_disabled',
+      project_id: project?.id || null,
+      project_name: project?.name || null,
+      action,
+    },
+  );
+}
+
+function blockWhenFactoryProjectWorkDisabled(action, project = null) {
+  return isFactoryProjectWorkEnabled() ? null : factoryProjectWorkDisabledError(action, project);
+}
+
 function normalizeProjectLoopState(loopState) {
   if (typeof loopState !== 'string') {
     return 'IDLE';
@@ -613,6 +686,18 @@ function getTaskTags(task) {
   } catch {
     return [];
   }
+}
+
+function getTaskMetadata(task) {
+  if (task?.metadata && typeof task.metadata === 'object' && !Array.isArray(task.metadata)) {
+    return task.metadata;
+  }
+  return parseJsonObject(task?.metadata) || {};
+}
+
+function getTaskTagValue(tags, prefix) {
+  const tag = tags.find((entry) => typeof entry === 'string' && entry.startsWith(prefix));
+  return tag ? tag.slice(prefix.length).trim() : null;
 }
 
 function rankActiveFactoryTask(task) {
@@ -788,41 +873,155 @@ function summarizeFactoryStateConsistency({ project, loopState, activeStage, act
   };
 }
 
-function countOpenFactoryWorkItems(projectId) {
+function normalizeFactoryWorkItemStatusCounts(stats) {
+  const counts = {};
+  for (const [status, count] of Object.entries(stats || {})) {
+    const key = String(status || '').trim();
+    if (!key) {
+      continue;
+    }
+    const numeric = Number(count);
+    counts[key] = Number.isFinite(numeric) ? numeric : 0;
+  }
+  return counts;
+}
+
+function countOpenFactoryWorkItemsFromStats(stats) {
+  return Object.entries(stats || {}).reduce((sum, [status, count]) => {
+    if (factoryIntake.CLOSED_STATUSES.has(status)) {
+      return sum;
+    }
+    const numeric = Number(count);
+    return sum + (Number.isFinite(numeric) ? numeric : 0);
+  }, 0);
+}
+
+function getFactoryWorkItemStatusCounts(projectId) {
   try {
-    const stats = factoryIntake.getIntakeStats(projectId);
-    return Object.entries(stats).reduce((sum, [status, count]) => {
-      if (factoryIntake.CLOSED_STATUSES.has(status)) {
-        return sum;
-      }
-      const numeric = Number(count);
-      return sum + (Number.isFinite(numeric) ? numeric : 0);
-    }, 0);
+    return normalizeFactoryWorkItemStatusCounts(factoryIntake.getIntakeStats(projectId));
   } catch (error) {
-    logger.debug('Failed to count open factory work items', {
+    logger.debug('Failed to count factory work items by status', {
       err: error.message,
       project_id: projectId,
     });
-    return 0;
+    return {};
   }
 }
 
-function isFactoryQueueTask(task, projectNames = new Set()) {
+function countOpenFactoryWorkItems(projectId) {
+  return countOpenFactoryWorkItemsFromStats(getFactoryWorkItemStatusCounts(projectId));
+}
+
+function aggregateFactoryWorkItemStatusCounts(projects) {
+  const totals = {};
+  for (const project of Array.isArray(projects) ? projects : []) {
+    const counts = project?.work_item_status_counts || {};
+    for (const [status, count] of Object.entries(counts)) {
+      totals[status] = (totals[status] || 0) + (Number(count) || 0);
+    }
+  }
+  return totals;
+}
+
+function getFactorySchedulerSnapshot() {
+  try {
+    const factoryTick = require('../factory/factory-tick');
+    if (factoryTick && typeof factoryTick.getActiveTickProjectIds === 'function') {
+      return {
+        active_project_ids: factoryTick.getActiveTickProjectIds(),
+      };
+    }
+  } catch (error) {
+    logger.debug('Failed to inspect factory tick scheduler state', {
+      err: error.message,
+    });
+  }
+  return {
+    active_project_ids: [],
+  };
+}
+
+function buildFactoryTaskScope(projects = [], options = {}) {
+  const projectList = Array.isArray(projects) ? projects : [];
+  const projectIds = new Set(
+    projectList
+      .map((project) => String(project?.id || '').trim())
+      .filter(Boolean)
+  );
+  const projectNames = new Set(
+    projectList
+      .map((project) => String(project?.name || '').trim())
+      .filter(Boolean)
+  );
+  return {
+    projectIds,
+    projectNames,
+    hasProjectScope: projectIds.size > 0 || projectNames.size > 0,
+    includeUnscopedFactoryTasks: options.includeUnscopedFactoryTasks !== false,
+  };
+}
+
+function getFactoryProjectIdFromTask(task, tags = getTaskTags(task)) {
+  const direct = getTaskTagValue(tags, 'factory:project_id=');
+  if (direct) return direct;
+
+  const batchId = getTaskTagValue(tags, 'factory:batch_id=');
+  if (batchId) {
+    const match = batchId.match(/^factory-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-/i);
+    if (match) return match[1];
+  }
+
+  return normalizeOptionalText(getTaskMetadata(task).project_id);
+}
+
+function getFactoryTargetProjectNameFromTask(task, tags = getTaskTags(task)) {
+  const targetName = getTaskTagValue(tags, 'factory:target_project=');
+  if (targetName) return targetName;
+
+  const projectTag = tags.find((tag) => typeof tag === 'string' && tag.startsWith('project:'));
+  if (projectTag) {
+    const projectName = projectTag.slice('project:'.length).trim();
+    if (projectName && !projectName.startsWith('factory-')) return projectName;
+  }
+
+  return normalizeOptionalText(getTaskMetadata(task).target_project);
+}
+
+function isFactoryQueueTask(task, scope = buildFactoryTaskScope()) {
   const tags = getTaskTags(task).map((tag) => String(tag || ''));
-  if (tags.some((tag) => tag.startsWith('factory:'))) {
+  const hasFactoryTag = tags.some((tag) => tag.startsWith('factory:'));
+  const projectName = String(task?.project || '').trim();
+  if (!scope.hasProjectScope) {
+    return hasFactoryTag;
+  }
+
+  const factoryProjectId = getFactoryProjectIdFromTask(task, tags);
+  if (factoryProjectId) {
+    return scope.projectIds.has(factoryProjectId)
+      || (hasFactoryTag && scope.includeUnscopedFactoryTasks);
+  }
+
+  const targetProjectName = getFactoryTargetProjectNameFromTask(task, tags);
+  if (targetProjectName) {
+    return scope.projectNames.has(targetProjectName)
+      || (hasFactoryTag && scope.includeUnscopedFactoryTasks);
+  }
+
+  if (projectName !== '' && scope.projectNames.has(projectName)) {
     return true;
   }
-  const projectName = String(task?.project || '').trim();
-  return projectName !== '' && projectNames.has(projectName);
+
+  return hasFactoryTag && scope.includeUnscopedFactoryTasks;
 }
 
-function listFactoryTasksByStatusKey(status, projectNames = new Set(), columns = ['id', 'project', 'tags']) {
+function listFactoryTasksByStatusKey(status, scope = buildFactoryTaskScope(), columns = ['id', 'project', 'tags', 'metadata']) {
   try {
     const db = getDatabase();
     if (db && typeof db.listTasks === 'function') {
-      const rows = db.listTasks({ status, limit: 10000, columns });
+      const projectedColumns = Array.from(new Set(['id', 'project', 'tags', 'metadata', ...columns]));
+      const rows = db.listTasks({ status, limit: 10000, columns: projectedColumns });
       return Array.isArray(rows)
-        ? rows.filter((task) => isFactoryQueueTask(task, projectNames))
+        ? rows.filter((task) => isFactoryQueueTask(task, scope))
         : [];
     }
   } catch (error) {
@@ -834,15 +1033,15 @@ function listFactoryTasksByStatusKey(status, projectNames = new Set(), columns =
   return [];
 }
 
-function countTasksByStatusKey(status, projectNames = new Set()) {
-  const tasks = listFactoryTasksByStatusKey(status, projectNames);
+function countTasksByStatusKey(status, scope = buildFactoryTaskScope()) {
+  const tasks = listFactoryTasksByStatusKey(status, scope);
   if (tasks.length > 0) {
     return tasks.length;
   }
 
   try {
     const db = getDatabase();
-    if (db && typeof db.countTasks === 'function' && projectNames.size === 0) {
+    if (db && typeof db.countTasks === 'function' && !scope.hasProjectScope) {
       return Number(db.countTasks({ status, tag: 'factory:internal' })) || 0;
     }
   } catch (error) {
@@ -854,24 +1053,20 @@ function countTasksByStatusKey(status, projectNames = new Set()) {
   return 0;
 }
 
-function countProjectPausedWaitingTasks(projectNames = new Set()) {
-  return listFactoryTasksByStatusKey('waiting', projectNames, ['id', 'project', 'tags', 'pause_reason'])
+function countProjectPausedWaitingTasks(scope = buildFactoryTaskScope()) {
+  return listFactoryTasksByStatusKey('waiting', scope, ['id', 'project', 'tags', 'metadata', 'pause_reason'])
     .filter((task) => task.pause_reason === FACTORY_PROJECT_PAUSED_REASON)
     .length;
 }
 
-function getFactoryTaskQueueCounts(projects = []) {
-  const projectNames = new Set(
-    (Array.isArray(projects) ? projects : [])
-      .map((project) => String(project?.name || '').trim())
-      .filter(Boolean)
-  );
+function getFactoryTaskQueueCounts(projects = [], options = {}) {
+  const scope = buildFactoryTaskScope(projects, options);
   const byStatus = {};
   for (const status of FACTORY_QUEUE_STATUS_KEYS) {
-    byStatus[status] = countTasksByStatusKey(status, projectNames);
+    byStatus[status] = countTasksByStatusKey(status, scope);
   }
   const totalNonTerminal = Object.values(byStatus).reduce((sum, count) => sum + count, 0);
-  const projectPausedWaiting = countProjectPausedWaitingTasks(projectNames);
+  const projectPausedWaiting = countProjectPausedWaitingTasks(scope);
   const rawSchedulable = FACTORY_SCHEDULABLE_TASK_STATUS_KEYS
     .reduce((sum, status) => sum + (byStatus[status] || 0), 0);
   const schedulable = Math.max(0, rawSchedulable - projectPausedWaiting);
@@ -911,12 +1106,21 @@ function hasPausedActiveFactoryLoop(project) {
   return !NON_STALLABLE_FACTORY_LOOP_STATES.has(state);
 }
 
-function makeIdleAction(type, label, projectIds = []) {
+function makeIdleAction(type, label, projectIds = [], options = {}) {
   return {
     type,
     label,
     ...(projectIds.length > 0 ? { project_ids: projectIds.slice(0, 20) } : {}),
+    ...options,
   };
+}
+
+function makeControlPlaneIdleAction(label, projectIds = []) {
+  return makeIdleAction('factory_automation_plan', label, projectIds, {
+    effect_scope: 'control_plane',
+    mutates_control_plane: false,
+    processes_project_work: false,
+  });
 }
 
 function buildFactoryIdleDiagnosis(projects, taskQueue = null) {
@@ -959,7 +1163,7 @@ function buildFactoryIdleDiagnosis(projects, taskQueue = null) {
   } else if (allProjectsPaused) {
     reasonCode = 'all_projects_paused';
     message = 'All registered factory projects are paused.';
-    actions.push(makeIdleAction('resume_project', 'Resume at least one factory project.', pausedProjectIds));
+    actions.push(makeControlPlaneIdleAction('Review automation readiness before resuming paused projects.', pausedProjectIds));
   } else if (activeLoopProjectIds.length > 0) {
     idle = false;
     reasonCode = 'active_factory_loops';
@@ -975,11 +1179,11 @@ function buildFactoryIdleDiagnosis(projects, taskQueue = null) {
   } else if (runningProjectIds.length === 0) {
     reasonCode = 'no_running_projects';
     message = 'No factory projects are running.';
-    actions.push(makeIdleAction('resume_project', 'Resume a factory project.', pausedProjectIds));
+    actions.push(makeControlPlaneIdleAction('Review automation readiness before resuming a project.', pausedProjectIds));
   } else if (openWorkItems > 0) {
     reasonCode = 'work_waiting_for_loop';
     message = 'Open factory work items exist, but no loop is currently active.';
-    actions.push(makeIdleAction('start_factory_loop', 'Start or advance a factory loop.', runningProjectIds));
+    actions.push(makeControlPlaneIdleAction('Review readiness and scheduler arming before processing waiting work.', runningProjectIds));
   }
 
   return {
@@ -1337,10 +1541,34 @@ async function handleRegisterFactoryProject(args) {
 
 async function handleListFactoryProjects(args = {}) {
   const projects = factoryHealth.listProjects(args.status ? { status: args.status } : undefined);
+  const includeAutomationReadiness = isAutomationReadinessRequested(args);
+  const enrichAutomationStatus = (project) => {
+    if (!includeAutomationReadiness) {
+      return project;
+    }
+    const workItemStatusCounts = getFactoryWorkItemStatusCounts(project.id);
+    return {
+      ...project,
+      automation_readiness: summarizeProjectAutomationReadiness(project),
+      work_item_status_counts: workItemStatusCounts,
+      open_work_item_count: countOpenFactoryWorkItemsFromStats(workItemStatusCounts),
+    };
+  };
+  const responseProjects = includeAutomationReadiness
+    ? projects.map(enrichAutomationStatus)
+    : projects;
   if (isBasicProjectListRequest(args)) {
-    const response = { projects: projects.map(summarizeBasicFactoryProject) };
+    const response = { projects: responseProjects.map(summarizeBasicFactoryProject) };
     if (isIdleDiagnosisRequested(args)) {
-      response.idle_diagnosis = buildFactoryIdleDiagnosisForProjects(projects);
+      response.idle_diagnosis = buildFactoryIdleDiagnosisForProjects(responseProjects);
+    }
+    if (includeAutomationReadiness) {
+      response.automation_readiness = buildFactoryAutomationReadiness(responseProjects, {
+        taskQueue: getFactoryTaskQueueCounts(responseProjects, {
+          includeUnscopedFactoryTasks: !args.status,
+        }),
+        scheduler: getFactorySchedulerSnapshot(),
+      });
     }
     return jsonResponse(response);
   }
@@ -1349,9 +1577,9 @@ async function handleListFactoryProjects(args = {}) {
   // same shape as the factory_status MCP tool. Lightweight pollers can
   // pass include_commits=false or summary=basic to avoid git work.
   const includeCommits = !isExplicitFalse(args.include_commits);
-  const projectIds = projects.map((p) => p.id);
+  const projectIds = responseProjects.map((p) => p.id);
   const scoresMap = factoryHealth.getLatestScoresBatch(projectIds);
-  const summaries = await Promise.all(projects.map(async (p) => {
+  const summaries = await Promise.all(responseProjects.map(async (p) => {
     const scores = scoresMap.get(p.id) ?? {};
     const balance = factoryHealth.getBalanceScore(p.id, scores);
     const summary = { ...p, scores, balance };
@@ -1362,9 +1590,315 @@ async function handleListFactoryProjects(args = {}) {
   }));
   const response = { projects: summaries };
   if (isIdleDiagnosisRequested(args)) {
-    response.idle_diagnosis = buildFactoryIdleDiagnosisForProjects(projects);
+    response.idle_diagnosis = buildFactoryIdleDiagnosisForProjects(summaries);
+  }
+  if (includeAutomationReadiness) {
+    response.automation_readiness = buildFactoryAutomationReadiness(summaries, {
+      taskQueue: getFactoryTaskQueueCounts(summaries, {
+        includeUnscopedFactoryTasks: !args.status,
+      }),
+      scheduler: getFactorySchedulerSnapshot(),
+    });
   }
   return jsonResponse(response);
+}
+
+function buildFactoryAutomationPlanData(args = {}) {
+  const scopedProjects = args.project
+    ? [resolveProject(args.project)]
+    : (Array.isArray(args.project_ids) || Array.isArray(args.projectIds)
+      ? (args.project_ids || args.projectIds).map((projectId) => resolveProject(projectId))
+      : factoryHealth.listProjects(args.status ? { status: args.status } : undefined));
+  const projects = scopedProjects.map((project) => {
+    const workItemStatusCounts = getFactoryWorkItemStatusCounts(project.id);
+    return {
+      id: project.id,
+      name: project.name,
+      path: project.path,
+      trust_level: project.trust_level,
+      status: project.status,
+      loop_state: normalizeProjectLoopState(project.loop_state),
+      automation_readiness: summarizeProjectAutomationReadiness(project),
+      work_item_status_counts: workItemStatusCounts,
+      open_work_item_count: countOpenFactoryWorkItemsFromStats(workItemStatusCounts),
+    };
+  });
+  const taskQueue = getFactoryTaskQueueCounts(projects, {
+    includeUnscopedFactoryTasks: !args.project && !args.status,
+  });
+  const summary = buildFactoryAutomationReadiness(projects, {
+    taskQueue,
+    scheduler: getFactorySchedulerSnapshot(),
+  });
+  const workItemStatusCounts = aggregateFactoryWorkItemStatusCounts(projects);
+  const blockedOnly = isExplicitTrue(args.blocked_only) || isExplicitTrue(args.blockedOnly);
+  const visibleProjects = blockedOnly
+    ? projects.filter((project) => project.automation_readiness?.ready !== true)
+    : projects;
+  const message = summary.total_projects === 0
+    ? 'No factory projects found in the requested scope.'
+    : (summary.ready
+      ? (summary.hands_off_ready
+        ? 'Factory automation controls are ready for the requested scope.'
+        : 'Factory automation controls are ready, but operator-owned work or scheduler arming still needs intervention.')
+      : `${summary.blocked_projects} project${summary.blocked_projects === 1 ? '' : 's'} need control-plane changes before hands-off cycling.`);
+
+  return {
+    ready: summary.ready,
+    hands_off_ready: summary.hands_off_ready,
+    message,
+    scope: {
+      project: args.project || null,
+      status: args.status || null,
+      blocked_only: blockedOnly,
+    },
+    summary,
+    work_item_status_counts: workItemStatusCounts,
+    needs_review_work_items: workItemStatusCounts.needs_review || 0,
+    needs_replan_work_items: workItemStatusCounts.needs_replan || 0,
+    manual_intervention: summary.manual_intervention,
+    control_plane_plan: summary.control_plane_plan,
+    projects: visibleProjects,
+  };
+}
+
+async function handleFactoryAutomationPlan(args = {}) {
+  return jsonResponse(buildFactoryAutomationPlanData(args));
+}
+
+async function handleArmFactoryTick(args = {}) {
+  if (!args.project || (typeof args.project === 'string' && args.project.trim() === '')) {
+    return makeError(ErrorCodes.MISSING_REQUIRED_PARAM, 'project is required');
+  }
+
+  const project = resolveProject(args.project);
+  const automationReadiness = summarizeProjectAutomationReadiness(project);
+  if (!automationReadiness.ready) {
+    return makeError(
+      ErrorCodes.CONFLICT,
+      `Project "${project.name}" is not automation-ready; run factory_automation_plan for required control-plane steps.`,
+      {
+        automation_readiness: automationReadiness,
+      },
+    );
+  }
+
+  try {
+    const factoryTick = require('../factory/factory-tick');
+    const intervalMs = getConfiguredFactoryTickInterval(project);
+    const alreadyActive = typeof factoryTick.isTickActive === 'function'
+      ? factoryTick.isTickActive(project.id)
+      : false;
+    const startResult = typeof factoryTick.startTick === 'function'
+      ? factoryTick.startTick(project, intervalMs, { immediate: false })
+      : { started: false, already_active: alreadyActive };
+    const active = typeof factoryTick.isTickActive === 'function'
+      ? factoryTick.isTickActive(project.id)
+      : Boolean(startResult.started || alreadyActive);
+    return jsonResponse({
+      project: {
+        id: project.id,
+        name: project.name,
+        status: project.status,
+        trust_level: project.trust_level,
+      },
+      tick_active: active,
+      started: startResult.started === true,
+      already_active: startResult.already_active === true || alreadyActive,
+      interval_ms: startResult.interval_ms || intervalMs || null,
+      immediate_tick: false,
+      processes_project_work: false,
+      enables_future_processing: true,
+      automation_readiness: automationReadiness,
+      message: active
+        ? `Factory tick armed for "${project.name}" without running an immediate tick.`
+        : `Factory tick could not be armed for "${project.name}".`,
+    });
+  } catch (error) {
+    logger.warn('Failed to arm factory tick', {
+      project_id: project.id,
+      err: error.message,
+    });
+    return makeError(ErrorCodes.INTERNAL_ERROR, `Failed to arm factory tick: ${error.message}`);
+  }
+}
+
+const FACTORY_AUTOMATION_APPLY_TOOLS = new Set([
+  'set_factory_trust_level',
+  'resume_project',
+  'arm_factory_tick',
+]);
+
+function normalizeFactoryAutomationApplyArgs(args = {}) {
+  const dryRun = isExplicitTrue(args.dry_run) || isExplicitTrue(args.dryRun);
+  const allProjects = isExplicitTrue(args.all_projects) || isExplicitTrue(args.allProjects);
+  const blockedOnly = isExplicitTrue(args.blocked_only) || isExplicitTrue(args.blockedOnly);
+  const confirmAllProjects = isExplicitTrue(args.confirm_all_projects) || isExplicitTrue(args.confirmAllProjects);
+  const confirmScope = confirmAllProjects || isExplicitTrue(args.confirm_scope) || isExplicitTrue(args.confirmScope);
+  const continueOnError = isExplicitTrue(args.continue_on_error) || isExplicitTrue(args.continueOnError);
+  return {
+    ...args,
+    dryRun,
+    allProjects,
+    blockedOnly,
+    confirmAllProjects,
+    confirmScope,
+    continueOnError,
+  };
+}
+
+function makeFactoryAutomationStepResult(step, status, extra = {}) {
+  return {
+    action: step.action,
+    tool: step.tool,
+    args: step.args || {},
+    status,
+    effect_scope: step.effect_scope || 'control_plane',
+    processes_project_work: step.processes_project_work === true,
+    mutates_control_plane: step.mutates_control_plane === true,
+    enables_future_processing: step.enables_future_processing === true,
+    ...extra,
+  };
+}
+
+function validateFactoryAutomationApplyStep(step) {
+  if (!step || typeof step !== 'object') {
+    return 'Plan step is not an object.';
+  }
+  if (!FACTORY_AUTOMATION_APPLY_TOOLS.has(step.tool)) {
+    return `Tool "${step.tool || 'unknown'}" is not allowed in automation-plan apply.`;
+  }
+  if (step.effect_scope !== 'control_plane') {
+    return `Plan step "${step.action || step.tool}" is not scoped to the control plane.`;
+  }
+  if (step.processes_project_work !== false) {
+    return `Plan step "${step.action || step.tool}" may process project work.`;
+  }
+  return null;
+}
+
+async function executeFactoryAutomationApplyStep(step) {
+  if (step.tool === 'set_factory_trust_level') {
+    return handleSetFactoryTrustLevel(step.args || {});
+  }
+  if (step.tool === 'resume_project') {
+    return handleResumeProject({
+      ...(step.args || {}),
+      immediate_tick: false,
+    });
+  }
+  if (step.tool === 'arm_factory_tick') {
+    return handleArmFactoryTick({
+      ...(step.args || {}),
+      immediate: false,
+    });
+  }
+  return makeError(ErrorCodes.INVALID_PARAM, `Unsupported automation-plan tool: ${step.tool}`);
+}
+
+function collectFactoryAutomationApplyProjectIds(planData) {
+  const projectIds = new Set();
+  for (const project of Array.isArray(planData?.projects) ? planData.projects : []) {
+    if (project?.id) {
+      projectIds.add(project.id);
+    }
+  }
+  for (const step of Array.isArray(planData?.control_plane_plan) ? planData.control_plane_plan : []) {
+    if (step?.args?.project) {
+      projectIds.add(step.args.project);
+    }
+  }
+  return Array.from(projectIds);
+}
+
+async function handleApplyFactoryAutomationPlan(args = {}) {
+  const normalizedArgs = normalizeFactoryAutomationApplyArgs(args);
+  if (!normalizedArgs.project && !normalizedArgs.status && !normalizedArgs.allProjects) {
+    return makeError(
+      ErrorCodes.MISSING_REQUIRED_PARAM,
+      'project, status, or all_projects=true is required before applying automation readiness changes.'
+    );
+  }
+  if (!normalizedArgs.project && !normalizedArgs.dryRun && !normalizedArgs.confirmScope) {
+    return makeError(
+      ErrorCodes.CONFLICT,
+      'confirm_scope=true or confirm_all_projects=true is required before applying automation readiness changes to a multi-project scope.'
+    );
+  }
+
+  const planArgs = {
+    project: normalizedArgs.project,
+    status: normalizedArgs.status,
+    blocked_only: normalizedArgs.blockedOnly,
+  };
+  const before = buildFactoryAutomationPlanData(planArgs);
+  const scopedProjectIds = collectFactoryAutomationApplyProjectIds(before);
+  const steps = Array.isArray(before.control_plane_plan) ? before.control_plane_plan : [];
+  const appliedSteps = [];
+  const skippedSteps = [];
+  const failedSteps = [];
+
+  for (const step of steps) {
+    const validationError = validateFactoryAutomationApplyStep(step);
+    if (validationError) {
+      const failed = makeFactoryAutomationStepResult(step || {}, 'failed', { error: validationError });
+      failedSteps.push(failed);
+      if (!normalizedArgs.continueOnError) break;
+      continue;
+    }
+
+    if (normalizedArgs.dryRun) {
+      skippedSteps.push(makeFactoryAutomationStepResult(step, 'dry_run'));
+      continue;
+    }
+
+    try {
+      const result = await executeFactoryAutomationApplyStep(step);
+      if (result?.isError) {
+        const text = result.content?.[0]?.text || 'Step failed';
+        failedSteps.push(makeFactoryAutomationStepResult(step, 'failed', {
+          error: text.split(/\r?\n/, 1)[0],
+        }));
+        if (!normalizedArgs.continueOnError) break;
+        continue;
+      }
+      appliedSteps.push(makeFactoryAutomationStepResult(step, 'applied', {
+        result: result?.structuredData || null,
+      }));
+    } catch (error) {
+      failedSteps.push(makeFactoryAutomationStepResult(step, 'failed', {
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      if (!normalizedArgs.continueOnError) break;
+    }
+  }
+
+  const after = normalizedArgs.dryRun
+    ? before
+    : buildFactoryAutomationPlanData({
+      ...planArgs,
+      project_ids: scopedProjectIds,
+      blocked_only: false,
+    });
+  const completed = failedSteps.length === 0;
+  return jsonResponse({
+    completed,
+    dry_run: normalizedArgs.dryRun,
+    scope: before.scope,
+    message: normalizedArgs.dryRun
+      ? `Dry run found ${steps.length} automation readiness control-plane step${steps.length === 1 ? '' : 's'}.`
+      : (completed
+        ? `Applied ${appliedSteps.length} automation readiness control-plane step${appliedSteps.length === 1 ? '' : 's'} without processing project work.`
+        : `Applied ${appliedSteps.length} automation readiness control-plane step${appliedSteps.length === 1 ? '' : 's'} before a failure.`),
+    processes_project_work: false,
+    enables_future_processing: appliedSteps.some((step) => step.enables_future_processing),
+    planned_steps: steps.length,
+    applied_steps: appliedSteps,
+    skipped_steps: skippedSteps,
+    failed_steps: failedSteps,
+    before,
+    after,
+  });
 }
 
 function summarizeHealthModel(scores) {
@@ -1487,18 +2021,23 @@ async function handleSetFactoryTrustLevel(args) {
   // existing config_json so callers can set individual keys like
   // { loop: { auto_continue: true } } without overwriting everything.
   if (args.config && typeof args.config === 'object') {
-    const existing = project.config_json ? (() => { try { return JSON.parse(project.config_json); } catch (_e) { void _e; return {}; } })() : {};
-    const merged = { ...existing, ...args.config };
+    const existing = parseProjectConfig(project.config_json);
+    const merged = mergeProjectConfig(existing, args.config);
     if (merged.plans_dir) {
       validatePlansDir({ projectPath: project.path, plansDir: merged.plans_dir });
     }
     updates.config_json = JSON.stringify(merged);
   }
   const updated = factoryHealth.updateProject(project.id, updates);
+  const automationReadiness = summarizeProjectAutomationReadiness(updated);
+  const tickStopped = automationReadiness.ready ? false : stopFactoryTickForProject(updated.id);
   logger.info(`Trust level for "${updated.name}" changed to ${args.trust_level}`);
   return jsonResponse({
     message: `Trust level for "${updated.name}" set to: ${updated.trust_level}`,
     project: updated,
+    automation_readiness: automationReadiness,
+    tick_stopped: tickStopped,
+    tick_stop_reason: automationReadiness.ready ? null : 'automation_not_ready',
   });
 }
 
@@ -1564,31 +2103,60 @@ async function handleResumeProject(args) {
   } catch (err) {
     logger.warn({ err }, 'Failed to record resume audit event');
   }
-  const resumedQueue = resumePausedFactoryProjectQueue(updated.id);
-  // Start factory tick timer when project resumes.
+  const projectWorkEnabled = isFactoryProjectWorkEnabled();
+  const resumedQueue = projectWorkEnabled
+    ? resumePausedFactoryProjectQueue(updated.id)
+    : {
+        requeued: 0,
+        scanned: 0,
+        skipped: true,
+        reason: 'factory_project_work_disabled',
+      };
+  const requestedImmediateTick = args.immediate_tick !== false && args.immediateTick !== false;
+  const immediateTick = requestedImmediateTick && projectWorkEnabled;
+  const automationReadiness = summarizeProjectAutomationReadiness(updated);
+  let tickResult = {
+    started: false,
+    already_active: false,
+    skipped: true,
+    reason: projectWorkEnabled ? 'automation_not_ready' : 'factory_project_work_disabled',
+  };
+  // Start the factory tick timer when a resume leaves the project automation-ready.
   // Phase L (2026-04-30): honor cfg.loop.tick_interval_ms so an operator can
   // pause + resume to apply a new tick interval without restarting TORQUE.
   // Previously startTick(updated) used the default 5min regardless of config,
   // so the only way to change the interval was a full server restart.
-  try {
-    const { startTick } = require('../factory/factory-tick');
-    let intervalMs;
-    if (updated.config_json) {
-      try {
-        const cfg = JSON.parse(updated.config_json);
-        const cfgInterval = cfg?.loop?.tick_interval_ms;
-        if (Number.isFinite(cfgInterval) && cfgInterval > 0) {
-          intervalMs = cfgInterval;
-        }
-      } catch (_e) { void _e; /* invalid config_json — fall back to default */ }
-    }
-    startTick(updated, intervalMs);
-  } catch (_e) { void _e; /* factory-tick not loaded */ }
+  if (automationReadiness.ready) {
+    try {
+      const { startTick } = require('../factory/factory-tick');
+      let intervalMs;
+      if (updated.config_json) {
+        try {
+          const cfg = JSON.parse(updated.config_json);
+          const cfgInterval = cfg?.loop?.tick_interval_ms;
+          if (Number.isFinite(cfgInterval) && cfgInterval > 0) {
+            intervalMs = cfgInterval;
+          }
+        } catch (_e) { void _e; /* invalid config_json — fall back to default */ }
+      }
+      tickResult = startTick(updated, intervalMs, { immediate: immediateTick }) || {
+        started: false,
+        already_active: false,
+      };
+    } catch (_e) { void _e; /* factory-tick not loaded */ }
+  }
   logger.info(`Factory project resumed: ${updated.name}`);
   return jsonResponse({
     message: `Project "${updated.name}" running`,
     project: updated,
     requeued_tasks: resumedQueue.requeued,
+    queue_resume_skipped_reason: resumedQueue.skipped ? resumedQueue.reason : null,
+    tick_immediate: immediateTick,
+    tick_armed: automationReadiness.ready && (tickResult.started === true || tickResult.already_active === true),
+    tick_started: tickResult.started === true,
+    tick_already_active: tickResult.already_active === true,
+    tick_skipped_reason: automationReadiness.ready ? null : tickResult.reason,
+    automation_readiness: automationReadiness,
   });
 }
 
@@ -1787,21 +2355,54 @@ function getConfiguredFactoryTickInterval(project) {
 }
 
 function startFactoryTickForProject(project) {
+  const automationReadiness = summarizeProjectAutomationReadiness(project);
+  if (!automationReadiness.ready) {
+    return {
+      started: false,
+      already_active: false,
+      skipped: true,
+      reason: 'automation_not_ready',
+      automation_readiness: automationReadiness,
+    };
+  }
   try {
     const { startTick } = require('../factory/factory-tick');
-    startTick(project, getConfiguredFactoryTickInterval(project));
+    const result = startTick(project, getConfiguredFactoryTickInterval(project)) || {
+      started: false,
+      already_active: false,
+    };
+    return {
+      ...result,
+      skipped: false,
+      reason: null,
+      automation_readiness: automationReadiness,
+    };
   } catch (_e) {
     void _e;
   }
+  return {
+    started: false,
+    already_active: false,
+    skipped: true,
+    reason: 'factory_tick_unavailable',
+    automation_readiness: automationReadiness,
+  };
 }
 
 function stopFactoryTickForProject(projectId) {
   try {
-    const { stopTick } = require('../factory/factory-tick');
-    stopTick(projectId);
+    const factoryTick = require('../factory/factory-tick');
+    const wasActive = typeof factoryTick.isTickActive === 'function'
+      ? factoryTick.isTickActive(projectId)
+      : false;
+    if (typeof factoryTick.stopTick === 'function') {
+      factoryTick.stopTick(projectId);
+    }
+    return wasActive;
   } catch (_e) {
     void _e;
   }
+  return false;
 }
 
 function terminateActiveLoopInstancesForOperatorPause(projectId) {
@@ -1845,13 +2446,13 @@ function resumeProjectRowForFactoryAction(project, args = {}, reason = 'factory_
   } catch (err) {
     logger.warn({ err }, 'Failed to record action-triggered resume audit event');
   }
-  startFactoryTickForProject(updated);
+  const tickResult = startFactoryTickForProject(updated);
   logger.info('Factory project resumed for factory action', {
     project_id: updated.id,
     project_name: updated.name,
     reason,
   });
-  return { resumed: true, project: updated };
+  return { resumed: true, project: updated, tick: tickResult };
 }
 
 async function handlePauseAllProjects(args = {}) {
@@ -1951,13 +2552,15 @@ async function handleFactoryStatus() {
       activeStage,
       activeTask,
     });
-    const openWorkItemCount = countOpenFactoryWorkItems(p.id);
+    const workItemStatusCounts = getFactoryWorkItemStatusCounts(p.id);
+    const openWorkItemCount = countOpenFactoryWorkItemsFromStats(workItemStatusCounts);
     const alertBadge = getFactoryStatusAlertBadge(p.id, {
       openWorkItemCount,
       loopState,
       projectStatus: p.status,
       hasNonTerminalBatchTasks,
     });
+    const automationReadiness = summarizeProjectAutomationReadiness(p);
 
     if (getCachedCommitsToday(p.path, nowMs) !== null) {
       cacheHitCount += 1;
@@ -1978,6 +2581,8 @@ async function handleFactoryStatus() {
       loop_last_action_at: lastActionAt,
       consecutive_empty_cycles: Number(p.consecutive_empty_cycles) || 0,
       open_work_item_count: openWorkItemCount,
+      work_item_status_counts: workItemStatusCounts,
+      automation_readiness: automationReadiness,
       alert_badge: alertBadge,
       balance,
       weakest_dimension: weakest ? weakest[0] : null,
@@ -1998,6 +2603,11 @@ async function handleFactoryStatus() {
   const activeProjectTasks = summaries.filter(project => project.active_task?.kind === 'execution').length;
   const stateMismatchProjects = summaries.filter(project => !project.state_consistency?.ok).length;
   const idleDiagnosis = buildFactoryIdleDiagnosis(summaries);
+  const workItemStatusCounts = aggregateFactoryWorkItemStatusCounts(summaries);
+  const automationReadiness = buildFactoryAutomationReadiness(summaries, {
+    taskQueue: idleDiagnosis.counts?.task_queue,
+    scheduler: getFactorySchedulerSnapshot(),
+  });
   // Stall calculation uses the instance-derived state too, so a dead
   // instance can't look "running but stalled" forever — with no active
   // instance, loop_state is IDLE and the project is excluded from stalled.
@@ -2033,6 +2643,10 @@ async function handleFactoryStatus() {
       active_project_tasks: activeProjectTasks,
       state_mismatch_projects: stateMismatchProjects,
       idle_diagnosis: idleDiagnosis,
+      automation_readiness: automationReadiness,
+      work_item_status_counts: workItemStatusCounts,
+      needs_review_work_items: workItemStatusCounts.needs_review || 0,
+      needs_replan_work_items: workItemStatusCounts.needs_replan || 0,
     },
   });
 }
@@ -2493,6 +3107,8 @@ async function handleResetFactoryLoop(args) {
 
 async function handleStartFactoryLoop(args) {
   const project = resolveProject(args.project);
+  const disabled = blockWhenFactoryProjectWorkDisabled('start_factory_loop', project);
+  if (disabled) return disabled;
   if (args.auto_advance === true) {
     const result = loopController.startLoopAutoAdvanceForProject(project.id);
     return jsonResponse(result);
@@ -2519,12 +3135,16 @@ async function handleAwaitFactoryLoop(args) {
 
 async function handleAdvanceFactoryLoop(args) {
   const project = resolveProject(args.project);
+  const disabled = blockWhenFactoryProjectWorkDisabled('advance_factory_loop', project);
+  if (disabled) return disabled;
   const result = await loopController.advanceLoopForProject(project.id);
   return jsonResponse(result);
 }
 
 async function handleAdvanceFactoryLoopAsync(args) {
   const project = resolveProject(args.project);
+  const disabled = blockWhenFactoryProjectWorkDisabled('advance_factory_loop_async', project);
+  if (disabled) return disabled;
   const result = loopController.advanceLoopAsyncForProject(project.id);
   return jsonResponse(result, {
     status: 202,
@@ -2536,17 +3156,26 @@ async function handleAdvanceFactoryLoopAsync(args) {
 
 async function handleApproveFactoryGate(args) {
   const project = resolveProject(args.project);
+  const disabled = blockWhenFactoryProjectWorkDisabled('approve_factory_gate', project);
+  if (disabled) return disabled;
   const result = await loopController.approveGateForProject(project.id, args.stage);
   return jsonResponse(result);
 }
 
 async function handleRetryFactoryVerify(args) {
   const project = resolveProject(args.project || args.project_id);
+  const disabled = blockWhenFactoryProjectWorkDisabled('retry_factory_verify', project);
+  if (disabled) return disabled;
   const result = loopController.retryVerifyForProject(project.id);
   const resumeResult = resumeProjectRowForFactoryAction(project, args, 'retry_factory_verify');
   if (resumeResult.resumed) {
     result.project_resumed = true;
     result.project_status = resumeResult.project.status;
+    result.tick_armed = resumeResult.tick?.started === true || resumeResult.tick?.already_active === true;
+    result.tick_started = resumeResult.tick?.started === true;
+    result.tick_already_active = resumeResult.tick?.already_active === true;
+    result.tick_skipped_reason = resumeResult.tick?.skipped ? resumeResult.tick.reason : null;
+    result.automation_readiness = resumeResult.tick?.automation_readiness || null;
   }
   return jsonResponse(result);
 }
@@ -2660,8 +3289,12 @@ async function executeBaselineResumeProbe({
 
     try {
       const updated = factoryHealth.getProject(projectRow.id);
-      const factoryTick = require('../factory/factory-tick');
-      factoryTick.startTick(updated);
+      const tickResult = startFactoryTickForProject(updated);
+      job.tick_armed = tickResult.started === true || tickResult.already_active === true;
+      job.tick_started = tickResult.started === true;
+      job.tick_already_active = tickResult.already_active === true;
+      job.tick_skipped_reason = tickResult.skipped ? tickResult.reason : null;
+      job.automation_readiness = tickResult.automation_readiness || null;
       const recovery = await triggerBaselineStarvationRecovery(updated);
       job.starvation_recovery = summarizeStarvationRecovery(recovery);
     } catch (_e) {
@@ -2739,6 +3372,8 @@ async function handleResumeProjectBaselineFixed(args) {
         `A baseline resume operation is already running for project "${projectRow.name}".`,
       );
     }
+    const disabled = blockWhenFactoryProjectWorkDisabled('resume_project_baseline_fixed', projectRow);
+    if (disabled) return disabled;
 
     const job = createBaselineResumeJob(projectRow.id, projectRow.name, timeoutMs);
     const jobs = getBaselineResumeJobsByProject(projectRow.id);
@@ -2912,6 +3547,8 @@ async function handleFactoryLoopInstanceStatus(args) {
 async function handleStartFactoryLoopInstance(args) {
   try {
     const project = resolveProject(args.project);
+    const disabled = blockWhenFactoryProjectWorkDisabled('start_factory_loop_instance', project);
+    if (disabled) return disabled;
     const started = await loopController.startLoop(project.id);
     const instance = factoryLoopInstances.getInstance(started.instance_id);
     return jsonResponse(normalizeFactoryLoopInstance(instance));
@@ -2922,6 +3559,19 @@ async function handleStartFactoryLoopInstance(args) {
 
 async function handleAdvanceFactoryLoopInstance(args) {
   try {
+    const instance = factoryLoopInstances.getInstance(args.instance);
+    if (!instance) {
+      return factoryHandlerError(
+        ErrorCodes.RESOURCE_NOT_FOUND,
+        `Factory loop instance not found: ${args.instance}`,
+        404,
+      );
+    }
+    const disabled = blockWhenFactoryProjectWorkDisabled(
+      'advance_factory_loop_instance',
+      factoryHealth.getProject(instance.project_id) || { id: instance.project_id },
+    );
+    if (disabled) return disabled;
     const result = await loopController.advanceLoop(args.instance);
     return jsonResponse(result);
   } catch (error) {
@@ -2931,7 +3581,19 @@ async function handleAdvanceFactoryLoopInstance(args) {
 
 async function handleAdvanceFactoryLoopInstanceAsync(args) {
   try {
-    loopController.getLoopState(args.instance);
+    const instance = factoryLoopInstances.getInstance(args.instance);
+    if (!instance) {
+      return factoryHandlerError(
+        ErrorCodes.RESOURCE_NOT_FOUND,
+        `Factory loop instance not found: ${args.instance}`,
+        404,
+      );
+    }
+    const disabled = blockWhenFactoryProjectWorkDisabled(
+      'advance_factory_loop_instance_async',
+      factoryHealth.getProject(instance.project_id) || { id: instance.project_id },
+    );
+    if (disabled) return disabled;
     const result = loopController.advanceLoopAsync(args.instance);
     return jsonResponse(result, {
       status: 202,
@@ -2946,6 +3608,19 @@ async function handleAdvanceFactoryLoopInstanceAsync(args) {
 
 async function handleApproveFactoryGateInstance(args) {
   try {
+    const instance = factoryLoopInstances.getInstance(args.instance);
+    if (!instance) {
+      return factoryHandlerError(
+        ErrorCodes.RESOURCE_NOT_FOUND,
+        `Factory loop instance not found: ${args.instance}`,
+        404,
+      );
+    }
+    const disabled = blockWhenFactoryProjectWorkDisabled(
+      'approve_factory_gate_instance',
+      factoryHealth.getProject(instance.project_id) || { id: instance.project_id },
+    );
+    if (disabled) return disabled;
     const result = await loopController.approveGate(args.instance, args.stage);
     return jsonResponse(result);
   } catch (error) {
@@ -2964,12 +3639,30 @@ async function handleRejectFactoryGateInstance(args) {
 
 async function handleRetryFactoryVerifyInstance(args) {
   try {
+    const instance = factoryLoopInstances.getInstance(args.instance);
+    if (!instance) {
+      return factoryHandlerError(
+        ErrorCodes.RESOURCE_NOT_FOUND,
+        `Factory loop instance not found: ${args.instance}`,
+        404,
+      );
+    }
+    const disabled = blockWhenFactoryProjectWorkDisabled(
+      'retry_factory_verify_instance',
+      factoryHealth.getProject(instance.project_id) || { id: instance.project_id },
+    );
+    if (disabled) return disabled;
     const result = loopController.retryVerifyFromFailure(args.instance);
     const project = factoryHealth.getProject(result.project_id);
     const resumeResult = resumeProjectRowForFactoryAction(project, args, 'retry_factory_verify_instance');
     if (resumeResult.resumed) {
       result.project_resumed = true;
       result.project_status = resumeResult.project.status;
+      result.tick_armed = resumeResult.tick?.started === true || resumeResult.tick?.already_active === true;
+      result.tick_started = resumeResult.tick?.started === true;
+      result.tick_already_active = resumeResult.tick?.already_active === true;
+      result.tick_skipped_reason = resumeResult.tick?.skipped ? resumeResult.tick.reason : null;
+      result.automation_readiness = resumeResult.tick?.automation_readiness || null;
     }
     return jsonResponse(result);
   } catch (error) {
@@ -3159,6 +3852,9 @@ async function handleFactoryDigest(args) {
 module.exports = {
   handleRegisterFactoryProject,
   handleListFactoryProjects,
+  handleFactoryAutomationPlan,
+  handleApplyFactoryAutomationPlan,
+  handleArmFactoryTick,
   handleProjectHealth,
   handleScanProjectHealth,
   handleSetFactoryTrustLevel,

@@ -848,6 +848,11 @@ const DECISION_ACTIONS = {
     classifier: 'engine',
     outcome: ['action'],
   },
+  auto_recovery_skipped_automation_not_ready: {
+    stage: 'ANY',
+    classifier: 'engine',
+    outcome: ['ready', 'blocker_codes'],
+  },
   auto_recovery_skipped_terminal: {
     stage: 'ANY',
     classifier: 'engine',

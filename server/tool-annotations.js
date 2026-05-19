@@ -113,6 +113,9 @@ const OVERRIDES = Object.freeze({
   resume_project:                  Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   pause_all_projects:              Object.freeze({ readOnlyHint: false, destructiveHint: true,  idempotentHint: true,  openWorldHint: false }),
   factory_status:                  Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  factory_automation_plan:         Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  apply_factory_automation_plan:   Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
+  arm_factory_tick:                Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   guardrail_status:                Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
   run_guardrail_check:             Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }),
   guardrail_events:                Object.freeze({ readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false }),
@@ -255,6 +258,8 @@ const OVERRIDES = Object.freeze({
   model_watchlist_remove:          IDEMPOTENT,
   model_freshness_scan_now:        Object.freeze({ readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  }),
   model_freshness_events:          READONLY,
+  score_native_eval:               READONLY,
+  select_best_repair_candidate:    IDEMPOTENT,
 });
 
 /**

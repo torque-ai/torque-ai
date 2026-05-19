@@ -26,6 +26,7 @@ let factoryHealth;
 let projectId;
 let startTickMock;
 let stopTickMock;
+let isTickActiveMock;
 
 const SCHEMA_DDL = [
   'CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)',
@@ -59,7 +60,12 @@ function loadHandlersWithMockedTick(project) {
   vi.resetModules();
   startTickMock = vi.fn();
   stopTickMock = vi.fn();
-  const tickMock = { startTick: startTickMock, stopTick: stopTickMock };
+  isTickActiveMock = vi.fn(() => false);
+  const tickMock = {
+    startTick: startTickMock,
+    stopTick: stopTickMock,
+    isTickActive: isTickActiveMock,
+  };
   vi.doMock('../factory/factory-tick', () => tickMock);
   installCjsModuleMock('../factory/factory-tick', tickMock);
   delete require.cache[factoryHandlersPath];
@@ -121,6 +127,7 @@ describe('Phase L: handleResumeProject honors cfg.loop.tick_interval_ms', () => 
       name: 'phasel-tick-test',
       path: '/tmp/phasel-tick-test',
       status: 'paused',
+      trust_level: 'dark',
       config_json: JSON.stringify({
         loop: { auto_continue: true, tick_interval_ms: 90000 },
       }),
@@ -133,6 +140,64 @@ describe('Phase L: handleResumeProject honors cfg.loop.tick_interval_ms', () => 
     expect(resumedProject.id).toBe(projectId);
     expect(resumedProject.status).toBe('running');
     expect(intervalMs).toBe(90000);
+    expect(startTickMock.mock.calls[0][2]).toEqual({ immediate: true });
+  });
+
+  it('can resume without running the immediate tick for readiness plan application', async () => {
+    const project = {
+      id: projectId,
+      name: 'phasel-tick-test',
+      path: '/tmp/phasel-tick-test',
+      status: 'paused',
+      trust_level: 'dark',
+      config_json: JSON.stringify({
+        loop: { auto_continue: true, tick_interval_ms: 90000 },
+      }),
+    };
+    const handlers = loadHandlersWithMockedTick(project);
+    const result = await handlers.handleResumeProject({
+      project: projectId,
+      immediate_tick: false,
+    });
+
+    expect(startTickMock).toHaveBeenCalledTimes(1);
+    expect(startTickMock.mock.calls[0][1]).toBe(90000);
+    expect(startTickMock.mock.calls[0][2]).toEqual({ immediate: false });
+    expect(result.structuredData.tick_immediate).toBe(false);
+  });
+
+  it('forces resume immediate tick off when factory project work is disabled', async () => {
+    const previous = process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED;
+    process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED = '0';
+    try {
+      const project = {
+        id: projectId,
+        name: 'phasel-tick-test',
+        path: '/tmp/phasel-tick-test',
+        status: 'paused',
+        trust_level: 'dark',
+        config_json: JSON.stringify({
+          loop: { auto_continue: true, tick_interval_ms: 90000 },
+        }),
+      };
+      const handlers = loadHandlersWithMockedTick(project);
+      startTickMock.mockReturnValueOnce({ started: true, already_active: false });
+      const result = await handlers.handleResumeProject({ project: projectId });
+
+      expect(startTickMock).toHaveBeenCalledTimes(1);
+      expect(startTickMock.mock.calls[0][1]).toBe(90000);
+      expect(startTickMock.mock.calls[0][2]).toEqual({ immediate: false });
+      expect(result.structuredData.tick_immediate).toBe(false);
+      expect(result.structuredData.tick_armed).toBe(true);
+      expect(result.structuredData.requeued_tasks).toBe(0);
+      expect(result.structuredData.queue_resume_skipped_reason).toBe('factory_project_work_disabled');
+    } finally {
+      if (previous === undefined) {
+        delete process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED;
+      } else {
+        process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED = previous;
+      }
+    }
   });
 
   it('passes undefined to startTick when config has no tick_interval_ms', async () => {
@@ -141,6 +206,7 @@ describe('Phase L: handleResumeProject honors cfg.loop.tick_interval_ms', () => 
       name: 'phasel-tick-test',
       path: '/tmp/phasel-tick-test',
       status: 'paused',
+      trust_level: 'dark',
       config_json: JSON.stringify({ loop: { auto_continue: true } }),
     };
     const handlers = loadHandlersWithMockedTick(project);
@@ -152,7 +218,7 @@ describe('Phase L: handleResumeProject honors cfg.loop.tick_interval_ms', () => 
     expect(intervalMs).toBeUndefined();
   });
 
-  it('passes undefined to startTick when config_json is missing', async () => {
+  it('does not arm a tick when resume leaves the project automation-blocked', async () => {
     const project = {
       id: projectId,
       name: 'phasel-tick-test',
@@ -161,10 +227,18 @@ describe('Phase L: handleResumeProject honors cfg.loop.tick_interval_ms', () => 
       config_json: null,
     };
     const handlers = loadHandlersWithMockedTick(project);
-    await handlers.handleResumeProject({ project: projectId });
+    const result = await handlers.handleResumeProject({ project: projectId });
 
-    expect(startTickMock).toHaveBeenCalledTimes(1);
-    expect(startTickMock.mock.calls[0][1]).toBeUndefined();
+    expect(startTickMock).not.toHaveBeenCalled();
+    expect(result.structuredData).toMatchObject({
+      tick_armed: false,
+      tick_started: false,
+      tick_skipped_reason: 'automation_not_ready',
+      automation_readiness: {
+        ready: false,
+        blocker_codes: expect.arrayContaining(['auto_continue_disabled', 'approval_gates_enabled']),
+      },
+    });
   });
 
   it('rejects non-positive tick_interval_ms (falls through to default)', async () => {
@@ -173,12 +247,73 @@ describe('Phase L: handleResumeProject honors cfg.loop.tick_interval_ms', () => 
       name: 'phasel-tick-test',
       path: '/tmp/phasel-tick-test',
       status: 'paused',
-      config_json: JSON.stringify({ loop: { tick_interval_ms: -1 } }),
+      trust_level: 'dark',
+      config_json: JSON.stringify({ loop: { auto_continue: true, tick_interval_ms: -1 } }),
     };
     const handlers = loadHandlersWithMockedTick(project);
     await handlers.handleResumeProject({ project: projectId });
 
     expect(startTickMock).toHaveBeenCalledTimes(1);
     expect(startTickMock.mock.calls[0][1]).toBeUndefined();
+  });
+
+  it('stops an armed tick when set_factory_trust_level disables automation readiness', async () => {
+    const project = {
+      id: projectId,
+      name: 'phasel-tick-test',
+      path: '/tmp/phasel-tick-test',
+      status: 'running',
+      trust_level: 'dark',
+      config_json: JSON.stringify({ loop: { auto_continue: true, tick_interval_ms: 90000 } }),
+    };
+    const handlers = loadHandlersWithMockedTick(project);
+    isTickActiveMock.mockReturnValue(true);
+
+    const result = await handlers.handleSetFactoryTrustLevel({
+      project: projectId,
+      trust_level: 'dark',
+      config: { loop: { auto_continue: false } },
+    });
+
+    expect(isTickActiveMock).toHaveBeenCalledWith(projectId);
+    expect(stopTickMock).toHaveBeenCalledWith(projectId);
+    expect(result.structuredData).toMatchObject({
+      tick_stopped: true,
+      tick_stop_reason: 'automation_not_ready',
+      automation_readiness: {
+        ready: false,
+        blocker_codes: expect.arrayContaining(['auto_continue_disabled']),
+      },
+    });
+  });
+
+  it('does not auto-arm or stop a tick when set_factory_trust_level makes a project ready', async () => {
+    const project = {
+      id: projectId,
+      name: 'phasel-tick-test',
+      path: '/tmp/phasel-tick-test',
+      status: 'running',
+      trust_level: 'autonomous',
+      config_json: JSON.stringify({ loop: { auto_continue: false, tick_interval_ms: 90000 } }),
+    };
+    const handlers = loadHandlersWithMockedTick(project);
+
+    const result = await handlers.handleSetFactoryTrustLevel({
+      project: projectId,
+      trust_level: 'dark',
+      config: { loop: { auto_continue: true } },
+    });
+
+    expect(startTickMock).not.toHaveBeenCalled();
+    expect(stopTickMock).not.toHaveBeenCalled();
+    expect(isTickActiveMock).not.toHaveBeenCalled();
+    expect(result.structuredData).toMatchObject({
+      tick_stopped: false,
+      tick_stop_reason: null,
+      automation_readiness: {
+        ready: true,
+        blocker_codes: [],
+      },
+    });
   });
 });

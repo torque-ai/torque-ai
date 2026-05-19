@@ -11,6 +11,7 @@
 const COMPLETED_STATUSES = new Set(['completed', 'shipped']);
 const MAX_FILE_LIST = 20;
 const MAX_EXCERPT = 360;
+const ANSI_COLOR_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 
 function summarizeTaskCompletion(task) {
   if (!task || typeof task !== 'object') return null;
@@ -183,7 +184,7 @@ function isProgressOnlyOutput(text) {
 
 function cleanExcerpt(text) {
   return String(text || '')
-    .replace(/\u001b\[[0-9;]*m/g, '')
+    .replace(ANSI_COLOR_RE, '')
     .replace(/\r/g, '')
     .replace(/[ \t]+\n/g, '\n')
     .trim()

@@ -115,6 +115,8 @@ async function sendFactoryRouteHandlerResponse(req, res, context, handler, build
 const FACTORY_V2_ROUTES = [
   { method: 'GET', path: '/api/v2/factory/status', tool: 'factory_status' },
   { method: 'GET', path: '/api/v2/factory/projects', tool: 'list_factory_projects', mapQuery: true },
+  { method: 'GET', path: '/api/v2/factory/automation-plan', tool: 'factory_automation_plan', mapQuery: true },
+  { method: 'POST', path: '/api/v2/factory/automation-plan/apply', tool: 'apply_factory_automation_plan', mapBody: true },
   { method: 'POST', path: '/api/v2/factory/projects', tool: 'register_factory_project', mapBody: true },
   {
     method: 'GET',
@@ -147,6 +149,27 @@ const FACTORY_V2_ROUTES = [
     method: 'POST',
     path: /^\/api\/v2\/factory\/projects\/([^/]+)\/resume$/,
     tool: 'resume_project',
+    mapParams: ['project'],
+    mapBody: true,
+  },
+  {
+    method: 'GET',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/automation-plan$/,
+    tool: 'factory_automation_plan',
+    mapParams: ['project'],
+    mapQuery: true,
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/automation-plan\/apply$/,
+    tool: 'apply_factory_automation_plan',
+    mapParams: ['project'],
+    mapBody: true,
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/v2\/factory\/projects\/([^/]+)\/tick\/arm$/,
+    tool: 'arm_factory_tick',
     mapParams: ['project'],
     mapBody: true,
   },

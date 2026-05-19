@@ -689,5 +689,96 @@ describe('api.js', () => {
         expect.any(Object)
       );
     });
+
+    it('projects() can request factory automation readiness', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { projects: [], automation_readiness: { ready: false } } } });
+
+      const result = await factory.projects({ includeAutomationReadiness: true });
+
+      expect(result).toEqual({ projects: [], automation_readiness: { ready: false } });
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/factory/projects?include_automation_readiness=true&include_commits=false',
+        expect.any(Object)
+      );
+    });
+
+    it('automationPlan() requests the read-only automation plan', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { ready: false, control_plane_plan: [] } } });
+
+      const result = await factory.automationPlan({ blockedOnly: true });
+
+      expect(result).toEqual({ ready: false, control_plane_plan: [] });
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/factory/automation-plan?blocked_only=true',
+        expect.any(Object)
+      );
+    });
+
+    it('projectAutomationPlan() requests a scoped automation plan', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { ready: true, control_plane_plan: [] } } });
+
+      await factory.projectAutomationPlan('project-123', { blockedOnly: false });
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/factory/projects/project-123/automation-plan?blocked_only=false',
+        expect.any(Object)
+      );
+    });
+
+    it('applyAutomationPlan() posts an explicit control-plane apply body', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { completed: true, processes_project_work: false } } });
+
+      const result = await factory.applyAutomationPlan({
+        allProjects: true,
+        blockedOnly: true,
+        confirmAllProjects: true,
+        continueOnError: true,
+        dryRun: true,
+      });
+
+      expect(result).toEqual({ completed: true, processes_project_work: false });
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/factory/automation-plan/apply',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            all_projects: true,
+            blocked_only: true,
+            confirm_all_projects: true,
+            continue_on_error: true,
+            dry_run: true,
+          }),
+        })
+      );
+    });
+
+    it('applyProjectAutomationPlan() posts to the scoped control-plane apply route', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { completed: true, processes_project_work: false } } });
+
+      await factory.applyProjectAutomationPlan('project-123', { blockedOnly: true, confirmScope: true, dryRun: false });
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/factory/projects/project-123/automation-plan/apply',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ blocked_only: true, confirm_scope: true, dry_run: false }),
+        })
+      );
+    });
+
+    it('armFactoryTick() posts to the non-immediate scheduler arm endpoint', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { tick_active: true, immediate_tick: false } } });
+
+      const result = await factory.armFactoryTick('project-123', { immediate: false });
+
+      expect(result).toEqual({ tick_active: true, immediate_tick: false });
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/factory/projects/project-123/tick/arm',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ immediate: false }),
+        })
+      );
+    });
   });
 });

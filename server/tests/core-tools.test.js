@@ -116,6 +116,12 @@ describe('CORE_TOOL_NAMES (Tier 1)', () => {
     );
   });
 
+  it('includes read-only factory automation planning in Tier 1', () => {
+    expect(CORE_TOOL_NAMES).toContain('factory_automation_plan');
+    expect(CORE_TOOL_NAMES).not.toContain('apply_factory_automation_plan');
+    expect(CORE_TOOL_NAMES).not.toContain('arm_factory_tick');
+  });
+
   it('all core tools have matching tool definitions', () => {
     const defNames = getToolDefinitionNames();
     const defSet = new Set(defNames);
@@ -192,6 +198,15 @@ describe('EXTENDED_TOOL_NAMES (Tier 1 + 2)', () => {
   it('includes specialist routing tools in Tier 2', () => {
     expect(EXTENDED_TOOL_NAMES).toEqual(
       expect.arrayContaining(['register_specialist', 'route_turn', 'get_session_history']),
+    );
+  });
+
+  it('includes factory automation control-plane mutation tools in Tier 2', () => {
+    expect(EXTENDED_TOOL_NAMES).toEqual(
+      expect.arrayContaining(['apply_factory_automation_plan', 'arm_factory_tick']),
+    );
+    expect(CORE_TOOL_NAMES).not.toEqual(
+      expect.arrayContaining(['apply_factory_automation_plan', 'arm_factory_tick']),
     );
   });
 });

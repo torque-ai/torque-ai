@@ -12,6 +12,8 @@ const {
   waitForFileUnlock,
   ensureBetterSqliteUsable,
   getBetterSqliteBinaryPath,
+  readRestartEnvOverrides,
+  buildSuccessorEnv,
 } = require('../../scripts/restart-torque-successor');
 
 function mktmp(prefix) {
@@ -135,6 +137,75 @@ describe('successor exit diagnostics', () => {
         uptime_ms: 1000,
       });
       expect(fs.readFileSync(filePath, 'utf8')).toContain('"pid":2468');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('successor restart env overrides', () => {
+  it('reads one-shot allowlisted restart env overrides and consumes the file', () => {
+    const tmp = mktmp('restart-env');
+    try {
+      const filePath = path.join(tmp, 'restart-env.json');
+      fs.writeFileSync(filePath, JSON.stringify({
+        expires_at: '2999-01-01T00:00:00.000Z',
+        env: {
+          TORQUE_FACTORY_PROJECT_WORK_ENABLED: '0',
+          OPENAI_API_KEY: 'must-not-pass',
+        },
+      }));
+
+      const overrides = readRestartEnvOverrides(filePath);
+
+      expect(overrides).toEqual({ TORQUE_FACTORY_PROJECT_WORK_ENABLED: '0' });
+      expect(fs.existsSync(filePath)).toBe(false);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores expired restart env override files', () => {
+    const tmp = mktmp('restart-env-expired');
+    try {
+      const filePath = path.join(tmp, 'restart-env.json');
+      fs.writeFileSync(filePath, JSON.stringify({
+        expires_at: '2000-01-01T00:00:00.000Z',
+        env: {
+          TORQUE_FACTORY_PROJECT_WORK_ENABLED: '0',
+        },
+      }));
+
+      const overrides = readRestartEnvOverrides(filePath);
+
+      expect(overrides).toEqual({});
+      expect(fs.existsSync(filePath)).toBe(false);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('merges restart env overrides into the successor environment', () => {
+    const tmp = mktmp('restart-env-merge');
+    try {
+      const filePath = path.join(tmp, 'restart-env.json');
+      fs.writeFileSync(filePath, JSON.stringify({
+        expires_at: '2999-01-01T00:00:00.000Z',
+        env: {
+          TORQUE_FACTORY_PROJECT_WORK_ENABLED: false,
+        },
+      }));
+
+      const { env, overrides } = buildSuccessorEnv(
+        { PATH: 'base-path', EXISTING: '1' },
+        { nodeDir: '/node24/bin', envFilePath: filePath },
+      );
+
+      expect(overrides).toEqual({ TORQUE_FACTORY_PROJECT_WORK_ENABLED: 'false' });
+      expect(env.EXISTING).toBe('1');
+      expect(env.TORQUE_FACTORY_PROJECT_WORK_ENABLED).toBe('false');
+      expect(env.PATH).toContain('/node24/bin');
+      expect(env.PATH).toContain('base-path');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }

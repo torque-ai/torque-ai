@@ -665,6 +665,21 @@ TORQUE provides ~600 tools total, with a **core mode** (~30 core tools) enabled 
 
 ---
 
+## Factory Automation
+
+| Tool | Description |
+|------|-------------|
+| `factory_status` | Factory air-traffic-control status with optional automation readiness rollups |
+| `list_factory_projects` | List registered factory projects; pass `include_automation_readiness=true` for readiness fields |
+| `factory_automation_plan` | Read-only control-plane plan for making scoped factory projects automation-ready; reports global project-work disablement |
+| `apply_factory_automation_plan` | Apply bounded readiness control-plane steps without processing project work; accepts `blocked_only=true` |
+| `arm_factory_tick` | Arm the recurring factory tick for an automation-ready project with no immediate tick |
+| `pause_project` | Pause a factory project and stop its tick |
+| `resume_project` | Resume a factory project; readiness plans pass `immediate_tick=false` |
+| `set_factory_trust_level` | Set trust level and optionally deep-merge project config |
+
+---
+
 ## Project Management
 
 | Tool | Description |

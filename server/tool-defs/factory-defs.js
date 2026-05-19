@@ -47,6 +47,10 @@ const tools = [
           type: 'boolean',
           description: 'Include global factory idle diagnosis with queue, loop, and intake counts.',
         },
+        include_automation_readiness: {
+          type: 'boolean',
+          description: 'Include read-only automation readiness rollups and work-item status counts. Does not start, resume, or advance projects.',
+        },
       },
     },
   },
@@ -127,6 +131,10 @@ const tools = [
           type: 'boolean',
           description: 'Required to explicitly clear an operator pause marker before resuming.',
         },
+        immediate_tick: {
+          type: 'boolean',
+          description: 'When false, resume an automation-ready project and arm its recurring tick without running the immediate tick during this call. Defaults to true for direct operator resumes. Non-ready projects resume without arming a tick.',
+        },
         reason: { type: 'string', description: 'Optional operator reason for the resume audit log.' },
         actor: { type: 'string', description: 'Optional actor recorded in the resume audit log.' },
         source: { type: 'string', description: 'Optional source recorded in the resume audit log.' },
@@ -148,6 +156,79 @@ const tools = [
     inputSchema: {
       type: 'object',
       properties: {},
+    },
+  },
+  {
+    name: 'factory_automation_plan',
+    description: 'Read-only control-plane plan for making factory projects automation-ready. Reports readiness blockers and exact tool arguments but does not start, resume, advance, or modify projects.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Optional project ID, name, or path to scope the plan to one project.' },
+        status: {
+          type: 'string',
+          enum: ['running', 'paused', 'idle'],
+          description: 'Optional project status filter when project is not supplied.',
+        },
+        blocked_only: {
+          type: 'boolean',
+          description: 'Only return blocked projects in the projects array. Summary still covers the requested scope.',
+        },
+      },
+    },
+  },
+  {
+    name: 'apply_factory_automation_plan',
+    description: 'Apply the bounded control-plane steps from factory_automation_plan without processing project work. Requires project, status, or all_projects=true to make the apply scope explicit.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Optional project ID, name, or path to scope the apply to one project.' },
+        status: {
+          type: 'string',
+          enum: ['running', 'paused', 'idle'],
+          description: 'Optional project status filter when project is not supplied.',
+        },
+        all_projects: {
+          type: 'boolean',
+          description: 'Required when neither project nor status is supplied. Makes all-project control-plane mutation explicit.',
+        },
+        blocked_only: {
+          type: 'boolean',
+          description: 'When true, build the apply plan from the blocked-project view. Scheduler-arm steps for ready projects can still be included when needed so the after snapshot reports every touched project.',
+        },
+        confirm_all_projects: {
+          type: 'boolean',
+          description: 'Accepted confirmation alias for non-dry-run applies without a single project scope.',
+        },
+        confirm_scope: {
+          type: 'boolean',
+          description: 'Required for non-dry-run applies when project is not supplied. Confirms the caller intends to mutate every registered project control plane in the requested scope.',
+        },
+        dry_run: {
+          type: 'boolean',
+          description: 'When true, report the steps that would be applied without mutating the control plane.',
+        },
+        continue_on_error: {
+          type: 'boolean',
+          description: 'When true, continue applying later safe control-plane steps after a step failure. Defaults to false.',
+        },
+      },
+    },
+  },
+  {
+    name: 'arm_factory_tick',
+    description: 'Arm the factory tick scheduler for an automation-ready project without running an immediate tick. Enables future factory processing but does not start, resume, or advance project work during the call.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project: { type: 'string', description: 'Project ID, name, or path' },
+        immediate: {
+          type: 'boolean',
+          description: 'Reserved for explicitness; the tool always uses immediate=false so it does not process project work during the call.',
+        },
+      },
+      required: ['project'],
     },
   },
   {

@@ -385,6 +385,19 @@ TORQUE exposes a comprehensive v2 control-plane API under `/api/v2/`. Key surfac
 | `/api/v2/analytics` | Usage analytics and metrics |
 | `/api/v2/routing` | Routing template management |
 | `/api/v2/infrastructure` | Host and workstation management |
+| `/api/v2/factory` | Factory status, project control, loop control, intake, and automation readiness |
+
+### v2 Factory Automation Readiness
+
+These factory endpoints prepare or inspect the control plane for unattended cycling. The read-only plan endpoints do not mutate projects. The apply and tick-arm endpoints are bounded control-plane operations; they report `processes_project_work=false` and do not run an immediate loop tick. If `factory_project_work_enabled=0` or `TORQUE_FACTORY_PROJECT_WORK_ENABLED=0`, the readiness payload reports project work disabled, unattended startup/tick/auto-advance/recovery paths stay parked, generic queued task starts for registered factory projects are deferred, and explicit loop start/advance/gate retry project-processing tools refuse. These control-plane endpoints remain usable.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v2/factory/automation-plan` | Readiness rollup and control-plane plan for the requested project/status/all-project scope |
+| `POST` | `/api/v2/factory/automation-plan/apply` | Apply the scoped readiness control-plane plan; requires `project`, `status`, or `all_projects=true`, supports `blocked_only=true`, plus confirmation for non-project non-dry-run scopes |
+| `GET` | `/api/v2/factory/projects/:project/automation-plan` | Readiness rollup and control-plane plan for one factory project |
+| `POST` | `/api/v2/factory/projects/:project/automation-plan/apply` | Apply one project's readiness control-plane plan; supports `blocked_only=true` for response consistency |
+| `POST` | `/api/v2/factory/projects/:project/tick/arm` | Arm the recurring factory tick for an automation-ready project with `immediate=false` |
 
 For the complete v2 schema, retrieve the OpenAPI document:
 

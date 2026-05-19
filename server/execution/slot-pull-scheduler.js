@@ -21,6 +21,10 @@ const { normalizeMetadata } = require('../utils/normalize-metadata');
 const { isRestartBarrierActive } = require('./restart-barrier');
 const { promotePendingRestartResubmissions } = require('./restart-resubmit-queue');
 const { createSharedFactoryStore } = require('../db/shared-factory-store');
+const {
+  isFactoryProjectWorkEnabled,
+  isRegisteredFactoryProjectTask,
+} = require('../factory/automation-readiness');
 
 // ── Legacy module-level state, written only by init() (deprecated) ─────────
 // Phase 3 of the universal-DI migration. Replaces the prior stub
@@ -237,7 +241,20 @@ function getUnassignedQueuedTasks(limit = 200) {
       ? _db.listQueuedTasksLightweight(limit)
       : _db.listTasks ? _db.listTasks({ status: 'queued', limit }) : [];
     // Filter for unassigned (provider IS NULL) in JS
-    return (Array.isArray(tasks) ? tasks : []).filter(t => !t.provider);
+    const unassigned = (Array.isArray(tasks) ? tasks : []).filter(t => !t.provider);
+    if (isFactoryProjectWorkEnabled(_db)) {
+      return unassigned;
+    }
+    let deferred = 0;
+    const filtered = unassigned.filter((task) => {
+      const shouldDefer = isRegisteredFactoryProjectTask(task, _db);
+      if (shouldDefer) deferred += 1;
+      return !shouldDefer;
+    });
+    if (deferred > 0) {
+      logger.info('Slot-pull deferred queued factory project task(s) because factory project work is disabled: ' + deferred);
+    }
+    return filtered;
   } catch { return []; }
 }
 

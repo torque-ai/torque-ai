@@ -344,6 +344,35 @@ describe('slot-pull-scheduler', () => {
         { id: 'ollama-task', provider: 'ollama' },
       ]);
     });
+
+    it('does not claim factory project tasks when project work is globally disabled', () => {
+      db.setConfig('factory_project_work_enabled', '0');
+      setProviderConfig('codex', {
+        maxConcurrent: 1,
+        capabilityTags: ['file_creation', 'file_edit', 'multi_file', 'reasoning'],
+        qualityBand: 'A',
+      });
+
+      const taskId = createUnassignedQueuedTask({
+        id: 'factory-disabled-slot-pull',
+        metadata: {
+          eligible_providers: ['codex'],
+          capability_requirements: ['file_creation'],
+          quality_tier: 'normal',
+        },
+      });
+      rawDb().prepare('UPDATE tasks SET tags = ? WHERE id = ?').run(
+        JSON.stringify([
+          'factory:internal',
+          'factory:project_id=project-a',
+        ]),
+        taskId,
+      );
+
+      expect(scheduler.runSlotPullPass()).toEqual({ assigned: 0, skipped: 0 });
+      expect(startTask).not.toHaveBeenCalled();
+      expect(rawDb().prepare('SELECT provider FROM tasks WHERE id = ?').get(taskId).provider).toBeNull();
+    });
   });
 
   describe('requeueAfterFailure', () => {

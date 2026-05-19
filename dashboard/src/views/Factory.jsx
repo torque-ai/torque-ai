@@ -66,11 +66,227 @@ function FactoryIdleDiagnosisBanner({ diagnosis, loading, onRefresh }) {
   );
 }
 
+function FactoryAutomationReadinessBanner({
+  readiness,
+  projects,
+  loading,
+  onRefresh,
+  onApplyPlan,
+  applyMode,
+}) {
+  if (!readiness || readiness.total_projects === 0) {
+    return null;
+  }
+
+  const blockedProjects = new Set(readiness.project_ids?.blocked || []);
+  const blockedNames = (projects || [])
+    .filter((project) => blockedProjects.has(project.id))
+    .map((project) => project.name || project.id)
+    .slice(0, 3);
+  const blockerEntries = Object.entries(readiness.blockers || {})
+    .filter(([, count]) => Number(count) > 0)
+    .slice(0, 4);
+  const projectLabelsById = new Map((projects || []).map((project) => [
+    project.id,
+    project.name || project.id,
+  ]));
+  const summaryPlan = Array.isArray(readiness.control_plane_plan)
+    ? readiness.control_plane_plan
+    : [];
+  const projectActionFallback = (projects || [])
+    .filter((project) => blockedProjects.has(project.id))
+    .flatMap((project) => {
+      const actions = project.automation_readiness?.control_plane_actions;
+      const fallback = project.automation_readiness?.next_control_plane_action;
+      return (Array.isArray(actions) && actions.length > 0 ? actions : [fallback])
+        .filter(Boolean)
+        .map((action) => ({
+          label: project.name || project.id,
+          action,
+          description: null,
+          tool: null,
+        }));
+    });
+  const nextActions = (summaryPlan.length > 0
+    ? summaryPlan.map((step) => {
+      const projectRef = step?.args?.project;
+      return {
+        label: projectLabelsById.get(projectRef) || projectRef || step?.tool || 'Factory',
+        action: step?.action,
+        description: step?.description || null,
+        tool: step?.tool || null,
+      };
+    })
+    : projectActionFallback)
+    .filter((entry) => entry.action || entry.description)
+    .slice(0, 3);
+  const manualIntervention = readiness.manual_intervention || {};
+  const manualCounts = manualIntervention.counts || {};
+  const manualRequired = manualIntervention.required === true;
+  const summarizedNeedsReview = Number(manualCounts.needs_review_work_items);
+  const needsReviewCount = Number.isFinite(summarizedNeedsReview)
+    ? summarizedNeedsReview
+    : (projects || []).reduce((sum, project) => (
+      sum + (Number(project?.work_item_status_counts?.needs_review) || 0)
+    ), 0);
+  const pendingApprovalCount = Number(manualCounts.pending_approval_tasks) || 0;
+  const exhaustedCount = Number(manualCounts.escalation_exhausted_work_items) || 0;
+  const schedulerUnarmedCount = Number(manualCounts.scheduler_unarmed_projects) || 0;
+  const projectWorkDisabled = readiness.project_work_enabled === false
+    || (manualIntervention.reason_codes || []).includes('factory_project_work_disabled');
+  const needsReplanCount = (projects || []).reduce((sum, project) => (
+    sum + (Number(project?.work_item_status_counts?.needs_replan) || 0)
+  ), 0);
+  const isControlReady = readiness.ready === true;
+  const isReady = readiness.hands_off_ready === true || (readiness.hands_off_ready == null && isControlReady && !manualRequired);
+  const canApplyControlPlan = summaryPlan.length > 0;
+  const title = isReady
+    ? 'All projects ready for hands-off cycling'
+    : (isControlReady && projectWorkDisabled
+      ? 'Automation controls ready; project work disabled'
+      : isControlReady
+      ? 'Automation controls ready; manual intervention queued'
+      : `${readiness.blocked_projects || 0} project${readiness.blocked_projects === 1 ? '' : 's'} blocked`);
+
+  return (
+    <div
+      role="status"
+      aria-label="Factory automation readiness"
+      className={`rounded-2xl border px-5 py-4 text-sm ${
+        isReady
+          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
+          : 'border-sky-500/30 bg-sky-500/10 text-sky-100'
+      }`}
+    >
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className={`text-xs font-semibold uppercase tracking-wider ${isReady ? 'text-emerald-300' : 'text-sky-300'}`}>
+            Automation readiness
+          </p>
+          <h2 className="mt-1 text-base font-semibold text-white">
+            {title}
+          </h2>
+          <p className={`mt-1 ${isReady ? 'text-emerald-100/90' : 'text-sky-100/90'}`}>
+            {readiness.ready_projects || 0} control-ready · {readiness.auto_continue_enabled_projects || 0} auto-continue · {readiness.dark_trust_projects || 0} dark trust · project work {projectWorkDisabled ? 'disabled' : 'enabled'}
+          </p>
+          {(schedulerUnarmedCount > 0 || pendingApprovalCount > 0 || needsReviewCount > 0 || needsReplanCount > 0 || exhaustedCount > 0) && (
+            <p className={`mt-2 text-xs ${isReady ? 'text-emerald-200/80' : 'text-sky-200/80'}`}>
+              {schedulerUnarmedCount} tick unarmed · {pendingApprovalCount} approvals · {needsReviewCount} needs review · {needsReplanCount} needs replan · {exhaustedCount} exhausted
+            </p>
+          )}
+          {!isControlReady && blockedNames.length > 0 && (
+            <p className="mt-2 text-xs text-sky-200/80">Blocked: {blockedNames.join(', ')}</p>
+          )}
+          {!isControlReady && blockerEntries.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {blockerEntries.map(([code, count]) => (
+                <span
+                  key={code}
+                  className="rounded-full border border-sky-400/30 bg-slate-950/30 px-2.5 py-1 text-xs font-medium text-sky-100"
+                >
+                  {code.replace(/_/g, ' ')}: {count}
+                </span>
+              ))}
+            </div>
+          )}
+          {!isControlReady && nextActions.length > 0 && (
+            <div className="mt-3 space-y-1 text-xs text-sky-100/90">
+              {nextActions.map(({ label, action, description, tool }) => (
+                <p key={`${label}:${action || description}`} className="break-words">
+                  <span className="font-medium text-sky-200">{label}:</span>{' '}
+                  {description || action}
+                  {tool && action && (
+                    <span className="ml-1 text-sky-200/70">({tool}: {action})</span>
+                  )}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {canApplyControlPlan && (
+            <>
+              <button
+                type="button"
+                disabled={loading || Boolean(applyMode)}
+                onClick={() => onApplyPlan({ dryRun: true })}
+                className="inline-flex items-center justify-center rounded-lg border border-sky-400/40 bg-slate-900/40 px-3 py-1.5 text-sm font-medium text-sky-100 transition-colors hover:bg-slate-900/60 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {applyMode === 'dry_run' ? 'Checking...' : 'Dry Run'}
+              </button>
+              <button
+                type="button"
+                disabled={loading || Boolean(applyMode)}
+                onClick={() => onApplyPlan({ dryRun: false })}
+                className="inline-flex items-center justify-center rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-1.5 text-sm font-medium text-emerald-100 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {applyMode === 'apply' ? 'Applying...' : 'Apply Controls'}
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => onRefresh({ silent: true })}
+            className="inline-flex items-center justify-center rounded-lg border border-sky-400/40 bg-slate-900/40 px-3 py-1.5 text-sm font-medium text-sky-100 transition-colors hover:bg-slate-900/60 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getAutomationPlanProjectIds(readiness) {
+  const plan = Array.isArray(readiness?.control_plane_plan)
+    ? readiness.control_plane_plan
+    : [];
+  if (plan.length === 0) {
+    return [];
+  }
+  const projectIds = new Set();
+  for (const step of plan) {
+    const projectId = step?.args?.project;
+    if (!projectId) {
+      return [];
+    }
+    projectIds.add(projectId);
+  }
+  return Array.from(projectIds);
+}
+
+function getAutomationPlanProjectScope(readiness) {
+  const projectIds = getAutomationPlanProjectIds(readiness);
+  if (projectIds.length !== 1) {
+    return null;
+  }
+  return projectIds[0];
+}
+
+function confirmMultiProjectAutomationApply(readiness) {
+  if (typeof window === 'undefined' || typeof window.confirm !== 'function') {
+    return false;
+  }
+  const projectCount = getAutomationPlanProjectIds(readiness).length
+    || Number(readiness?.blocked_projects)
+    || Number(readiness?.total_projects)
+    || 0;
+  const scopeLabel = projectCount > 0
+    ? `${projectCount} project${projectCount === 1 ? '' : 's'}`
+    : 'multiple projects';
+  return window.confirm(
+    `Apply automation control-plane changes to ${scopeLabel}? This will not process project work, but it can resume projects, change trust, and arm future ticks.`
+  );
+}
+
 export default function Factory() {
+  const [automationApplyMode, setAutomationApplyMode] = useState(null);
   const [clearRecoveryProjectId, setClearRecoveryProjectId] = useState(null);
   const toast = useToast();
   const {
     activeProjectAction,
+    automationReadiness,
     handlePauseAll,
     handleToggleProject,
     idleDiagnosis,
@@ -108,6 +324,46 @@ export default function Factory() {
       setClearRecoveryProjectId(null);
     }
   }, [clearRecoveryProjectId, loadProjects, refreshSelectedProject, selectedProjectId, toast]);
+
+  const handleApplyAutomationPlan = useCallback(async ({ dryRun }) => {
+    if (automationApplyMode) {
+      return;
+    }
+
+    const mode = dryRun ? 'dry_run' : 'apply';
+    const scopedProjectId = getAutomationPlanProjectScope(automationReadiness);
+    if (!dryRun && !scopedProjectId && !confirmMultiProjectAutomationApply(automationReadiness)) {
+      return;
+    }
+
+    setAutomationApplyMode(mode);
+    try {
+      const result = scopedProjectId
+        ? await factoryApi.applyProjectAutomationPlan(scopedProjectId, {
+          dry_run: dryRun,
+        })
+        : await factoryApi.applyAutomationPlan({
+          all_projects: true,
+          dry_run: dryRun,
+          ...(dryRun ? {} : { confirm_all_projects: true }),
+        });
+      const planned = Number(result?.planned_steps) || 0;
+      const applied = Array.isArray(result?.applied_steps) ? result.applied_steps.length : 0;
+      if (dryRun) {
+        toast.success(`Automation dry run found ${planned} control-plane step${planned === 1 ? '' : 's'}`);
+      } else {
+        toast.success(`Applied ${applied} automation control step${applied === 1 ? '' : 's'}`);
+      }
+      await loadProjects({ silent: true });
+      if (selectedProjectId) {
+        await refreshSelectedProject();
+      }
+    } catch (error) {
+      toast.error(`Failed to apply automation plan: ${error.message}`);
+    } finally {
+      setAutomationApplyMode(null);
+    }
+  }, [automationApplyMode, automationReadiness, loadProjects, refreshSelectedProject, selectedProjectId, toast]);
 
   return (
     <div className="space-y-6 p-6">
@@ -183,6 +439,15 @@ export default function Factory() {
             diagnosis={idleDiagnosis}
             loading={loading}
             onRefresh={loadProjects}
+          />
+
+          <FactoryAutomationReadinessBanner
+            readiness={automationReadiness}
+            projects={projects}
+            loading={loading}
+            onRefresh={loadProjects}
+            onApplyPlan={handleApplyAutomationPlan}
+            applyMode={automationApplyMode}
           />
 
           <div className="grid gap-6 md:grid-cols-[minmax(220px,260px)_minmax(0,1fr)]">

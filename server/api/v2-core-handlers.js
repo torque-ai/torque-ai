@@ -9,7 +9,6 @@
  */
 
 const { randomUUID } = require('crypto');
-const { defaultContainer } = require('../container');
 const { getTask, updateTaskStatus } = require('../db/task-core');
 const { getDefaultProvider, getProvider, listProviders } = require('../db/provider/routing-core');
 const { recordTaskEvent, getTaskEvents } = require('../db/webhooks-streaming');

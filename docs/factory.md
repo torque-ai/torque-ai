@@ -1,15 +1,22 @@
 # Factory Auto-Pilot
 
-The software factory runs autonomously when configured. One API call starts a self-driving cycle.
+The software factory runs autonomously only after its control plane is ready: projects must be running, dark-trust, not operator-paused, configured with `loop.auto_continue=true`, and have the recurring factory tick armed.
 
-## Starting the Factory
+## Preparing the Factory
 
-    # Start with auto-advance (zero operator calls needed)
+Inspect readiness without processing registered project work:
+
+    factory_automation_plan { blocked_only: true }
+
+Apply the returned control-plane steps directly when the scope is explicit:
+
+    apply_factory_automation_plan { project: "torque-public" }
+
+For all registered projects, the apply call requires `all_projects=true` so the blast radius is explicit. Non-dry-run applies without a single `project` scope also require `confirm_scope=true` or `confirm_all_projects=true`. Use `dry_run=true` to preview the same apply list without mutation. Pass `blocked_only=true` to keep the project list focused on blocked projects while still applying required scheduler-arm steps for ready projects in the scoped plan. Readiness plan and apply steps use `processes_project_work=false`; `resume_project` steps include `immediate_tick=false`, and scheduler steps use `arm_factory_tick` so arming does not run an immediate tick.
+
+Explicit loop starts remain available for operator-driven work, but they are not the persisted unattended automation path:
+
     start_factory_loop { project: "torque-public", auto_advance: true }
-
-    # Or via REST
-    curl -X POST http://127.0.0.1:3457/api/v2/factory/projects/<id>/loop/start \
-      -H "Content-Type: application/json" -d '{"auto_advance":true}'
 
 ## Configuration
 
@@ -21,10 +28,18 @@ Enable continuous cycling and dark trust (no gates) via `set_factory_trust_level
       config: { loop: { auto_continue: true } }
     }
 
-- **auto_advance** — server chains stage transitions automatically via setTimeout. Fires instantly on stage completion. Retries after 30s on transient failures.
+`set_factory_trust_level` deep-merges nested config objects, so setting `config.loop.auto_continue=true` preserves sibling loop keys like `tick_interval_ms`.
+
+If a `set_factory_trust_level` update disables automation readiness, TORQUE stops that project's recurring factory tick. Enabling readiness does not run or arm the tick by itself; use `arm_factory_tick` when the readiness plan calls for scheduler arming.
+
+`factory_project_work_enabled` is the global project-work switch. It defaults to enabled for normal operation and can be set to `0` with the config key or `TORQUE_FACTORY_PROJECT_WORK_ENABLED=0` in the server environment to keep startup reconcile, recurring ticks, config-driven auto-advance, LEARN auto-continue, auto-recovery, direct loop start/advance/gate retry tools, baseline resume probes, and generic queued task starts from processing registered project work. Queue guards classify factory project work from `factory:*` task tags or from a task `working_directory` at or under a registered `factory_projects.path`, including `.worktrees` children. Readiness and apply-plan tools still operate in control-plane mode while this switch is off, and `automation_readiness.project_work_enabled=false` plus `manual_intervention.reason_codes=["factory_project_work_disabled"]` make that state visible to operators.
+
+When cutting over automation-readiness changes without allowing registered project processing, preflight first with `scripts/worktree-cutover.sh --preflight --disable-project-work <feature-name>`, then run the approved cutover with `--disable-project-work` or `CUTOVER_DISABLE_PROJECT_WORK=1`. The cutover writes a one-shot successor restart environment override so the new TORQUE process starts with `TORQUE_FACTORY_PROJECT_WORK_ENABLED=0` even if the old server process did not have that environment variable.
+
+- **auto_advance** — explicit loop-start option that chains stage transitions automatically via setTimeout. Fires instantly on stage completion and retries after 30s on transient failures for that manually started loop.
 - **auto_continue** — LEARN wraps back to SENSE instead of terminating, picking the next backlog item.
-- **factory tick** — 5-min setInterval safety net (`server/factory/factory-tick.js`). Catches anything auto_advance missed. Starts/stops with `pause_project`/`resume_project`. Auto-starts new loops for auto_continue projects with no active instances.
-- **startup resume** — on server restart, scans for active auto_continue instances and re-kicks auto_advance.
+- **factory tick** — 5-min setInterval safety net (`server/factory/factory-tick.js`). Catches anything auto_advance missed. Startup arms running automation-ready projects without an immediate tick and keeps paused baseline/VERIFY recovery projects ticking for recovery checks. Tick advancement and fresh-loop auto-starts require automation readiness unless the tick is clearing a paused VERIFY batch wait.
+- **startup resume** — on server restart, scans active loop instances and re-kicks config-driven auto_advance only when unattended automation controls are ready.
 
 ## Operator Tools
 
@@ -32,8 +47,11 @@ Enable continuous cycling and dark trust (no gates) via `set_factory_trust_level
 |------|---------|
 | `reset_factory_loop` | Clear stuck loop state, terminate instances, free stage occupancy |
 | `terminate_factory_loop_instance` | Force-terminate any instance (frees stage claims + worktree cleanup) |
-| `retry_factory_verify` | Resume from VERIFY_FAIL after operator fixes the issue |
-| `approve_factory_gate` / `reject_factory_gate` | Gate approval for supervised/guided trust levels |
+| `retry_factory_verify` | Resume from VERIFY_FAIL after operator fixes the issue; blocked while `factory_project_work_enabled=0` |
+| `approve_factory_gate` / `reject_factory_gate` | Gate approval for supervised/guided trust levels; approval is blocked while `factory_project_work_enabled=0` |
+| `resume_project` | Resume a paused project. Pass `immediate_tick=false` when applying readiness plans so the call does not run the tick immediately. The recurring tick is only armed when the resumed project is automation-ready |
+| `apply_factory_automation_plan` | Apply the bounded readiness control-plane plan for an explicit project, status scope, or `all_projects=true`; accepts `blocked_only=true`; never runs immediate project work |
+| `arm_factory_tick` | Arm the recurring tick for an automation-ready project without running an immediate tick |
 
 ### Long-running task config: `finalizing_task_stale_minutes`
 
@@ -52,8 +70,34 @@ Factory plan generation and verify steps can legitimately run 30–60 minutes fo
 - `active_stage` — the effective current stage. This can be `PLAN` while `loop_state` is `EXECUTE` when EXECUTE is blocked on an internal plan-generation task.
 - `active_task` — the active internal support task, currently `kind: "plan_generation"`, including task id, status, provider, model, and timestamps.
 - `state_consistency` — compares the project cache state, active instance state, and effective active stage. `state_consistency.ok=false` means the dashboard should show the mismatch instead of implying smooth progress.
+- `work_item_status_counts` — per-project intake counts by status, with summary totals plus `needs_review_work_items` and `needs_replan_work_items` rollups.
 
-Summary fields include `active_internal_tasks` and `state_mismatch_projects` so operators can distinguish productive internal work from stale or contradictory control-plane state.
+Summary fields include `active_internal_tasks`, `state_mismatch_projects`, and work-item status counts so operators can distinguish productive internal work from stale, blocked, or review-owned backlog.
+
+## Automation Readiness
+
+`factory_status` includes an `automation_readiness` object for each project and a summary-level rollup. `list_factory_projects` can include the same read-only fields with `include_automation_readiness=true`. `factory_automation_plan` returns the readiness rollup, dry-run control-plane plan, and work-item status counts directly for automation clients that do not need the full air-traffic-control status payload. These fields and tools do not start loops, resume projects, or advance registered project work.
+
+A project is marked ready when all hands-off factory controls are in place:
+
+- project status is `running`
+- `config_json.loop.auto_continue` is boolean `true`
+- no `loop.operator_paused` marker is present
+- trust level has no approval gates (`dark`)
+
+Blocked projects include machine-readable `blocker_codes`, human-readable `blockers`, one `next_control_plane_action`, and an ordered `control_plane_actions` list for projects with multiple blockers. `next_control_plane_action` is the first entry from that ordered list. Example actions include `resume_project with clear_operator_pause=true immediate_tick=false`, `set_factory_trust_level trust_level=dark`, or `set_factory_trust_level trust_level=dark config.loop.auto_continue=true`.
+
+For automation clients, the same sequence is exposed as `control_plane_plan`, an ordered list of `{ action, tool, args, description, effect_scope, mutates_control_plane, processes_project_work, enables_future_processing }` steps. Readiness queries never execute those tools. `apply_factory_automation_plan` is the bounded mutating companion: it recomputes the plan for an explicit scope, refuses steps outside the allowlisted control-plane tools, and executes only steps with `processes_project_work=false`. When `blocked_only=true`, `before.projects` stays focused on blocked projects, while `after.projects` reports every project touched by the apply steps. Readiness plan steps are classified as `effect_scope="control_plane"`, `mutates_control_plane=true`, `processes_project_work=false`, and `enables_future_processing=true`, so clients can distinguish factory setup from backlog execution. A project that needs dark trust and continuous cycling produces one `set_factory_trust_level` step with `args.trust_level="dark"` and `args.config.loop.auto_continue=true`; a separately paused project adds a following `resume_project` step with `args.clear_operator_pause=true` and `args.immediate_tick=false`. The summary-level `automation_readiness.control_plane_plan` concatenates blocked-project setup steps plus scheduler-arm steps for ready projects whose recurring tick is not armed. For running projects that will become ready after config/trust steps, the summary plan appends `arm_factory_tick immediate=false` immediately after those setup steps when the scheduler is currently unarmed.
+
+`arm_factory_tick` is the bounded mutating companion to the read-only plan. It only arms the recurring scheduler with `immediate=false`, so the call itself does not start a loop, resume a project, advance a stage, or process registered project work. It enables future unattended processing and refuses projects that are not automation-ready.
+
+The summary counts ready/blocked projects plus blocker totals so dashboards and operators can tell whether the factory is truly configured for autonomous cycling before allowing it to process backlog.
+
+The rollup also distinguishes `ready` from `hands_off_ready`. `ready` means the project-level control plane can cycle autonomously. `hands_off_ready` additionally requires global project work to be enabled, no operator-owned queues to remain, and the factory tick scheduler to be armed for every ready project. Operator-owned queues include pending approval tasks, `needs_review` work items, and `escalation_exhausted` work items. For project- or status-scoped plans, pending approval task counts use factory project identifiers and target-project tags so unrelated approvals do not block the requested scope. The `manual_intervention` object reports those counts, unarmed tick project ids, and reason codes without mutating projects.
+
+Readiness `project_ids` arrays are short previews for operators; counts remain authoritative. `control_plane_plan` is the executable-sized plan and includes every required control-plane step for the requested scope, including all scheduler arm steps, rather than only the previewed ids.
+
+The runtime uses the same readiness criteria for config-driven automation. Persisted unattended automation requires boolean `loop.auto_continue=true`; `loop.auto_advance=true` by itself does not re-arm unattended stage chaining or restart stranded projects on startup. LEARN only recycles into a fresh SENSE pass for automation-ready projects while `factory_project_work_enabled` is on, startup only advances active loop instances when readiness is satisfied and project work is enabled, and scheduled config-driven auto-advance timers re-check both conditions before firing. The auto-recovery engine skips strategy execution for projects that are not automation-ready or when project work is globally disabled. The task queue and slot-pull scheduler also defer queued factory project tasks while the switch is off, and `startTask` requeues any direct start attempt before provider routing or process spawn. The tick does not advance active loops or auto-start fresh continuous loops unless the project is running, dark, not operator-paused, has boolean `loop.auto_continue=true`, and global project work is enabled. Explicit project-processing operator commands such as `start_factory_loop`, `advance_factory_loop`, `approve_factory_gate`, `retry_factory_verify`, their instance variants, and `resume_project_baseline_fixed` also refuse while `factory_project_work_enabled=0`; read-only/status and bounded control-plane readiness tools remain available. `resume_project` remains available as a control-plane resume, but while project work is disabled it does not requeue parked tasks and reports `queue_resume_skipped_reason="factory_project_work_disabled"`.
 
 ## Auto-Ship Detection
 

@@ -204,9 +204,9 @@ describe('factory loop async jobs', () => {
     });
   });
 
-  it('re-enters the auto-advance chain on manual advance for auto-continue projects', async () => {
+  it('re-enters the auto-advance chain on manual advance for dark auto-continue projects', async () => {
     runArchitectCycleSpy.mockResolvedValue({ id: 'cycle-auto-continue', summary: 'architect complete' });
-    const project = registerPrioritizeProject('autonomous', { loop: { auto_continue: true } });
+    const project = registerPrioritizeProject('dark', { loop: { auto_continue: true } });
 
     const descriptor = loopController.advanceLoopAsyncForProject(project.id);
     const instance = factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })[0];
@@ -221,12 +221,121 @@ describe('factory loop async jobs', () => {
       });
       expect(completed.auto_advance_delay_ms).toEqual(expect.any(Number));
       expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(instance.id))
-        .toMatchObject({ delay_ms: completed.auto_advance_delay_ms });
+        .toMatchObject({
+          delay_ms: completed.auto_advance_delay_ms,
+          force_auto_advance: false,
+        });
     } finally {
       if (instance?.id) {
         loopController._internalForTests.clearScheduledAutoAdvanceForTests(instance.id);
       }
     }
+  });
+
+  it('skips scheduled config-driven auto-advance when readiness is disabled before the timer fires', async () => {
+    vi.useFakeTimers();
+    try {
+      runArchitectCycleSpy.mockResolvedValue({ id: 'cycle-disabled-before-timer', summary: 'architect complete' });
+      const project = registerPrioritizeProject('dark', { loop: { auto_continue: true } });
+      const instance = factoryLoopInstances.createInstance({ project_id: project.id });
+      factoryLoopInstances.updateInstance(instance.id, {
+        loop_state: LOOP_STATES.PRIORITIZE,
+        paused_at_stage: null,
+      });
+      factoryHealth.updateProject(project.id, {
+        config_json: JSON.stringify({ loop: { auto_continue: false } }),
+      });
+
+      loopController._internalForTests.scheduleConfigDrivenAutoAdvanceForTests(instance.id, 10);
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(runArchitectCycleSpy).not.toHaveBeenCalled();
+      expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(instance.id)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('skips scheduled config-driven auto-advance when factory project work is disabled', async () => {
+    const previous = process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED;
+    process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED = '0';
+    vi.useFakeTimers();
+    try {
+      runArchitectCycleSpy.mockResolvedValue({ id: 'cycle-work-disabled', summary: 'architect complete' });
+      const project = registerPrioritizeProject('dark', { loop: { auto_continue: true } });
+      const instance = factoryLoopInstances.createInstance({ project_id: project.id });
+      factoryLoopInstances.updateInstance(instance.id, {
+        loop_state: LOOP_STATES.PRIORITIZE,
+        paused_at_stage: null,
+      });
+
+      loopController._internalForTests.scheduleConfigDrivenAutoAdvanceForTests(instance.id, 10);
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(runArchitectCycleSpy).not.toHaveBeenCalled();
+      expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(instance.id)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      if (previous === undefined) {
+        delete process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED;
+      } else {
+        process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED = previous;
+      }
+    }
+  });
+
+  it('does not re-enter the auto-advance chain for approval-gated auto-continue projects', async () => {
+    runArchitectCycleSpy.mockResolvedValue({ id: 'cycle-approval-gated', summary: 'architect complete' });
+    const project = registerPrioritizeProject('autonomous', { loop: { auto_continue: true } });
+
+    const descriptor = loopController.advanceLoopAsyncForProject(project.id);
+    const instance = factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })[0];
+    const completed = await waitForJobStatus(project.id, descriptor.job_id, 'completed');
+
+    expect(completed).toMatchObject({
+      status: 'completed',
+      new_state: LOOP_STATES.PLAN,
+      paused_at_stage: null,
+      auto_advance_delay_ms: null,
+      error: null,
+    });
+    expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(instance.id)).toBeNull();
+  });
+
+  it('does not re-enter config-driven auto-advance for dark auto-advance-only projects', async () => {
+    runArchitectCycleSpy.mockResolvedValue({ id: 'cycle-auto-advance-only', summary: 'architect complete' });
+    const project = registerPrioritizeProject('dark', { loop: { auto_advance: true } });
+
+    const descriptor = loopController.advanceLoopAsyncForProject(project.id);
+    const instance = factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })[0];
+    const completed = await waitForJobStatus(project.id, descriptor.job_id, 'completed');
+
+    expect(completed).toMatchObject({
+      status: 'completed',
+      new_state: LOOP_STATES.PLAN,
+      paused_at_stage: null,
+      auto_advance_delay_ms: null,
+      error: null,
+    });
+    expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(instance.id)).toBeNull();
+  });
+
+  it('does not re-enter the auto-advance chain for string auto-continue config', async () => {
+    runArchitectCycleSpy.mockResolvedValue({ id: 'cycle-string-auto-continue', summary: 'architect complete' });
+    const project = registerPrioritizeProject('autonomous', { loop: { auto_continue: 'true' } });
+
+    const descriptor = loopController.advanceLoopAsyncForProject(project.id);
+    const instance = factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })[0];
+    const completed = await waitForJobStatus(project.id, descriptor.job_id, 'completed');
+
+    expect(completed).toMatchObject({
+      status: 'completed',
+      new_state: LOOP_STATES.PLAN,
+      paused_at_stage: null,
+      auto_advance_delay_ms: null,
+      error: null,
+    });
+    expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(instance.id)).toBeNull();
   });
 
   it('records failed status and error details when the stage throws', async () => {
@@ -243,5 +352,30 @@ describe('factory loop async jobs', () => {
       paused_at_stage: null,
       error: 'architect unavailable',
     });
+  });
+
+  it('schedules a readiness-gated retry when config-driven auto-advance fails', async () => {
+    runArchitectCycleSpy.mockRejectedValueOnce(new Error('temporary architect outage'));
+    const project = registerPrioritizeProject('dark', { loop: { auto_continue: true } });
+
+    const descriptor = loopController.advanceLoopAsyncForProject(project.id);
+    const instance = factoryLoopInstances.listInstances({ project_id: project.id, active_only: true })[0];
+    const failed = await waitForJobStatus(project.id, descriptor.job_id, 'failed');
+
+    try {
+      expect(failed).toMatchObject({
+        status: 'failed',
+        new_state: LOOP_STATES.PLAN,
+        paused_at_stage: null,
+        error: 'temporary architect outage',
+      });
+      expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(instance.id))
+        .toMatchObject({
+          delay_ms: 30000,
+          force_auto_advance: false,
+        });
+    } finally {
+      loopController._internalForTests.clearScheduledAutoAdvanceForTests(instance.id);
+    }
   });
 });

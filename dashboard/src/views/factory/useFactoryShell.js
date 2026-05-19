@@ -44,6 +44,7 @@ export function useFactoryShell() {
   const isPolicyRoute = location.pathname === '/factory/policy';
   const {
     activeProjectAction,
+    automationReadiness,
     approvalsHref,
     approveGate,
     advanceLoop,
@@ -567,6 +568,7 @@ export function useFactoryShell() {
 
   return {
     activeProjectAction,
+    automationReadiness,
     handlePauseAll,
     handleToggleProject,
     idleDiagnosis,
@@ -574,6 +576,7 @@ export function useFactoryShell() {
     loading,
     outletContext: {
       activeProjectAction,
+      automationReadiness,
       approvalsHref,
       architectBacklog,
       architectLoading,

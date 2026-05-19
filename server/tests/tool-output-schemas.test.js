@@ -99,6 +99,9 @@ describe('tool-output-schemas', () => {
         'check_status', 'task_info', 'list_tasks', 'get_result',
         'get_progress', 'workflow_status', 'list_workflows', 'list_ollama_hosts',
         'get_context',
+        // Factory
+        'list_factory_projects', 'factory_status', 'factory_automation_plan',
+        'apply_factory_automation_plan', 'arm_factory_tick',
         // Phase 2
         ...PHASE2_PROVIDER_COST_MONITORING_TOOLS,
         // Phase 3
@@ -133,6 +136,135 @@ describe('tool-output-schemas', () => {
       for (const name of PHASE2_PROVIDER_COST_MONITORING_TOOLS) {
         expect(getOutputSchema(name)).toBeDefined();
       }
+    });
+
+    it('factory schemas expose automation readiness and work item status counts', () => {
+      const statusSchema = getOutputSchema('factory_status');
+      const listSchema = getOutputSchema('list_factory_projects');
+      const planSchema = getOutputSchema('factory_automation_plan');
+      const applyPlanSchema = getOutputSchema('apply_factory_automation_plan');
+      const armTickSchema = getOutputSchema('arm_factory_tick');
+      const factoryDefs = require('../tool-defs/factory-defs');
+      const listFactoryProjectsDef = factoryDefs.find((def) => def.name === 'list_factory_projects');
+      const resumeProjectDef = factoryDefs.find((def) => def.name === 'resume_project');
+      const factoryAutomationPlanDef = factoryDefs.find((def) => def.name === 'factory_automation_plan');
+      const applyFactoryAutomationPlanDef = factoryDefs.find((def) => def.name === 'apply_factory_automation_plan');
+      const armFactoryTickDef = factoryDefs.find((def) => def.name === 'arm_factory_tick');
+
+      expect(statusSchema.properties.summary.properties.automation_readiness).toBeDefined();
+      expect(statusSchema.properties.summary.properties.idle_diagnosis).toBeDefined();
+      expect(statusSchema.properties.summary.properties.idle_diagnosis.properties.actions.items.properties.processes_project_work).toBeDefined();
+      expect(statusSchema.properties.summary.properties.idle_diagnosis.properties.actions.items.properties.effect_scope).toBeDefined();
+      expect(statusSchema.properties.summary.properties.work_item_status_counts).toBeDefined();
+      expect(statusSchema.properties.summary.properties.needs_review_work_items).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.control_plane_plan).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.hands_off_ready).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.counts.properties.scheduler_unarmed_projects).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.project_ids.properties.scheduler_unarmed).toBeDefined();
+      expect(statusSchema.properties.projects.items.properties.automation_readiness).toBeDefined();
+      expect(statusSchema.properties.projects.items.properties.work_item_status_counts).toBeDefined();
+      expect(statusSchema.properties.projects.items.properties.automation_readiness.properties.control_plane_actions).toBeDefined();
+      expect(statusSchema.properties.projects.items.properties.automation_readiness.properties.control_plane_plan).toMatchObject({
+        type: 'array',
+        items: {
+          type: 'object',
+          required: [
+            'action',
+            'tool',
+            'args',
+            'description',
+            'effect_scope',
+            'mutates_control_plane',
+            'processes_project_work',
+            'enables_future_processing',
+          ],
+        },
+      });
+      expect(listSchema.properties.automation_readiness).toBeDefined();
+      expect(listSchema.properties.idle_diagnosis.properties.actions.items.properties.processes_project_work).toBeDefined();
+      expect(listSchema.properties.projects.items.properties.automation_readiness).toBeDefined();
+      expect(listSchema.properties.projects.items.properties.automation_readiness.properties.control_plane_plan).toBeDefined();
+      expect(planSchema.properties.summary).toBeDefined();
+      expect(planSchema.required).toContain('message');
+      expect(planSchema.required).toContain('hands_off_ready');
+      expect(planSchema.required).toContain('manual_intervention');
+      expect(planSchema.properties.summary.properties.hands_off_ready).toBeDefined();
+      expect(planSchema.properties.summary.properties.manual_intervention).toBeDefined();
+      expect(planSchema.properties.manual_intervention.properties.counts.properties.scheduler_unarmed_projects).toBeDefined();
+      expect(planSchema.properties.manual_intervention.properties.project_ids.properties.scheduler_unarmed).toBeDefined();
+      expect(planSchema.properties.work_item_status_counts).toBeDefined();
+      expect(planSchema.properties.needs_review_work_items).toBeDefined();
+      expect(planSchema.properties.needs_replan_work_items).toBeDefined();
+      expect(planSchema.properties.control_plane_plan).toMatchObject({
+        type: 'array',
+        items: {
+          type: 'object',
+          required: [
+            'action',
+            'tool',
+            'args',
+            'description',
+            'effect_scope',
+            'mutates_control_plane',
+            'processes_project_work',
+            'enables_future_processing',
+          ],
+        },
+      });
+      expect(planSchema.properties.projects.items.properties.automation_readiness).toBeDefined();
+      expect(applyPlanSchema.required).toEqual(expect.arrayContaining([
+        'completed',
+        'dry_run',
+        'processes_project_work',
+        'planned_steps',
+        'applied_steps',
+        'skipped_steps',
+        'failed_steps',
+        'before',
+        'after',
+      ]));
+      expect(applyPlanSchema.properties.applied_steps.items.required).toEqual(expect.arrayContaining([
+        'effect_scope',
+        'processes_project_work',
+        'mutates_control_plane',
+        'enables_future_processing',
+      ]));
+      expect(listFactoryProjectsDef.inputSchema.properties.include_automation_readiness).toMatchObject({
+        type: 'boolean',
+      });
+      expect(factoryAutomationPlanDef.inputSchema.properties.blocked_only).toMatchObject({
+        type: 'boolean',
+      });
+      expect(applyFactoryAutomationPlanDef.inputSchema.properties.all_projects).toMatchObject({
+        type: 'boolean',
+      });
+      expect(applyFactoryAutomationPlanDef.inputSchema.properties.blocked_only).toMatchObject({
+        type: 'boolean',
+      });
+      expect(applyFactoryAutomationPlanDef.inputSchema.properties.confirm_all_projects).toMatchObject({
+        type: 'boolean',
+      });
+      expect(applyFactoryAutomationPlanDef.inputSchema.properties.confirm_scope).toMatchObject({
+        type: 'boolean',
+      });
+      expect(applyFactoryAutomationPlanDef.inputSchema.properties.dry_run).toMatchObject({
+        type: 'boolean',
+      });
+      expect(resumeProjectDef.inputSchema.properties.immediate_tick).toMatchObject({
+        type: 'boolean',
+      });
+      expect(armFactoryTickDef.inputSchema.properties.project).toMatchObject({
+        type: 'string',
+      });
+      expect(armTickSchema.required).toEqual(expect.arrayContaining([
+        'tick_active',
+        'immediate_tick',
+        'processes_project_work',
+        'enables_future_processing',
+        'automation_readiness',
+      ]));
+      expect(armTickSchema.properties.automation_readiness).toBeDefined();
     });
   });
 

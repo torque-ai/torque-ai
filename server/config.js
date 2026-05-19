@@ -60,6 +60,7 @@ const REGISTRY = {
   build_check_enabled:     { default: true,  type: 'bool' },
   cost_tracking_enabled:   { default: true,  type: 'bool' },
   adaptive_retry_enabled:  { default: true,  type: 'bool' },
+  factory_project_work_enabled: { default: true, type: 'bool', envVar: 'TORQUE_FACTORY_PROJECT_WORK_ENABLED' },
   tsserver_enabled:        { default: false, type: 'bool-optin' },
   openrouter_role_require_live_pass: { default: true, type: 'bool' },
   openrouter_discovery_smoke_limit:  { default: 5,    type: 'int' },

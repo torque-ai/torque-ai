@@ -161,7 +161,10 @@ describe('loop-states', () => {
       trust_level: 'dark',
       config: { loop: { auto_continue: true } },
     });
-    factoryHealth.updateProject(autoProject.id, { loop_state: LOOP_STATES.LEARN });
+    factoryHealth.updateProject(autoProject.id, {
+      status: 'running',
+      loop_state: LOOP_STATES.LEARN,
+    });
     const result = await loopController.advanceLoopForProject(autoProject.id);
     expect(result.new_state).toBe(LOOP_STATES.SENSE);
   });

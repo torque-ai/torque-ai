@@ -64,6 +64,7 @@ const {
   parseProjectConfigObject,
   getEffectiveProjectProvider,
 } = require('./shared/project-config');
+const { shouldRunUnattendedFactoryWork } = require('./automation-readiness');
 const {
   PLAN_DESCRIPTION_QUALITY_THRESHOLD,
   buildPlanQualityGateRejectPayload,
@@ -371,14 +372,8 @@ function hasOperatorPauseIntent(project) {
   return cfg?.loop?.operator_paused === true;
 }
 
-function isLoopConfigFlagEnabled(value) {
-  return value === true || value === 1 || value === 'true';
-}
-
 function shouldProjectAutoAdvance(project) {
-  const cfg = parseProjectConfigObject(project);
-  return isLoopConfigFlagEnabled(cfg?.loop?.auto_advance)
-    || isLoopConfigFlagEnabled(cfg?.loop?.auto_continue);
+  return shouldRunUnattendedFactoryWork(project);
 }
 
 function isProjectPauseActive(project, { includeStatus = true } = {}) {
@@ -1414,6 +1409,7 @@ function clearScheduledAutoAdvance(instance_id) {
 function scheduleAutoAdvance(instance_id, delayMs, {
   onAdvance = null,
   debugMessage = 'Auto-advance chain stopped',
+  forceAutoAdvance = false,
 } = {}) {
   const delay = clampAutoAdvanceDelayMs(delayMs, {
     min: 0,
@@ -1429,7 +1425,17 @@ function scheduleAutoAdvance(instance_id, delayMs, {
       if (typeof onAdvance === 'function') {
         onAdvance();
       } else {
-        advanceLoopAsync(instance_id, { autoAdvance: true });
+        if (!forceAutoAdvance) {
+          const { project } = getLoopContextOrThrow(instance_id);
+          if (!shouldProjectAutoAdvance(project)) {
+            logger.info('Config-driven auto-advance skipped because automation controls are not ready', {
+              project_id: project.id,
+              instance_id,
+            });
+            return;
+          }
+        }
+        advanceLoopAsync(instance_id, { autoAdvance: forceAutoAdvance });
       }
     } catch (err) {
       logger.debug(debugMessage, {
@@ -1441,6 +1447,7 @@ function scheduleAutoAdvance(instance_id, delayMs, {
   scheduledAutoAdvanceTimers.set(instance_id, {
     timer,
     delay_ms: delay,
+    force_auto_advance: forceAutoAdvance,
     scheduled_at: nowIso(),
   });
   return delay;
@@ -6615,7 +6622,8 @@ async function advanceLoopForProject(project_id) {
 function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
   const { project, instance } = getLoopContextOrThrow(instance_id);
   const currentState = getCurrentLoopState(instance);
-  const autoAdvanceRequested = autoAdvance || shouldProjectAutoAdvance(project);
+  const forceAutoAdvance = autoAdvance === true;
+  const autoAdvanceRequested = forceAutoAdvance || shouldProjectAutoAdvance(project);
 
   if (currentState === LOOP_STATES.IDLE) {
     throw new Error('Loop not started for this project');
@@ -6680,7 +6688,9 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
       // The project-row check stops the chain the moment pause_project lands,
       // without waiting for the current stage to finish.
       if (shouldAutoAdvance) {
-        scheduleAutoAdvance(instance_id, job.auto_advance_delay_ms);
+        scheduleAutoAdvance(instance_id, job.auto_advance_delay_ms, {
+          forceAutoAdvance,
+        });
       } else {
         clearScheduledAutoAdvance(instance.id);
       }
@@ -6714,10 +6724,11 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
       // row isn't paused), retry after a cooldown. Transient failures (SSH
       // timeout during remote verify, temporary network blip) shouldn't kill
       // the entire chain. The 30s delay prevents tight retry loops on
-      // persistent failures. The project-row pause check keeps this branch
-      // from fighting an operator's pause_project call.
+      // persistent failures. Config-driven retries are scheduled with
+      // forceAutoAdvance=false so the timer re-checks automation readiness
+      // before firing.
       if (
-        autoAdvance
+        autoAdvanceRequested
         && latestState
         && latestState !== LOOP_STATES.IDLE
         && latestState !== LOOP_STATES.STARVED
@@ -6726,6 +6737,7 @@ function advanceLoopAsync(instance_id, { autoAdvance = false } = {}) {
       ) {
         scheduleAutoAdvance(instance_id, 30000, {
           debugMessage: 'Auto-advance retry after failure also failed',
+          forceAutoAdvance,
         });
       } else {
         clearScheduledAutoAdvance(instance.id);
@@ -7350,6 +7362,7 @@ module.exports = {
     isLiveWorktreeOwner,
     isTaskPidAlive,
     scheduleAutoAdvanceForTests: (instance_id, delay_ms, onAdvance) => scheduleAutoAdvance(instance_id, delay_ms, { onAdvance }),
+    scheduleConfigDrivenAutoAdvanceForTests: (instance_id, delay_ms) => scheduleAutoAdvance(instance_id, delay_ms),
     clearScheduledAutoAdvanceForTests: clearScheduledAutoAdvance,
     getScheduledAutoAdvanceForTests: (instance_id) => {
       const scheduled = scheduledAutoAdvanceTimers.get(instance_id);
@@ -7358,6 +7371,7 @@ module.exports = {
       }
       return {
         delay_ms: scheduled.delay_ms,
+        force_auto_advance: scheduled.force_auto_advance,
         scheduled_at: scheduled.scheduled_at,
       };
     },

@@ -251,6 +251,47 @@ describe('factory end-to-end flow', () => {
     expect(factoryHealth.getProject(projectId).status).toBe('paused');
   });
 
+  test('handler: set_factory_trust_level deep-merges nested project config', async () => {
+    const regResult = await handlers.handleRegisterFactoryProject({
+      name: 'merge-config-project',
+      path: '/projects/merge-config-project',
+      trust_level: 'autonomous',
+      config: {
+        loop: {
+          tick_interval_ms: 90000,
+          auto_continue: false,
+        },
+        routing: {
+          preferred_provider: 'codex',
+        },
+      },
+    });
+    const projectId = JSON.parse(regResult.content[0].text).project.id;
+
+    await handlers.handleSetFactoryTrustLevel({
+      project: projectId,
+      trust_level: 'dark',
+      config: {
+        loop: {
+          auto_continue: true,
+        },
+      },
+    });
+
+    const updated = factoryHealth.getProject(projectId);
+    const config = JSON.parse(updated.config_json);
+    expect(updated.trust_level).toBe('dark');
+    expect(config).toMatchObject({
+      routing: {
+        preferred_provider: 'codex',
+      },
+      loop: {
+        auto_continue: true,
+        tick_interval_ms: 90000,
+      },
+    });
+  });
+
   test('handler: list projects includes health data', async () => {
     const reg = await handlers.handleRegisterFactoryProject({ name: 'A', path: '/a' });
     const id = JSON.parse(reg.content[0].text).project.id;

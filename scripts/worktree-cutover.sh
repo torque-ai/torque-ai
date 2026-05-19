@@ -5,11 +5,21 @@ set -euo pipefail
 # cutovers default to the documented 60-minute restart-barrier behavior so
 # normal 30-60 minute factory tasks are not interrupted mid-edit.
 GRACEFUL_DRAIN=0
+DISABLE_PROJECT_WORK="${CUTOVER_DISABLE_PROJECT_WORK:-0}"
+PREFLIGHT="${CUTOVER_PREFLIGHT:-0}"
 POSITIONAL=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --graceful)
       GRACEFUL_DRAIN=1
+      shift
+      ;;
+    --preflight)
+      PREFLIGHT=1
+      shift
+      ;;
+    --disable-project-work)
+      DISABLE_PROJECT_WORK=1
       shift
       ;;
     --)
@@ -19,7 +29,7 @@ while [ $# -gt 0 ]; do
       ;;
     -*)
       echo "Unknown flag: $1"
-      echo "Usage: scripts/worktree-cutover.sh [--graceful] <feature-name>"
+      echo "Usage: scripts/worktree-cutover.sh [--graceful] [--preflight] [--disable-project-work] <feature-name>"
       exit 1
       ;;
     *)
@@ -32,7 +42,7 @@ set -- "${POSITIONAL[@]:-}"
 
 FEATURE_NAME="${1:-}"
 if [ -z "$FEATURE_NAME" ]; then
-  echo "Usage: scripts/worktree-cutover.sh [--graceful] <feature-name>"
+  echo "Usage: scripts/worktree-cutover.sh [--graceful] [--preflight] [--disable-project-work] <feature-name>"
   exit 1
 fi
 
@@ -267,26 +277,34 @@ cutover_write_heartbeat() {
 start_torque_with_repo_launcher() {
   local startup_timeout_seconds="${1:-240}"
   local launcher="${REPO_ROOT}/start-torque.ps1"
+  local env_prefix=(env "TORQUE_STARTUP_TIMEOUT_SECONDS=${startup_timeout_seconds}")
+  if [ "${DISABLE_PROJECT_WORK:-0}" = "1" ]; then
+    env_prefix+=("TORQUE_FACTORY_PROJECT_WORK_ENABLED=0")
+  fi
   if [ -f "$launcher" ]; then
     if command -v pwsh.exe > /dev/null 2>&1; then
       echo "  Starting TORQUE via start-torque.ps1..."
-      TORQUE_STARTUP_TIMEOUT_SECONDS="${startup_timeout_seconds}" pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "$launcher"
+      "${env_prefix[@]}" pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "$launcher"
       return $?
     fi
     if command -v pwsh > /dev/null 2>&1; then
       echo "  Starting TORQUE via start-torque.ps1..."
-      TORQUE_STARTUP_TIMEOUT_SECONDS="${startup_timeout_seconds}" pwsh -NoProfile -ExecutionPolicy Bypass -File "$launcher"
+      "${env_prefix[@]}" pwsh -NoProfile -ExecutionPolicy Bypass -File "$launcher"
       return $?
     fi
     if command -v powershell.exe > /dev/null 2>&1; then
       echo "  Starting TORQUE via start-torque.ps1..."
-      TORQUE_STARTUP_TIMEOUT_SECONDS="${startup_timeout_seconds}" powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$launcher"
+      "${env_prefix[@]}" powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$launcher"
       return $?
     fi
   fi
 
   echo "  start-torque.ps1 launcher unavailable — falling back to node with torque.log capture."
-  (cd "${REPO_ROOT}/server" && nohup node index.js >> "${TORQUE_LOG_FILE_PATH}" 2>&1 &)
+  if [ "${DISABLE_PROJECT_WORK:-0}" = "1" ]; then
+    (cd "${REPO_ROOT}/server" && TORQUE_FACTORY_PROJECT_WORK_ENABLED=0 nohup node index.js >> "${TORQUE_LOG_FILE_PATH}" 2>&1 &)
+  else
+    (cd "${REPO_ROOT}/server" && nohup node index.js >> "${TORQUE_LOG_FILE_PATH}" 2>&1 &)
+  fi
 }
 
 resolve_torque_pid_file() {
@@ -399,10 +417,95 @@ TORQUE_HANDOFF_FILE_PATH="$(resolve_torque_handoff_file)"
 TORQUE_LOG_FILE_PATH="$(resolve_torque_log_file)"
 TORQUE_SUCCESSOR_LOG_FILE_PATH="$(resolve_torque_data_file "successor.log")"
 TORQUE_RESTART_EXIT_FILE_PATH="$(resolve_torque_data_file "restart-exit.ndjson")"
+TORQUE_RESTART_ENV_FILE_PATH="$(resolve_torque_data_file "restart-env.json")"
 TORQUE_PRE_RESTART_PID_SIGNATURE=""
 TORQUE_LOG_START_LINE=0
 TORQUE_SUCCESSOR_LOG_START_LINE=0
 TORQUE_RESTART_EXIT_START_LINE=0
+
+write_cutover_restart_env_file() {
+  if [ "${DISABLE_PROJECT_WORK:-0}" != "1" ]; then
+    return 0
+  fi
+  mkdir -p "$(dirname "${TORQUE_RESTART_ENV_FILE_PATH}")"
+  node - "${TORQUE_RESTART_ENV_FILE_PATH}" <<'EOF'
+const fs = require('fs');
+const path = require('path');
+const filePath = process.argv[2];
+const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+fs.mkdirSync(path.dirname(filePath), { recursive: true });
+fs.writeFileSync(filePath, JSON.stringify({
+  expires_at: expiresAt,
+  env: {
+    TORQUE_FACTORY_PROJECT_WORK_ENABLED: '0',
+  },
+}, null, 2));
+EOF
+  echo "  Successor restart env will force TORQUE_FACTORY_PROJECT_WORK_ENABLED=0"
+  echo "  Restart env file: ${TORQUE_RESTART_ENV_FILE_PATH}"
+}
+
+main_worktree_has_tracked_changes() {
+  ! git -C "${REPO_ROOT}" diff --quiet 2>/dev/null || \
+    ! git -C "${REPO_ROOT}" diff --cached --quiet 2>/dev/null
+}
+
+print_dirty_main_error() {
+  echo "ERROR: Main working tree has uncommitted tracked changes. Commit or stash them first."
+  echo "       A concurrent Claude session may be editing on main — check before proceeding."
+  echo "       Offending files:"
+  git -C "${REPO_ROOT}" status --short | grep -vE '^\?\?' | sed 's/^/         /'
+}
+
+run_cutover_preflight() {
+  echo "  Preflight only: no merge, restart barrier, cleanup, or project work will run."
+
+  if main_worktree_has_tracked_changes; then
+    print_dirty_main_error
+    exit 1
+  fi
+
+  local current_branch
+  current_branch=$(git -C "${REPO_ROOT}" symbolic-ref --short HEAD 2>/dev/null || echo "")
+  if [ "${current_branch}" != "main" ]; then
+    echo "  Main repo is currently on '${current_branch}' — cutover would switch it to main before merging."
+  fi
+
+  local merge_tree_output
+  if ! merge_tree_output=$(git -C "${REPO_ROOT}" merge-tree --write-tree main "${BRANCH}" 2>&1); then
+    echo "ERROR: merge-tree preflight failed for ${BRANCH} into main."
+    printf '%s\n' "${merge_tree_output}" | sed 's/^/       /'
+    exit 1
+  fi
+  echo "[ok] Merge simulation clean: ${merge_tree_output}"
+
+  local preflight_changed_files
+  preflight_changed_files=$(git -C "${REPO_ROOT}" diff --name-only main..."${BRANCH}" 2>/dev/null || true)
+  if [ -z "${preflight_changed_files}" ]; then
+    echo "  No file changes detected versus main."
+  else
+    local changed_count
+    changed_count=$(printf '%s\n' "${preflight_changed_files}" | sed '/^$/d' | wc -l | tr -d '[:space:]')
+    echo "  Files that would merge: ${changed_count}"
+    printf '%s\n' "${preflight_changed_files}" | sed '/^$/d' | head -20 | sed 's/^/    /'
+    if [ "${changed_count:-0}" -gt 20 ]; then
+      echo "    ... (${changed_count} total)"
+    fi
+  fi
+
+  if [ "${CUTOVER_FORCE_RESTART:-0}" = "1" ] || cutover_changed_paths_require_restart <<< "${preflight_changed_files}"; then
+    echo "  Restart barrier would be required after merge."
+  else
+    echo "  Restart barrier would be skipped; changed paths look docs/operator-only."
+  fi
+
+  if [ "${DISABLE_PROJECT_WORK:-0}" = "1" ]; then
+    echo "  Successor restart env would force TORQUE_FACTORY_PROJECT_WORK_ENABLED=0"
+    echo "  Restart env file would be: ${TORQUE_RESTART_ENV_FILE_PATH}"
+  fi
+
+  echo "[ok] Cutover preflight complete; no changes made."
+}
 
 if [ ! -d "$WORKTREE_DIR" ]; then
   echo "ERROR: Worktree not found at ${WORKTREE_DIR}"
@@ -427,6 +530,11 @@ if (cd "$WORKTREE_DIR" && ! git diff --quiet HEAD 2>/dev/null); then
   exit 1
 fi
 
+if [ "${PREFLIGHT:-0}" = "1" ]; then
+  run_cutover_preflight
+  exit 0
+fi
+
 repo_coord_lock_acquire "main" "worktree cutover: ${FEATURE_NAME}"
 cutover_write_heartbeat "lock_acquired" "feature=${FEATURE_NAME}"
 worktree_cutover_cleanup() {
@@ -443,12 +551,8 @@ trap worktree_cutover_cleanup EXIT
 # the merge can "succeed" cleanly (non-overlapping paths) while the concurrent
 # session's uncommitted edits get clobbered by later git ops. Fail fast so the
 # other session can commit or stash first. (Untracked files are left alone.)
-if ! git -C "${REPO_ROOT}" diff --quiet 2>/dev/null || \
-   ! git -C "${REPO_ROOT}" diff --cached --quiet 2>/dev/null; then
-  echo "ERROR: Main working tree has uncommitted tracked changes. Commit or stash them first."
-  echo "       A concurrent Claude session may be editing on main — check before proceeding."
-  echo "       Offending files:"
-  git -C "${REPO_ROOT}" status --short | grep -vE '^\?\?' | sed 's/^/         /'
+if main_worktree_has_tracked_changes; then
+  print_dirty_main_error
   echo "       Override (if you've verified this is safe): CUTOVER_ALLOW_DIRTY_MAIN=1 $0 $1"
   if [ "${CUTOVER_ALLOW_DIRTY_MAIN:-0}" != "1" ]; then
     exit 1
@@ -773,9 +877,18 @@ if [ "$TORQUE_RUNNING" = "true" ] && [ "$TORQUE_RESTART_REQUIRED" = "true" ]; th
     printf '%s\n' "$max_wait_ms"
   }
 
+  if [ "${CUTOVER_DRY_RUN:-0}" != "1" ]; then
+    write_cutover_restart_env_file
+  fi
+
   # --- Dry-run support ---
   # Set CUTOVER_DRY_RUN=1 to print the intended API calls without executing.
   if [ "${CUTOVER_DRY_RUN:-0}" = "1" ]; then
+    if [ "${DISABLE_PROJECT_WORK:-0}" = "1" ]; then
+      echo "[dry-run] Would write successor restart env override:"
+      echo "  ${TORQUE_RESTART_ENV_FILE_PATH}"
+      echo "  TORQUE_FACTORY_PROJECT_WORK_ENABLED=0"
+    fi
     echo "[dry-run] Would check for existing barrier:"
     echo "  GET ${TORQUE_API}/api/v2/tasks?status=running&provider=system&limit=10"
     echo "  GET ${TORQUE_API}/api/v2/tasks?status=queued&provider=system&limit=10"

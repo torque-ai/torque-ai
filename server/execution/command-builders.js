@@ -30,10 +30,10 @@ const { isFactoryStructuredOutputTask } = require('./completion-policy');
 function resolveSandboxWritableRoots(workingDirectory) {
   try {
     const gitPath = path.join(workingDirectory, '.git');
-    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- sandbox writable-roots probe — task startup, single small read each.
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- sandbox writable-roots probe: task startup, single small read each.
     const st = fs.statSync(gitPath);
     if (!st.isFile()) return null;
-    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- sandbox writable-roots probe — task startup, single small read each.
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- sandbox writable-roots probe: task startup, single small read each.
     const content = fs.readFileSync(gitPath, 'utf8');
     const match = content.match(/^gitdir:\s*(.+)\s*$/m);
     if (!match) return null;
@@ -44,7 +44,7 @@ function resolveSandboxWritableRoots(workingDirectory) {
     let commonGitDir;
     try {
       const commondirFile = path.join(perWorktreeGitDir, 'commondir');
-      // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- sandbox writable-roots probe — task startup, single small read each.
+      // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- sandbox writable-roots probe: task startup, single small read each.
       const raw = fs.readFileSync(commondirFile, 'utf8').trim();
       commonGitDir = path.isAbsolute(raw) ? raw : path.resolve(perWorktreeGitDir, raw);
     } catch {
@@ -80,14 +80,6 @@ let _contextEnrichment = require('../utils/context-enrichment');
 let _codexIntelligence = require('../providers/codex-intelligence');
 let _db = null;
 let _nvmNodePath = require('./task-startup').NVM_NODE_PATH;
-
-function ensureDb() {
-  if (_db) return _db;
-  try {
-    _db = require('../container').defaultContainer.peek('db') || null;
-  } catch { /* container not yet available */ }
-  return _db;
-}
 
 function getExecutionDescription(task) {
   return typeof task?.execution_description === 'string' && task.execution_description.trim()

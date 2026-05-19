@@ -453,6 +453,7 @@ function seedDefaults(db, logger, safeAddColumn, extras = {}) {
   setConfigDefault('factory_decision_retention_days', '14');
   setConfigDefault('factory_decision_retention_count', '100000');
   setConfigDefault('factory_decision_project_retention_count', '25000');
+  setConfigDefault('factory_project_work_enabled', '1');
   setConfigDefault('file_baseline_enabled', '1');
   setConfigDefault('syntax_validation_enabled', '1');
   setConfigDefault('diff_preview_required', '0');

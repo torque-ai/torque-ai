@@ -180,6 +180,19 @@ function recoverNoProviderChainExhaustedWorkItemsForProject({
   const candidates = listNoProviderChainExhaustedCandidates(db, project.id);
   const reopened = [];
   const nowIso = new Date().toISOString();
+  const reopenWorkItemStmt = db.prepare(`
+    UPDATE factory_work_items
+    SET status = 'pending',
+        reject_reason = NULL,
+        claimed_by_instance_id = NULL,
+        recovery_attempts = COALESCE(recovery_attempts, 0) + 1,
+        recovery_history_json = ?,
+        last_recovery_at = ?,
+        origin_json = ?,
+        updated_at = ?
+    WHERE id = ?
+      AND status = 'escalation_exhausted'
+  `);
 
   for (const { workItem, evidence } of candidates) {
     if (reopened.length >= safeMax) break;
@@ -197,19 +210,7 @@ function recoverNoProviderChainExhaustedWorkItemsForProject({
     };
     const historyJson = appendRecoveryHistory(workItem.recovery_history_json, historyEntry);
 
-    const result = db.prepare(`
-      UPDATE factory_work_items
-      SET status = 'pending',
-          reject_reason = NULL,
-          claimed_by_instance_id = NULL,
-          recovery_attempts = COALESCE(recovery_attempts, 0) + 1,
-          recovery_history_json = ?,
-          last_recovery_at = ?,
-          origin_json = ?,
-          updated_at = ?
-      WHERE id = ?
-        AND status = 'escalation_exhausted'
-    `).run(historyJson, nowIso, JSON.stringify(origin), nowIso, workItem.id);
+    const result = reopenWorkItemStmt.run(historyJson, nowIso, JSON.stringify(origin), nowIso, workItem.id);
 
     if (result.changes !== 1) continue;
 

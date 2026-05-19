@@ -25,6 +25,10 @@ const minMajor = Number.parseInt(args.minMajor || '24', 10);
 const logDir = path.join(os.homedir(), '.torque');
 const logFile = path.join(logDir, 'restart-node24.log');
 const restartExitFile = path.join(logDir, 'restart-exit.ndjson');
+const restartEnvFile = path.join(logDir, 'restart-env.json');
+const ALLOWED_RESTART_ENV_KEYS = new Set([
+  'TORQUE_FACTORY_PROJECT_WORK_ENABLED',
+]);
 
 function log(message) {
   fs.mkdirSync(logDir, { recursive: true });
@@ -149,6 +153,64 @@ function run(command, commandArgs, options = {}) {
     : `status=${result.status} signal=${result.signal || 'none'}`;
   log(`${options.label || command} failed: ${detail}`);
   return false;
+}
+
+function normalizeRestartEnvValue(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return null;
+}
+
+function readRestartEnvOverrides(filePath = restartEnvFile, options = {}) {
+  if (!filePath || !fs.existsSync(filePath)) return {};
+  const consume = options.consume !== false;
+  const nowMs = Number.isFinite(options.nowMs) ? options.nowMs : Date.now();
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const expiresAt = parsed?.expires_at || parsed?.expiresAt || null;
+    if (expiresAt) {
+      const expiresMs = Date.parse(expiresAt);
+      if (Number.isFinite(expiresMs) && expiresMs < nowMs) {
+        if (consume) {
+          try { fs.unlinkSync(filePath); } catch { /* best-effort cleanup */ }
+        }
+        return {};
+      }
+    }
+
+    const source = parsed?.env && typeof parsed.env === 'object' && !Array.isArray(parsed.env)
+      ? parsed.env
+      : parsed;
+    const overrides = {};
+    for (const [key, rawValue] of Object.entries(source || {})) {
+      if (!ALLOWED_RESTART_ENV_KEYS.has(key)) continue;
+      const value = normalizeRestartEnvValue(rawValue);
+      if (value === null) continue;
+      overrides[key] = value;
+    }
+
+    if (consume) {
+      try { fs.unlinkSync(filePath); } catch { /* best-effort cleanup */ }
+    }
+    return overrides;
+  } catch (err) {
+    log(`could not read restart env overrides from ${filePath}: ${err.message}`);
+    return {};
+  }
+}
+
+function buildSuccessorEnv(baseEnv = process.env, options = {}) {
+  const nodeDir = options.nodeDir || path.dirname(process.execPath);
+  const envFilePath = options.envFilePath || restartEnvFile;
+  const env = {
+    ...baseEnv,
+    PATH: `${nodeDir}${path.delimiter}${baseEnv.PATH || ''}`,
+  };
+  const overrides = readRestartEnvOverrides(envFilePath, options);
+  Object.assign(env, overrides);
+  return { env, overrides };
 }
 
 function npmCommand(nodeExecutable) {
@@ -293,12 +355,13 @@ async function main() {
   const nodeVersion = assertNodeVersion();
   const nodeDir = path.dirname(process.execPath);
   const serverDir = path.join(repoRoot, 'server');
-  const env = {
-    ...process.env,
-    PATH: `${nodeDir}${path.delimiter}${process.env.PATH || ''}`,
-  };
+  const { env, overrides } = buildSuccessorEnv(process.env, { nodeDir });
+  const overrideKeys = Object.keys(overrides);
 
   log(`helper starting under ${process.execPath} ${nodeVersion} for parent PID ${parentPid}`);
+  if (overrideKeys.length > 0) {
+    log(`applied successor restart env override(s): ${overrideKeys.join(',')}`);
+  }
   await waitForParentExit(parentPid);
   log(`parent PID ${parentPid} exited`);
 
@@ -389,4 +452,6 @@ module.exports = {
   waitForFileUnlock,
   ensureBetterSqliteUsable,
   getBetterSqliteBinaryPath,
+  readRestartEnvOverrides,
+  buildSuccessorEnv,
 };

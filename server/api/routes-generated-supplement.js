@@ -20,8 +20,8 @@
  */
 
 const routes = [
-  // ═══ 56 auto-generated tool-passthrough routes ═══
-  // Generated: 2026-05-15
+  // ═══ 65 auto-generated tool-passthrough routes ═══
+  // Generated: 2026-05-19
   // Pattern: tool-passthrough via handleToolCall()
 
   // ─── advanced (4 routes) ─────────────────────
@@ -90,6 +90,21 @@ const routes = [
 
   // ─── plugin-remote-agents (1 routes) ─────────────────────
   { method: 'POST', path: '/api/v2/plugin-remote-agents/run-code-agent', tool: 'run_code_agent', mapBody: true },
+
+  // ─── plugin-snapscope (2 routes) ─────────────────────
+  { method: 'GET', path: '/api/v2/plugin-snapscope/peek-browser-state', tool: 'peek_browser_state', mapQuery: true },
+  { method: 'GET', path: '/api/v2/plugin-snapscope/peek-browser-action', tool: 'peek_browser_action', mapQuery: true },
+
+  // ─── repair (4 routes) ─────────────────────
+  { method: 'POST', path: '/api/v2/repair/record-repair-candidate', tool: 'record_repair_candidate', mapBody: true },
+  { method: 'GET', path: '/api/v2/repair/list-repair-candidates', tool: 'list_repair_candidates', mapQuery: true },
+  { method: 'POST', path: '/api/v2/repair/select-best-repair-candidate', tool: 'select_best_repair_candidate', mapBody: true },
+  { method: 'GET', path: '/api/v2/repair/get-fault-localization', tool: 'get_fault_localization', mapQuery: true },
+
+  // ─── retrospective (3 routes) ─────────────────────
+  { method: 'GET', path: '/api/v2/retrospective/get-retrospective', tool: 'get_retrospective', mapQuery: true },
+  { method: 'GET', path: '/api/v2/retrospective/list-retrospectives', tool: 'list_retrospectives', mapQuery: true },
+  { method: 'POST', path: '/api/v2/retrospective/generate-retrospective', tool: 'generate_retrospective', mapBody: true },
 
   // ─── symbol-indexer (4 routes) ─────────────────────
   { method: 'POST', path: '/api/v2/symbol-indexer/register-repo', tool: 'register_repo', mapBody: true },

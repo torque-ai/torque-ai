@@ -619,6 +619,113 @@ describe('task-startup', () => {
     expect(ctx.deps.spawnAndTrackProcess).not.toHaveBeenCalled();
   });
 
+  it('parks direct factory-project task starts when project work is globally disabled', async () => {
+    const task = createTask({
+      id: 'factory-disabled-task',
+      status: 'queued',
+      provider: 'codex',
+      tags: JSON.stringify([
+        'factory:internal',
+        'factory:project_id=project-a',
+      ]),
+    });
+    const disabledConfig = {
+      get: vi.fn((_key, fallback = '0') => fallback),
+      getBool: vi.fn((key, fallback = false) => (
+        key === 'factory_project_work_enabled' ? false : Boolean(fallback)
+      )),
+      getInt: vi.fn((_key, fallback = 0) => fallback),
+    };
+    const ctx = loadTaskStartup({
+      task,
+      serverConfigFallback: disabledConfig,
+      depOverrides: {
+        serverConfig: disabledConfig,
+      },
+    });
+    ctx.deps.db.requeueTaskAfterAttemptedStart.mockImplementation((taskId, patch = {}) => (
+      ctx.deps.db.updateTaskStatus(taskId, 'queued', {
+        ...patch,
+        provider: null,
+      })
+    ));
+
+    const result = await ctx.module.startTask(task.id);
+
+    expect(result).toEqual(expect.objectContaining({
+      queued: true,
+      factoryProjectWorkDisabled: true,
+      reason: 'factory_project_work_disabled',
+      task: expect.objectContaining({
+        id: task.id,
+        status: 'queued',
+        error_output: expect.stringContaining('Factory project work is disabled'),
+      }),
+    }));
+    expect(ctx.deps.db.requeueTaskAfterAttemptedStart).toHaveBeenCalledWith(
+      task.id,
+      expect.objectContaining({
+        provider: 'codex',
+        error_output: expect.stringContaining('factory_project_work_enabled'),
+        pid: null,
+        mcp_instance_id: null,
+        ollama_host_id: null,
+      }),
+    );
+    expect(ctx.deps.resolveProviderRouting).not.toHaveBeenCalled();
+    expect(ctx.deps.db.tryClaimTaskSlot).not.toHaveBeenCalled();
+    expect(ctx.deps.spawnAndTrackProcess).not.toHaveBeenCalled();
+  });
+
+  it('parks direct starts for tasks whose cwd is under a registered factory project', async () => {
+    const task = createTask({
+      id: 'factory-path-disabled-task',
+      status: 'queued',
+      provider: 'codex',
+      working_directory: 'C:/repo/.worktrees/feat-x',
+    });
+    const disabledConfig = {
+      get: vi.fn((_key, fallback = '0') => fallback),
+      getBool: vi.fn((key, fallback = false) => (
+        key === 'factory_project_work_enabled' ? false : Boolean(fallback)
+      )),
+      getInt: vi.fn((_key, fallback = 0) => fallback),
+    };
+    const ctx = loadTaskStartup({
+      task,
+      serverConfigFallback: disabledConfig,
+      depOverrides: {
+        serverConfig: disabledConfig,
+      },
+    });
+    ctx.deps.db.getDbInstance = vi.fn(() => ({
+      prepare: vi.fn(() => ({
+        all: vi.fn(() => [
+          { id: 'project-a', name: 'Repo', path: 'C:/repo' },
+        ]),
+      })),
+    }));
+    ctx.deps.db.requeueTaskAfterAttemptedStart.mockImplementation((taskId, patch = {}) => (
+      ctx.deps.db.updateTaskStatus(taskId, 'queued', {
+        ...patch,
+        provider: null,
+      })
+    ));
+
+    const result = await ctx.module.startTask(task.id);
+
+    expect(result).toEqual(expect.objectContaining({
+      queued: true,
+      factoryProjectWorkDisabled: true,
+      project: expect.objectContaining({
+        id: 'project-a',
+        matched_by: 'registered_project_path',
+      }),
+    }));
+    expect(ctx.deps.db.tryClaimTaskSlot).not.toHaveBeenCalled();
+    expect(ctx.deps.spawnAndTrackProcess).not.toHaveBeenCalled();
+  });
+
   it('stamps the resolved Ollama model before handing off to the executor', async () => {
     const registryPath = require.resolve('../models/registry');
     const sharedPath = require.resolve('../providers/ollama-shared');
@@ -2259,9 +2366,7 @@ describe('task-startup', () => {
         provider: 'codex',
       });
       const ctx = loadTaskStartup({ task });
-      let lockCallCount = 0;
       ctx.deps.db.acquireFileLock.mockImplementation(() => {
-        lockCallCount++;
         return { acquired: true };
       });
       ctx.deps.resolveFileReferences.mockReturnValue({

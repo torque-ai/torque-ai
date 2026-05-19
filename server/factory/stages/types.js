@@ -6,8 +6,6 @@
 // When a future TypeScript migration ships, these become the seed for
 // the real interface declarations.
 
-/* eslint-disable no-unused-vars */
-
 /**
  * @typedef {Object} ProjectRow
  *   Factory project row from factory_projects_with_config. Carries the

@@ -124,6 +124,47 @@ const FACTORY_LOOP_TOOLS = [
   },
 ];
 
+const FACTORY_AUTOMATION_TOOLS = [
+  {
+    name: 'factory_automation_plan',
+    handlerName: 'handleFactoryAutomationPlan',
+    core: true,
+    extended: true,
+    properties: {
+      project: { type: 'string' },
+      status: { type: 'string', enum: ['running', 'paused', 'idle'] },
+      blocked_only: { type: 'boolean' },
+    },
+  },
+  {
+    name: 'apply_factory_automation_plan',
+    handlerName: 'handleApplyFactoryAutomationPlan',
+    core: false,
+    extended: true,
+    properties: {
+      project: { type: 'string' },
+      status: { type: 'string', enum: ['running', 'paused', 'idle'] },
+      all_projects: { type: 'boolean' },
+      blocked_only: { type: 'boolean' },
+      confirm_all_projects: { type: 'boolean' },
+      confirm_scope: { type: 'boolean' },
+      dry_run: { type: 'boolean' },
+      continue_on_error: { type: 'boolean' },
+    },
+  },
+  {
+    name: 'arm_factory_tick',
+    handlerName: 'handleArmFactoryTick',
+    core: false,
+    extended: true,
+    required: ['project'],
+    properties: {
+      project: { type: 'string' },
+      immediate: { type: 'boolean' },
+    },
+  },
+];
+
 describe('factory loop MCP tools', () => {
   it('registers tool defs, tier exposure, route handlers, and explicit annotations', () => {
     for (const expected of FACTORY_LOOP_TOOLS) {
@@ -156,6 +197,78 @@ describe('factory loop MCP tools', () => {
         }
       }
     }
+  });
+
+  it('registers factory automation readiness tools in the intended tiers', () => {
+    for (const expected of FACTORY_AUTOMATION_TOOLS) {
+      const tool = TOOLS.find((entry) => entry.name === expected.name);
+
+      assert.ok(tool, `${expected.name} should be present in TOOLS`);
+      assert.equal(CORE_TOOL_NAMES.includes(expected.name), expected.core, `${expected.name} core tier mismatch`);
+      assert.equal(EXTENDED_TOOL_NAMES.includes(expected.name), expected.extended, `${expected.name} extended tier mismatch`);
+      assert.ok(routeMap.has(expected.name), `${expected.name} should be routed`);
+      assert.equal(routeMap.get(expected.name).name, expected.handlerName);
+      assert.ok(Object.prototype.hasOwnProperty.call(OVERRIDES, expected.name), `${expected.name} should have an explicit annotation override`);
+      assert.deepStrictEqual(tool.annotations, getAnnotations(expected.name));
+      assert.deepStrictEqual(tool.annotations, OVERRIDES[expected.name]);
+      assert.ok(tool.outputSchema, `${expected.name} should expose an outputSchema`);
+
+      assert.ok(tool.inputSchema, `${expected.name} should expose an inputSchema`);
+      assert.equal(tool.inputSchema.type, 'object');
+      if (expected.required) {
+        assert.deepStrictEqual(tool.inputSchema.required, expected.required);
+      }
+      assert.deepStrictEqual(
+        Object.keys(tool.inputSchema.properties).sort(),
+        Object.keys(expected.properties).sort(),
+      );
+
+      for (const [propertyName, propertyExpectation] of Object.entries(expected.properties)) {
+        const propertySchema = tool.inputSchema.properties[propertyName];
+        assert.ok(propertySchema, `${expected.name}.${propertyName} should be defined`);
+        assert.equal(propertySchema.type, propertyExpectation.type);
+
+        if (propertyExpectation.enum) {
+          assert.deepStrictEqual(propertySchema.enum, propertyExpectation.enum);
+        }
+      }
+    }
+  });
+
+  it('exposes readiness planning in core tools/list and mutating controls after tier 2 unlock', async () => {
+    mcpProtocol.init({
+      tools: TOOLS,
+      coreToolNames: CORE_TOOL_NAMES,
+      extendedToolNames: EXTENDED_TOOL_NAMES,
+      handleToolCall,
+    });
+
+    const session = { toolMode: 'core', authenticated: true };
+    const coreListResult = await mcpProtocol.handleRequest({ method: 'tools/list' }, session);
+    const coreNames = coreListResult.tools.map((tool) => tool.name);
+
+    assert.ok(coreNames.includes('factory_automation_plan'));
+    assert.ok(!coreNames.includes('apply_factory_automation_plan'));
+    assert.ok(!coreNames.includes('arm_factory_tick'));
+
+    const unlockResult = await mcpProtocol.handleRequest({
+      method: 'tools/call',
+      params: {
+        name: 'unlock_tier',
+        arguments: { tier: 2 },
+      },
+    }, session);
+
+    assert.equal(session.toolMode, 'extended');
+    assert.equal(session._toolsChanged, true);
+    assert.ok(unlockResult.content[0].text.includes('Unlocked Tier 2'));
+
+    const extendedListResult = await mcpProtocol.handleRequest({ method: 'tools/list' }, session);
+    const extendedNames = extendedListResult.tools.map((tool) => tool.name);
+
+    assert.ok(extendedNames.includes('factory_automation_plan'));
+    assert.ok(extendedNames.includes('apply_factory_automation_plan'));
+    assert.ok(extendedNames.includes('arm_factory_tick'));
   });
 
   it('returns the factory loop tools from tools/list after unlock_all_tools', async () => {

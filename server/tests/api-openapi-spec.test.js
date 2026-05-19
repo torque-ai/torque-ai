@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 const routes = require('../api/routes');
+const { FACTORY_V2_ROUTES } = require('../api/routes/factory-routes');
 const { version: packageVersion } = require('../package.json');
 const {
   API_TITLE,
@@ -141,6 +142,49 @@ describe('openapi-generator', () => {
     expect(spec.paths['/api/v2/peek-hosts'].get.operationId).toBe('handleV2CpListPeekHosts');
     expect(spec.paths['/api/v2/peek-hosts'].post.operationId).toBe('handleV2CpCreatePeekHost');
     expect(spec.paths['/api/v2/peek-hosts/{host_name}'].delete.operationId).toBe('handleV2CpDeletePeekHost');
+  });
+
+  it('documents factory automation readiness control-plane endpoints', () => {
+    const spec = generateOpenApiSpec([...FACTORY_V2_ROUTES, ...routes]);
+    const genericOptionalJsonBody = {
+      required: false,
+      content: {
+        'application/json': {
+          schema: { type: 'object', additionalProperties: true },
+        },
+      },
+    };
+
+    expect(spec.paths).toHaveProperty('/api/v2/factory/automation-plan');
+    expect(spec.paths).toHaveProperty('/api/v2/factory/automation-plan/apply');
+    expect(spec.paths).toHaveProperty('/api/v2/factory/projects/{project}/automation-plan');
+    expect(spec.paths).toHaveProperty('/api/v2/factory/projects/{project}/automation-plan/apply');
+    expect(spec.paths).toHaveProperty('/api/v2/factory/projects/{project}/tick/arm');
+
+    expect(spec.paths['/api/v2/factory/automation-plan'].get).toMatchObject({
+      operationId: 'factory_automation_plan',
+      'x-tool-name': 'factory_automation_plan',
+    });
+    expect(spec.paths['/api/v2/factory/automation-plan'].get.requestBody).toBeUndefined();
+    expect(spec.paths['/api/v2/factory/automation-plan/apply'].post).toMatchObject({
+      operationId: 'apply_factory_automation_plan',
+      'x-tool-name': 'apply_factory_automation_plan',
+      requestBody: genericOptionalJsonBody,
+    });
+    expect(spec.paths['/api/v2/factory/projects/{project}/automation-plan'].get.parameters).toEqual([{
+      name: 'project',
+      in: 'path',
+      required: true,
+      schema: { type: 'string' },
+    }]);
+    expect(spec.paths['/api/v2/factory/projects/{project}/automation-plan/apply'].post['x-tool-name'])
+      .toBe('apply_factory_automation_plan');
+    expect(spec.paths['/api/v2/factory/projects/{project}/automation-plan/apply'].post.requestBody)
+      .toEqual(genericOptionalJsonBody);
+    expect(spec.paths['/api/v2/factory/projects/{project}/tick/arm'].post['x-tool-name'])
+      .toBe('arm_factory_tick');
+    expect(spec.paths['/api/v2/factory/projects/{project}/tick/arm'].post.requestBody)
+      .toEqual(genericOptionalJsonBody);
   });
 
   it('adds concrete schemas for task and workflow control-plane endpoints', () => {

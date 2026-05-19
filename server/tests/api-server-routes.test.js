@@ -49,6 +49,56 @@ describe('api/routes/factory-routes', () => {
       mapBody: true,
     });
   });
+
+  it('exposes automation readiness planning and scheduler arming routes', () => {
+    const globalPlanRoute = FACTORY_V2_ROUTES.find((route) => (
+      route.method === 'GET'
+      && route.path === '/api/v2/factory/automation-plan'
+      && route.tool === 'factory_automation_plan'
+    ));
+    const projectPlanRoute = FACTORY_V2_ROUTES.find((route) => (
+      route.method === 'GET'
+      && route.tool === 'factory_automation_plan'
+      && route.path instanceof RegExp
+      && route.path.test('/api/v2/factory/projects/project-1/automation-plan')
+    ));
+    const armTickRoute = FACTORY_V2_ROUTES.find((route) => (
+      route.method === 'POST'
+      && route.tool === 'arm_factory_tick'
+      && route.path instanceof RegExp
+      && route.path.test('/api/v2/factory/projects/project-1/tick/arm')
+    ));
+    const globalApplyRoute = FACTORY_V2_ROUTES.find((route) => (
+      route.method === 'POST'
+      && route.path === '/api/v2/factory/automation-plan/apply'
+      && route.tool === 'apply_factory_automation_plan'
+    ));
+    const projectApplyRoute = FACTORY_V2_ROUTES.find((route) => (
+      route.method === 'POST'
+      && route.tool === 'apply_factory_automation_plan'
+      && route.path instanceof RegExp
+      && route.path.test('/api/v2/factory/projects/project-1/automation-plan/apply')
+    ));
+
+    expect(globalPlanRoute).toMatchObject({
+      mapQuery: true,
+    });
+    expect(projectPlanRoute).toMatchObject({
+      mapParams: ['project'],
+      mapQuery: true,
+    });
+    expect(armTickRoute).toMatchObject({
+      mapParams: ['project'],
+      mapBody: true,
+    });
+    expect(globalApplyRoute).toMatchObject({
+      mapBody: true,
+    });
+    expect(projectApplyRoute).toMatchObject({
+      mapParams: ['project'],
+      mapBody: true,
+    });
+  });
 });
 
 describe('api/routes/special-routes', () => {

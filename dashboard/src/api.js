@@ -65,6 +65,10 @@ function normalizeFactoryProjectParams(params = {}) {
     normalized.include_idle_diagnosis = normalized.includeIdleDiagnosis;
     delete normalized.includeIdleDiagnosis;
   }
+  if (Object.prototype.hasOwnProperty.call(normalized, 'includeAutomationReadiness')) {
+    normalized.include_automation_readiness = normalized.includeAutomationReadiness;
+    delete normalized.includeAutomationReadiness;
+  }
   if (!Object.prototype.hasOwnProperty.call(normalized, 'include_commits')) {
     normalized.include_commits = false;
   }
@@ -73,6 +77,42 @@ function normalizeFactoryProjectParams(params = {}) {
 
 function factoryProjectsEndpoint(params = {}) {
   return `/factory/projects${buildQuery(normalizeFactoryProjectParams(params))}`;
+}
+
+function normalizeFactoryAutomationPlanParams(params = {}) {
+  const normalized = { ...(params || {}) };
+  if (Object.prototype.hasOwnProperty.call(normalized, 'blockedOnly')) {
+    normalized.blocked_only = normalized.blockedOnly;
+    delete normalized.blockedOnly;
+  }
+  return normalized;
+}
+
+function normalizeFactoryAutomationApplyBody(body = {}) {
+  const normalized = { ...(body || {}) };
+  const aliases = {
+    allProjects: 'all_projects',
+    blockedOnly: 'blocked_only',
+    confirmAllProjects: 'confirm_all_projects',
+    confirmScope: 'confirm_scope',
+    continueOnError: 'continue_on_error',
+    dryRun: 'dry_run',
+  };
+  for (const [camelKey, snakeKey] of Object.entries(aliases)) {
+    if (Object.prototype.hasOwnProperty.call(normalized, camelKey)) {
+      normalized[snakeKey] = normalized[camelKey];
+      delete normalized[camelKey];
+    }
+  }
+  return normalized;
+}
+
+function factoryAutomationPlanEndpoint(params = {}) {
+  return `/factory/automation-plan${buildQuery(normalizeFactoryAutomationPlanParams(params))}`;
+}
+
+function projectFactoryAutomationPlanEndpoint(projectId, params = {}) {
+  return `/factory/projects/${projectId}/automation-plan${buildQuery(normalizeFactoryAutomationPlanParams(params))}`;
 }
 
 function splitParamsAndOptions(paramsOrOptions = {}, options = undefined) {
@@ -781,6 +821,22 @@ export const factory = {
     const [params, options] = splitParamsAndOptions(paramsOrOptions, opts);
     return requestV2(factoryProjectsEndpoint(params), options);
   },
+  automationPlan: (paramsOrOptions = {}, opts = undefined) => {
+    const [params, options] = splitParamsAndOptions(paramsOrOptions, opts);
+    return requestV2(factoryAutomationPlanEndpoint(params), options);
+  },
+  applyAutomationPlan: (body = {}, opts = {}) => requestV2(
+    '/factory/automation-plan/apply',
+    { method: 'POST', body: JSON.stringify(normalizeFactoryAutomationApplyBody(body)), ...opts },
+  ),
+  projectAutomationPlan: (projectId, paramsOrOptions = {}, opts = undefined) => {
+    const [params, options] = splitParamsAndOptions(paramsOrOptions, opts);
+    return requestV2(projectFactoryAutomationPlanEndpoint(projectId, params), options);
+  },
+  applyProjectAutomationPlan: (projectId, body = {}, opts = {}) => requestV2(
+    `/factory/projects/${projectId}/automation-plan/apply`,
+    { method: 'POST', body: JSON.stringify(normalizeFactoryAutomationApplyBody(body)), ...opts },
+  ),
   health: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}`, opts),
   register: (data, opts = {}) => requestV2('/factory/projects', { method: 'POST', body: JSON.stringify(data), ...opts }),
   pause: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/pause`, { method: 'POST', ...opts }),
@@ -813,6 +869,10 @@ export const factory = {
     { method: 'POST', ...opts },
   ),
   startLoopInstance: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/loops/start`, { method: 'POST', ...opts }),
+  armFactoryTick: (projectId, body = {}, opts = {}) => requestV2(
+    `/factory/projects/${projectId}/tick/arm`,
+    { method: 'POST', body: JSON.stringify(body || {}), ...opts },
+  ),
   loopInstanceStatus: (instanceId, opts = {}) => requestV2(`/factory/loops/${instanceId}`, opts),
   advanceLoopInstance: (instanceId, opts = {}) => requestV2(`/factory/loops/${instanceId}/advance`, { method: 'POST', ...opts }),
   loopInstanceJobStatus: (instanceId, jobId, opts = {}) => requestV2(`/factory/loops/${instanceId}/advance/${jobId}`, opts),

@@ -38,6 +38,7 @@ function getPendingApprovalTotal(response) {
 export function useFactoryLoopControl() {
   const [projects, setProjects] = useState([]);
   const [idleDiagnosis, setIdleDiagnosis] = useState(null);
+  const [automationReadiness, setAutomationReadiness] = useState(null);
   const [loading, setLoading] = useState(true);
   const [projectsError, setProjectsError] = useState(null);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
@@ -65,16 +66,21 @@ export function useFactoryLoopControl() {
     }
 
     try {
-      const response = await factoryApi.projects({ includeIdleDiagnosis: true });
+      const response = await factoryApi.projects({
+        includeIdleDiagnosis: true,
+        includeAutomationReadiness: true,
+      });
       const nextProjects = getProjectsFromResponse(response);
       setProjects(nextProjects);
       setIdleDiagnosis(response?.idle_diagnosis || null);
+      setAutomationReadiness(response?.automation_readiness || null);
       setProjectsError(null);
       setSelectedProjectId((current) => chooseDefaultProjectId(nextProjects, current));
       return nextProjects;
     } catch (error) {
       setProjectsError(error?.message || 'Failed to load factory projects.');
       setIdleDiagnosis(null);
+      setAutomationReadiness(null);
       return null;
     } finally {
       if (!silent) {
@@ -361,6 +367,7 @@ export function useFactoryLoopControl() {
 
   return {
     activeProjectAction,
+    automationReadiness,
     approvalsHref,
     approveGate,
     advanceLoop,

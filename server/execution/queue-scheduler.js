@@ -34,6 +34,10 @@ const eventBus = require('../event-bus');
 const { isRestartBarrierActive } = require('./restart-barrier');
 const { promotePendingRestartResubmissions } = require('./restart-resubmit-queue');
 const taskLogRetention = require('../utils/task-log-retention');
+const {
+  isFactoryProjectWorkEnabled,
+  isRegisteredFactoryProjectTask,
+} = require('../factory/automation-readiness');
 
 // Dependency injection
 // ── Legacy module-level state, written only by init() (deprecated) ─────────
@@ -581,6 +585,33 @@ function filterPausedFactoryProjectTasks(queuedTasks, options = {}) {
     logger.info('Parked queued factory task(s) because target project is paused', {
       parked: parkedCount,
       projects: Object.fromEntries(parkedByProject),
+    });
+  }
+  return filtered;
+}
+
+function filterFactoryProjectWorkDisabledTasks(queuedTasks) {
+  if (!Array.isArray(queuedTasks) || queuedTasks.length === 0) {
+    return queuedTasks || [];
+  }
+  if (isFactoryProjectWorkEnabled(serverConfig)) {
+    return queuedTasks;
+  }
+
+  const schedulerDb = getSchedulerDb();
+  const filtered = [];
+  let deferred = 0;
+  for (const task of queuedTasks) {
+    if (isRegisteredFactoryProjectTask(task, schedulerDb)) {
+      deferred += 1;
+      continue;
+    }
+    filtered.push(task);
+  }
+
+  if (deferred > 0) {
+    logger.info('Deferred queued factory project task(s) because factory project work is disabled', {
+      deferred,
     });
   }
   return filtered;
@@ -1365,7 +1396,8 @@ function processQueueInternal(options = {}) {
   const runningTasks = db.listTasks({ status: 'running', limit: 200 });
   const runningAll = Array.isArray(runningTasks) ? runningTasks : (runningTasks.tasks || []);
 
-  const pauseFilteredQueuedTasks = filterPausedFactoryProjectTasks(queuedTasks);
+  const projectWorkFilteredQueuedTasks = filterFactoryProjectWorkDisabledTasks(queuedTasks);
+  const pauseFilteredQueuedTasks = filterPausedFactoryProjectTasks(projectWorkFilteredQueuedTasks);
   // Paused projects are a scheduling gate, not a terminal task outcome.
   // Park their work as waiting with a structured pause_reason so the hot queue
   // remains useful and resume_project can requeue the original provider choice.
@@ -1822,6 +1854,7 @@ function createQueueScheduler(localDeps = {}) {
     parkQueuedFactoryTasksForPausedProject: (...args) => withLocalDeps(() => parkQueuedFactoryTasksForPausedProject(...args)),
     resumePausedFactoryProjectTasks: (...args) => withLocalDeps(() => resumePausedFactoryProjectTasks(...args)),
     loadRecentFactorySupersessionSignals: (...args) => withLocalDeps(() => loadRecentFactorySupersessionSignals(...args)),
+    filterFactoryProjectWorkDisabledTasks: (...args) => withLocalDeps(() => filterFactoryProjectWorkDisabledTasks(...args)),
     shouldSkipTaskForApproval: (...args) => withLocalDeps(() => shouldSkipTaskForApproval(...args)),
     shouldSkipTaskForFileLockWait: (...args) => withLocalDeps(() => shouldSkipTaskForFileLockWait(...args)),
     prioritizeCodexProjectWork: (...args) => withLocalDeps(() => prioritizeCodexProjectWork(...args)),
@@ -1860,6 +1893,7 @@ module.exports = {
   categorizeQueuedTasks,
   filterSupersededFactoryInternalTasks,
   filterPausedFactoryProjectTasks,
+  filterFactoryProjectWorkDisabledTasks,
   parkQueuedFactoryTasksForPausedProject,
   resumePausedFactoryProjectTasks,
   loadRecentFactorySupersessionSignals,

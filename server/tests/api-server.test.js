@@ -2000,6 +2000,34 @@ describe('API Server endpoints', () => {
     expect(response.statusCode).toBe(200);
   });
 
+  it('POST project-scoped automation-plan apply keeps the URL project over the body project', async () => {
+    const response = await dispatchRequest(requestHandler, {
+      method: 'POST',
+      url: '/api/v2/factory/projects/project-a/automation-plan/apply',
+      body: { project: 'project-b', blocked_only: true, dry_run: true },
+    });
+
+    expect(handleToolCallSpy).toHaveBeenCalledWith('apply_factory_automation_plan', {
+      project: 'project-a',
+      blocked_only: true,
+      dry_run: true,
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it('GET project-scoped automation-plan keeps the URL project over query project', async () => {
+    const response = await dispatchRequest(requestHandler, {
+      method: 'GET',
+      url: '/api/v2/factory/projects/project-a/automation-plan?project=project-b&blocked_only=true',
+    });
+
+    expect(handleToolCallSpy).toHaveBeenCalledWith('factory_automation_plan', {
+      project: 'project-a',
+      blocked_only: true,
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
   it('GET /api/status forwards to check_status tool', async () => {
     const response = await dispatchRequest(requestHandler, {
       method: 'GET',

@@ -22,6 +22,10 @@ const { PreflightError, isPreflightError } = require('./preflight-error');
 const { isRestartBarrierActive } = require('./restart-barrier');
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
 const taskLogRetention = require('../utils/task-log-retention');
+const {
+  isFactoryProjectWorkEnabled,
+  resolveRegisteredFactoryProjectTask,
+} = require('../factory/automation-readiness');
 
 // ── Legacy module-level state, written only by init() (deprecated) ─────────
 // Phase 3 of the universal-DI migration. The factory below provides the
@@ -747,7 +751,7 @@ function captureBaselineHead({ taskId, baselineCapture, skipGit, log }) {
     if (baselineCapture.command === 'git') {
       return safeGitExec(baselineCapture.args, baselineCapture.options).trim();
     }
-    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- baseline capture runs once per task at startup; async conversion requires callers to await (tracked separately).
+    // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- baseline capture runs once per task at startup; async conversion requires callers to await.
     return execFileSync(baselineCapture.command, baselineCapture.args, baselineCapture.options).trim();
   } catch (e) {
     log.info(`[TaskManager] Could not capture baseline HEAD for task ${taskId}: ${e.message}`);
@@ -861,7 +865,7 @@ async function buildProviderStartupCommand({
 function runPreflightChecks(task) {
   if (task.working_directory) {
     try {
-      // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- preflight runs once per task slot acquisition; converting to async cascades into scheduler internals (tracked separately).
+      // eslint-disable-next-line torque/no-sync-fs-on-hot-paths -- preflight runs once per task slot acquisition; async conversion cascades into scheduler internals.
       const stats = fs.statSync(task.working_directory);
       if (!stats.isDirectory()) {
         throw new PreflightError(`Working directory is not a directory: ${task.working_directory}`, {
@@ -1431,6 +1435,54 @@ function parkTaskBehindTaskLogDiskPressure(task, taskId, admission) {
   };
 }
 
+function parkTaskBehindFactoryProjectWorkDisabled(task, taskId, projectMatch) {
+  const projectLabel = projectMatch?.id || projectMatch?.name || projectMatch?.path || 'registered factory project';
+  const errorOutput = `Factory project work is disabled; queued task for ${projectLabel} will not start until factory_project_work_enabled is enabled.`;
+  const patch = {
+    error_output: errorOutput,
+    pid: null,
+    mcp_instance_id: null,
+    ollama_host_id: null,
+  };
+  const provider = typeof task?.provider === 'string' && task.provider.trim()
+    ? task.provider.trim()
+    : null;
+  if (provider) {
+    patch.provider = provider;
+  }
+
+  const updatedTask = typeof db.requeueTaskAfterAttemptedStart === 'function'
+    ? db.requeueTaskAfterAttemptedStart(taskId, patch)
+    : db.updateTaskStatus(taskId, 'queued', {
+      ...patch,
+      provider: null,
+    });
+
+  logger.info(`[startTask] Factory project work disabled — task ${taskId.slice(0, 8)} queued, start deferred`);
+
+  return {
+    queued: true,
+    factoryProjectWorkDisabled: true,
+    reason: 'factory_project_work_disabled',
+    project: projectMatch || null,
+    task: updatedTask || db.getTask(taskId) || { ...task, status: 'queued', error_output: errorOutput },
+  };
+}
+
+function maybeParkFactoryProjectWorkDisabled(task, taskId) {
+  if (isFactoryProjectWorkEnabled(resolveStartupServerConfig())) {
+    return null;
+  }
+  if (!['pending', 'queued'].includes(String(task?.status || '').toLowerCase())) {
+    return null;
+  }
+  const projectMatch = resolveRegisteredFactoryProjectTask(task, db);
+  if (!projectMatch) {
+    return null;
+  }
+  return parkTaskBehindFactoryProjectWorkDisabled(task, taskId, projectMatch);
+}
+
 function prepareStartupPreClaim(task, taskId) {
   const { maxConcurrent, usedEditFormat } = runStartupPreflight({
     task,
@@ -1983,6 +2035,9 @@ async function startTask(taskId) {
     logger.info(`Task already running: ${taskId}, skipping duplicate start`);
     return { queued: false, alreadyRunning: true };
   }
+
+  const factoryProjectWorkDeferred = maybeParkFactoryProjectWorkDisabled(task, taskId);
+  if (factoryProjectWorkDeferred) return factoryProjectWorkDeferred;
 
   const fanoutCompleted = maybeCompleteParallelFanout(task, taskId);
   if (fanoutCompleted) return fanoutCompleted;

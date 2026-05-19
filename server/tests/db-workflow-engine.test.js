@@ -1,5 +1,4 @@
 const { randomUUID } = require('crypto');
-const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const workflowEngine = require('../db/workflow-engine');

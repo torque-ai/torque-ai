@@ -173,6 +173,7 @@ Frequently-emitted actions, by stage:
 | PLAN | `plan_generated` | `benign` | `work_item_id`, `plan_path`, `task_count` |
 | PLAN | `cannot_generate_plan` | `recovery-rule` (rule: `codex_phantom_success`) | `work_item_id`, `error`, `attempt` |
 | PLAN | `cannot_generate_plan_routed_to_needs_replan` | `benign` | `work_item_id`, `reason` |
+| PLAN | `plan_generation_provider_unavailable_deferred` | `benign` | `work_item_id`, `reason`, `plan_path`, `generation_task_id` |
 | PLAN | `skipped_for_plan_file` | `benign` | `work_item_id`, `plan_path` |
 | PLAN | `plan_review_started` | `benign` | `reviewers`, `reviewer_count` |
 | PLAN | `plan_review_verdict` | `benign` | `reviewer`, `provider`, `verdict`, `confidence`, `concerns`, `suggestions`, `task_id`, `reason` |
@@ -271,6 +272,7 @@ Frequently-emitted actions, by stage:
 | VERIFY | `retry_verify_requested` | `benign` | `work_item_id`, `retry_count` |
 | VERIFY | `skipped_verification` | `benign` | `work_item_id`, `reason` |
 | VERIFY | `worktree_verify_passed` | `benign` | `work_item_id`, `verify_output` |
+| VERIFY | `worktree_verify_flaky_pass` | `benign` | `branch`, `worktree_path`, `flaky_count`, `flaky_tests`, `duration_ms`, `verify_command` |
 | VERIFY | `worktree_verify_failed` | `recovery-rule` (rule: `dotnet_sourcelink_file_lock`) | `work_item_id`, `output_preview`, `error` |
 | VERIFY | `worktree_verify_errored` | `recovery-rule` (rule: `worktree_verify_errored`) | `work_item_id`, `error` |
 | VERIFY | `factory_verify_unrecoverable` | `terminal` | `work_item_id`, `error`, `reason` |
@@ -307,6 +309,7 @@ Frequently-emitted actions, by stage:
 | ANY | `auto_recovery_exhausted` | `engine` | `reason` |
 | ANY | `auto_recovery_rearmed` | `engine` | `reason` |
 | ANY | `auto_recovery_skipped_benign` | `engine` | `action` |
+| ANY | `auto_recovery_skipped_automation_not_ready` | `engine` | `ready`, `blocker_codes` |
 | ANY | `auto_recovery_skipped_terminal` | `engine` | `action` |
 | ANY | `auto_recovery_strategy_failed` | `engine` | `strategy`, `error` |
 | ANY | `auto_recovery_strategy_selected` | `engine` | `strategy`, `classification` |

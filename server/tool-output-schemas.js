@@ -8,6 +8,219 @@
  * Pattern: same as tool-annotations.js — centralized, auditable, startup-merged.
  */
 
+const WORK_ITEM_STATUS_COUNTS_SCHEMA = {
+  type: 'object',
+  additionalProperties: { type: 'number' },
+};
+
+const AUTOMATION_BLOCKER_SCHEMA = {
+  type: 'object',
+  properties: {
+    code: { type: 'string' },
+    message: { type: 'string' },
+  },
+  required: ['code', 'message'],
+};
+
+const AUTOMATION_CONTROL_PLANE_STEP_SCHEMA = {
+  type: 'object',
+  properties: {
+    action: { type: 'string' },
+    tool: { type: 'string' },
+    args: { type: 'object', additionalProperties: true },
+    description: { type: 'string' },
+    effect_scope: { type: 'string', enum: ['control_plane'] },
+    mutates_control_plane: { type: 'boolean' },
+    processes_project_work: { type: 'boolean' },
+    enables_future_processing: { type: 'boolean' },
+  },
+  required: [
+    'action',
+    'tool',
+    'args',
+    'description',
+    'effect_scope',
+    'mutates_control_plane',
+    'processes_project_work',
+    'enables_future_processing',
+  ],
+};
+
+const AUTOMATION_READINESS_SCHEMA = {
+  type: 'object',
+  properties: {
+    ready: { type: 'boolean' },
+    status: { type: 'string' },
+    trust_level: { type: 'string' },
+    auto_continue: { type: 'boolean' },
+    auto_advance: { type: 'boolean' },
+    operator_paused: { type: 'boolean' },
+    approval_gates: { type: 'array', items: { type: 'string' } },
+    blocker_codes: { type: 'array', items: { type: 'string' } },
+    blockers: { type: 'array', items: AUTOMATION_BLOCKER_SCHEMA },
+    next_control_plane_action: { type: ['string', 'null'] },
+    control_plane_actions: { type: 'array', items: { type: 'string' } },
+    control_plane_plan: { type: 'array', items: AUTOMATION_CONTROL_PLANE_STEP_SCHEMA },
+  },
+  required: ['ready', 'status', 'trust_level', 'auto_continue', 'operator_paused', 'approval_gates', 'blocker_codes', 'blockers', 'control_plane_actions', 'control_plane_plan'],
+};
+
+const AUTOMATION_MANUAL_INTERVENTION_SCHEMA = {
+  type: 'object',
+  properties: {
+    required: { type: 'boolean' },
+    reason_codes: { type: 'array', items: { type: 'string' } },
+    counts: {
+      type: 'object',
+      properties: {
+        blocked_projects: { type: 'number' },
+        operator_paused_projects: { type: 'number' },
+        approval_gated_projects: { type: 'number' },
+        pending_approval_tasks: { type: 'number' },
+        needs_review_work_items: { type: 'number' },
+        escalation_exhausted_work_items: { type: 'number' },
+        scheduler_unarmed_projects: { type: 'number' },
+        factory_project_work_enabled: { type: 'number' },
+      },
+      required: [
+        'blocked_projects',
+        'operator_paused_projects',
+        'approval_gated_projects',
+        'pending_approval_tasks',
+        'needs_review_work_items',
+        'escalation_exhausted_work_items',
+        'scheduler_unarmed_projects',
+        'factory_project_work_enabled',
+      ],
+    },
+    project_ids: {
+      type: 'object',
+      properties: {
+        scheduler_unarmed: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['scheduler_unarmed'],
+    },
+  },
+  required: ['required', 'reason_codes', 'counts', 'project_ids'],
+};
+
+const AUTOMATION_READINESS_SUMMARY_SCHEMA = {
+  type: 'object',
+  properties: {
+    ready: { type: 'boolean' },
+    hands_off_ready: { type: 'boolean' },
+    total_projects: { type: 'number' },
+    ready_projects: { type: 'number' },
+    blocked_projects: { type: 'number' },
+    auto_continue_enabled_projects: { type: 'number' },
+    dark_trust_projects: { type: 'number' },
+    operator_paused_projects: { type: 'number' },
+    approval_gated_projects: { type: 'number' },
+    project_work_enabled: { type: 'boolean' },
+    blockers: {
+      type: 'object',
+      additionalProperties: { type: 'number' },
+    },
+    project_ids: {
+      type: 'object',
+      properties: {
+        ready: { type: 'array', items: { type: 'string' } },
+        blocked: { type: 'array', items: { type: 'string' } },
+      },
+    },
+    control_plane_plan: { type: 'array', items: AUTOMATION_CONTROL_PLANE_STEP_SCHEMA },
+    manual_intervention: AUTOMATION_MANUAL_INTERVENTION_SCHEMA,
+  },
+  required: ['ready', 'hands_off_ready', 'total_projects', 'ready_projects', 'blocked_projects', 'project_work_enabled', 'blockers', 'project_ids', 'control_plane_plan', 'manual_intervention'],
+};
+
+const AUTOMATION_APPLY_STEP_SCHEMA = {
+  type: 'object',
+  properties: {
+    action: { type: 'string' },
+    tool: { type: 'string' },
+    args: { type: 'object', additionalProperties: true },
+    status: { type: 'string', enum: ['applied', 'dry_run', 'failed'] },
+    effect_scope: { type: 'string', enum: ['control_plane'] },
+    processes_project_work: { type: 'boolean' },
+    mutates_control_plane: { type: 'boolean' },
+    enables_future_processing: { type: 'boolean' },
+    result: { type: ['object', 'null'], additionalProperties: true },
+    error: { type: 'string' },
+  },
+  required: [
+    'action',
+    'tool',
+    'args',
+    'status',
+    'effect_scope',
+    'processes_project_work',
+    'mutates_control_plane',
+    'enables_future_processing',
+  ],
+};
+
+const FACTORY_IDLE_ACTION_SCHEMA = {
+  type: 'object',
+  properties: {
+    type: { type: 'string' },
+    label: { type: 'string' },
+    project_ids: { type: 'array', items: { type: 'string' } },
+    effect_scope: { type: 'string' },
+    mutates_control_plane: { type: 'boolean' },
+    processes_project_work: { type: 'boolean' },
+  },
+  required: ['type', 'label'],
+};
+
+const FACTORY_IDLE_DIAGNOSIS_SCHEMA = {
+  type: 'object',
+  properties: {
+    idle: { type: 'boolean' },
+    reason_code: { type: 'string' },
+    message: { type: 'string' },
+    counts: { type: 'object', additionalProperties: true },
+    project_ids: {
+      type: 'object',
+      additionalProperties: {
+        type: 'array',
+        items: { type: 'string' },
+      },
+    },
+    actions: { type: 'array', items: FACTORY_IDLE_ACTION_SCHEMA },
+  },
+  required: ['idle', 'reason_code', 'message', 'counts', 'project_ids', 'actions'],
+};
+
+const FACTORY_PROJECT_SUMMARY_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    name: { type: 'string' },
+    path: { type: 'string' },
+    trust_level: { type: 'string' },
+    status: { type: 'string' },
+    commits_today: { type: 'number' },
+    loop_state: { type: 'string' },
+    active_stage: { type: 'string' },
+    active_task: { type: ['object', 'null'] },
+    state_consistency: { type: 'object' },
+    loop_paused_at_stage: { type: ['string', 'null'] },
+    loop_last_action_at: { type: ['string', 'null'] },
+    consecutive_empty_cycles: { type: 'number' },
+    open_work_item_count: { type: 'number' },
+    work_item_status_counts: WORK_ITEM_STATUS_COUNTS_SCHEMA,
+    automation_readiness: AUTOMATION_READINESS_SCHEMA,
+    alert_badge: { type: ['object', 'null'] },
+    balance: { type: 'number' },
+    weakest_dimension: { type: ['string', 'null'] },
+    dimension_count: { type: 'number' },
+    health_model_status: { type: 'string' },
+    health_missing_dimensions: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['id', 'name', 'path', 'trust_level', 'status', 'loop_state'],
+};
+
 const OUTPUT_SCHEMAS = {
   // ── Task lifecycle ──
 
@@ -266,6 +479,164 @@ const OUTPUT_SCHEMAS = {
       alerts: { type: 'array' },
     },
     required: ['scope'],
+  },
+
+  // -- Factory --
+
+  list_factory_projects: {
+    type: 'object',
+    properties: {
+      projects: {
+        type: 'array',
+        items: FACTORY_PROJECT_SUMMARY_SCHEMA,
+      },
+      idle_diagnosis: FACTORY_IDLE_DIAGNOSIS_SCHEMA,
+      automation_readiness: AUTOMATION_READINESS_SUMMARY_SCHEMA,
+    },
+    required: ['projects'],
+  },
+
+  factory_status: {
+    type: 'object',
+    properties: {
+      projects: {
+        type: 'array',
+        items: FACTORY_PROJECT_SUMMARY_SCHEMA,
+      },
+      summary: {
+        type: 'object',
+        properties: {
+          total: { type: 'number' },
+          running: { type: 'number' },
+          paused: { type: 'number' },
+          stalled: { type: 'number' },
+          production_today: { type: 'number' },
+          zero_commit_projects: { type: 'number' },
+          active_internal_tasks: { type: 'number' },
+          active_project_tasks: { type: 'number' },
+          state_mismatch_projects: { type: 'number' },
+          idle_diagnosis: FACTORY_IDLE_DIAGNOSIS_SCHEMA,
+          automation_readiness: AUTOMATION_READINESS_SUMMARY_SCHEMA,
+          work_item_status_counts: WORK_ITEM_STATUS_COUNTS_SCHEMA,
+          needs_review_work_items: { type: 'number' },
+          needs_replan_work_items: { type: 'number' },
+        },
+        required: ['total', 'running', 'paused', 'stalled'],
+      },
+    },
+    required: ['projects', 'summary'],
+  },
+
+  factory_automation_plan: {
+    type: 'object',
+    properties: {
+      ready: { type: 'boolean' },
+      hands_off_ready: { type: 'boolean' },
+      message: { type: 'string' },
+      scope: {
+        type: 'object',
+        properties: {
+          project: { type: ['string', 'null'] },
+          status: { type: ['string', 'null'] },
+          blocked_only: { type: 'boolean' },
+        },
+        required: ['project', 'status', 'blocked_only'],
+      },
+      summary: AUTOMATION_READINESS_SUMMARY_SCHEMA,
+      work_item_status_counts: WORK_ITEM_STATUS_COUNTS_SCHEMA,
+      needs_review_work_items: { type: 'number' },
+      needs_replan_work_items: { type: 'number' },
+      manual_intervention: AUTOMATION_MANUAL_INTERVENTION_SCHEMA,
+      control_plane_plan: { type: 'array', items: AUTOMATION_CONTROL_PLANE_STEP_SCHEMA },
+      projects: {
+        type: 'array',
+        items: FACTORY_PROJECT_SUMMARY_SCHEMA,
+      },
+    },
+    required: ['ready', 'hands_off_ready', 'message', 'scope', 'summary', 'work_item_status_counts', 'needs_review_work_items', 'needs_replan_work_items', 'manual_intervention', 'control_plane_plan', 'projects'],
+  },
+
+  apply_factory_automation_plan: {
+    type: 'object',
+    properties: {
+      completed: { type: 'boolean' },
+      dry_run: { type: 'boolean' },
+      scope: {
+        type: 'object',
+        properties: {
+          project: { type: ['string', 'null'] },
+          status: { type: ['string', 'null'] },
+          blocked_only: { type: 'boolean' },
+        },
+        required: ['project', 'status', 'blocked_only'],
+      },
+      message: { type: 'string' },
+      processes_project_work: { type: 'boolean' },
+      enables_future_processing: { type: 'boolean' },
+      planned_steps: { type: 'number' },
+      applied_steps: { type: 'array', items: AUTOMATION_APPLY_STEP_SCHEMA },
+      skipped_steps: { type: 'array', items: AUTOMATION_APPLY_STEP_SCHEMA },
+      failed_steps: { type: 'array', items: AUTOMATION_APPLY_STEP_SCHEMA },
+      before: {
+        type: 'object',
+        additionalProperties: true,
+      },
+      after: {
+        type: 'object',
+        additionalProperties: true,
+      },
+    },
+    required: [
+      'completed',
+      'dry_run',
+      'scope',
+      'message',
+      'processes_project_work',
+      'enables_future_processing',
+      'planned_steps',
+      'applied_steps',
+      'skipped_steps',
+      'failed_steps',
+      'before',
+      'after',
+    ],
+  },
+
+  arm_factory_tick: {
+    type: 'object',
+    properties: {
+      project: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          status: { type: 'string' },
+          trust_level: { type: 'string' },
+        },
+        required: ['id', 'name', 'status', 'trust_level'],
+      },
+      tick_active: { type: 'boolean' },
+      started: { type: 'boolean' },
+      already_active: { type: 'boolean' },
+      interval_ms: { type: ['number', 'null'] },
+      immediate_tick: { type: 'boolean' },
+      processes_project_work: { type: 'boolean' },
+      enables_future_processing: { type: 'boolean' },
+      automation_readiness: AUTOMATION_READINESS_SCHEMA,
+      message: { type: 'string' },
+    },
+    required: [
+      'project',
+      'tick_active',
+      'started',
+      'already_active',
+      'interval_ms',
+      'immediate_tick',
+      'processes_project_work',
+      'enables_future_processing',
+      'automation_readiness',
+      'message',
+    ],
   },
 
   // ── Phase 2: Provider/Cost/Monitoring ──

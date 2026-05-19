@@ -211,7 +211,7 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
     tempDir = null;
   });
 
-  function registerPlanProject({ autoContinue = false } = {}) {
+  function registerPlanProject({ autoContinue = false, trustLevel = 'supervised' } = {}) {
     const projectDir = path.join(tempDir, `project-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     const planPath = path.join(tempDir, `plan-${Date.now()}-${Math.random().toString(16).slice(2)}.md`);
     // Plan body must satisfy the plan-quality-gate: each task body needs
@@ -237,7 +237,7 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
     const project = factoryHealth.registerProject({
       name: 'Execute Verify Gate Project',
       path: projectDir,
-      trust_level: 'supervised',
+      trust_level: trustLevel,
       config: autoContinue ? { loop: { auto_continue: true } } : undefined,
     });
 
@@ -420,12 +420,12 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
     });
   });
 
-  it('re-arms auto-advance after approving an auto-continue gate', () => {
+  it('re-arms auto-advance after approving an automation-ready auto-continue gate', () => {
     vi.useFakeTimers();
     let approved;
 
     try {
-      const { project } = registerPlanProject({ autoContinue: true });
+      const { project } = registerPlanProject({ autoContinue: true, trustLevel: 'dark' });
 
       factoryHealth.updateProject(project.id, {
         loop_state: LOOP_STATES.PAUSED,
@@ -440,7 +440,36 @@ describe('factory EXECUTE -> VERIFY gate semantics', () => {
         auto_advance_rearmed: true,
       });
       expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(approved.instance_id))
-        .toMatchObject({ delay_ms: 0 });
+        .toMatchObject({ delay_ms: 0, force_auto_advance: false });
+    } finally {
+      if (approved?.instance_id) {
+        loopController._internalForTests.clearScheduledAutoAdvanceForTests(approved.instance_id);
+      }
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not re-arm auto-advance after approving a gated auto-continue project', () => {
+    vi.useFakeTimers();
+    let approved;
+
+    try {
+      const { project } = registerPlanProject({ autoContinue: true, trustLevel: 'supervised' });
+
+      factoryHealth.updateProject(project.id, {
+        loop_state: LOOP_STATES.PAUSED,
+        loop_paused_at_stage: LOOP_STATES.EXECUTE,
+      });
+
+      approved = loopController.approveGateForProject(project.id, LOOP_STATES.EXECUTE);
+
+      expect(approved).toMatchObject({
+        project_id: project.id,
+        state: LOOP_STATES.EXECUTE,
+        auto_advance_rearmed: false,
+      });
+      expect(loopController._internalForTests.getScheduledAutoAdvanceForTests(approved.instance_id))
+        .toBeNull();
     } finally {
       if (approved?.instance_id) {
         loopController._internalForTests.clearScheduledAutoAdvanceForTests(approved.instance_id);

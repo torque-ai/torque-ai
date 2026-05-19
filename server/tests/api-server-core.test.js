@@ -663,6 +663,12 @@ describe('captured request handler dispatch', () => {
     expect(spec.paths['/healthz']).toBeDefined();
     expect(spec.paths['/readyz']).toBeDefined();
     expect(spec.paths['/livez']).toBeDefined();
+    // Factory automation control-plane routes should be discoverable.
+    expect(spec.paths['/api/v2/factory/automation-plan']).toBeDefined();
+    expect(spec.paths['/api/v2/factory/automation-plan/apply']).toBeDefined();
+    expect(spec.paths['/api/v2/factory/projects/{project}/automation-plan']).toBeDefined();
+    expect(spec.paths['/api/v2/factory/projects/{project}/automation-plan/apply']).toBeDefined();
+    expect(spec.paths['/api/v2/factory/projects/{project}/tick/arm']).toBeDefined();
     expect(handleToolCallSpy).not.toHaveBeenCalled();
   });
 

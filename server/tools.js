@@ -8,6 +8,7 @@
 
 const path = require('path');
 const logger = require('./logger').child({ component: 'tools' });
+const serverConfig = require('./config');
 const { fireHook } = require('./hooks/post-tool-hooks');
 const eventBus = require('./event-bus');
 const comparisonHandlers = require('./handlers/comparison-handler');
@@ -541,7 +542,6 @@ async function handleRestartServerBarrier(args) {
   const drainTimeoutMinutes = drainTimeoutMs / 60_000;
   const taskCore = require('./db/task-core');
   const {
-    clearRestartIntent,
     stageRestartHandoff,
     updateRestartIntent,
     writeRestartIntent,

@@ -82,6 +82,17 @@ describe('completion-summary', () => {
     });
   });
 
+  it('strips ANSI color escapes from final-answer excerpts', () => {
+    const summary = summarizeTaskCompletion({
+      status: 'completed',
+      files_modified: [],
+      output: `${String.fromCharCode(27)}[32mCreated the requested migration notes.${String.fromCharCode(27)}[0m`,
+      error_output: '',
+    });
+
+    expect(summary.final_answer.excerpt).toBe('Created the requested migration notes.');
+  });
+
   it('only counts commands that were actually executed, not commands echoed in the prompt', () => {
     const commands = _internals.extractExecutedCommands([
       'user',

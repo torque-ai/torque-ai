@@ -858,6 +858,45 @@ describe('Queue Scheduler', () => {
         pause_reason: null,
       });
     });
+
+    it('does not start queued factory project tasks while project work is globally disabled', () => {
+      const attemptTaskStart = vi.fn().mockReturnValue({ started: true });
+      scheduler.init({
+        db: mockDb,
+        ...mocks,
+        attemptTaskStart,
+      });
+      mockDb.listTasks.mockImplementation(({ status }) => {
+        if (status === 'pending') return [];
+        if (status === 'queued') {
+          return [
+            makeTask({
+              id: 'factory-queued',
+              status: 'queued',
+              provider: 'codex',
+              tags: JSON.stringify([
+                'factory:internal',
+                'factory:architect_cycle',
+                'factory:project_id=project-a',
+              ]),
+            }),
+          ];
+        }
+        if (status === 'running') return [];
+        return [];
+      });
+      mockDb.getConfig.mockImplementation((key) => {
+        if (key === 'factory_project_work_enabled') return '0';
+        if (key === 'codex_enabled') return '1';
+        return null;
+      });
+
+      scheduler.processQueueInternal();
+
+      expect(attemptTaskStart).not.toHaveBeenCalled();
+      expect(mocks.safeStartTask).not.toHaveBeenCalled();
+      expect(mockDb.updateTaskStatus).not.toHaveBeenCalled();
+    });
   });
 
   // ── processQueueInternal ──────────────────────────────────

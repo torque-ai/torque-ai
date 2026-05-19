@@ -9,7 +9,6 @@ const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');
 const factoryLoopInstances = require('../db/factory/loop-instances');
 const taskCore = require('../db/task-core');
-const taskManager = require('../task-manager');
 const routingModule = require('../handlers/integration/routing');
 const factoryHandlers = require('../handlers/factory-handlers');
 const factoryTick = require('../factory/factory-tick');
@@ -125,6 +124,56 @@ describe('factory pause enforcement', () => {
     expect(factoryHealth.getProject(project.id).status).toBe('paused');
   });
 
+  it('does not auto-start a new loop for string auto-continue config', async () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: 'true' });
+    const startSpy = vi.spyOn(loopController, 'startLoopAutoAdvance')
+      .mockReturnValue({ project_id: project.id, instance_id: 'should-not-start' });
+
+    await factoryTick.tickProject(factoryHealth.getProject(project.id));
+
+    expect(startSpy).not.toHaveBeenCalled();
+    expect(submitSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-start a new loop when approval gates are still enabled', async () => {
+    const project = registerFactoryProject({
+      status: 'running',
+      autoContinue: true,
+      trustLevel: 'autonomous',
+    });
+    const startSpy = vi.spyOn(loopController, 'startLoopAutoAdvance')
+      .mockReturnValue({ project_id: project.id, instance_id: 'should-not-start' });
+
+    await factoryTick.tickProject(factoryHealth.getProject(project.id));
+
+    expect(startSpy).not.toHaveBeenCalled();
+    expect(submitSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not advance an active loop from the tick when automation readiness drifts off', async () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: false });
+    const instance = factoryLoopInstances.createInstance({ project_id: project.id });
+    const advanceSpy = vi.spyOn(loopController, 'advanceLoopAsync')
+      .mockReturnValue({ status: 'running', job_id: 'should-not-advance' });
+
+    await factoryTick.tickProject(factoryHealth.getProject(project.id));
+
+    expect(advanceSpy).not.toHaveBeenCalled();
+    expect(submitSpy).not.toHaveBeenCalled();
+    expect(factoryLoopInstances.getInstance(instance.id).loop_state).toBe(LOOP_STATES.SENSE);
+  });
+
+  it('advances an active loop from the tick when the project remains automation-ready', async () => {
+    const project = registerFactoryProject({ status: 'running', autoContinue: true });
+    const instance = factoryLoopInstances.createInstance({ project_id: project.id });
+    const advanceSpy = vi.spyOn(loopController, 'advanceLoopAsync')
+      .mockReturnValue({ status: 'running', job_id: 'ready-advance' });
+
+    await factoryTick.tickProject(factoryHealth.getProject(project.id));
+
+    expect(advanceSpy).toHaveBeenCalledWith(instance.id);
+  });
+
   it('does not auto-resume a paused auto-continue project', async () => {
     const project = registerFactoryProject({ status: 'paused', autoContinue: true });
 
@@ -209,7 +258,8 @@ describe('factory pause enforcement', () => {
       project: project.name,
       tags: [`project:${project.name}`],
     });
-    const cancelSpy = vi.spyOn(taskManager, 'cancelTask')
+    const liveTaskManager = require('../task-manager');
+    const cancelSpy = vi.spyOn(liveTaskManager, 'cancelTask')
       .mockImplementation((taskId, _reason, options = {}) => {
         taskCore.updateTaskStatus(taskId, options.terminal_status || 'cancelled', {
           cancel_reason: options.cancel_reason,
@@ -450,7 +500,10 @@ describe('factory pause enforcement', () => {
       paused_at_stage: 'VERIFY',
       last_action_at: new Date().toISOString(),
     });
-    const startTickSpy = vi.spyOn(factoryTick, 'startTick').mockImplementation(() => {});
+    const startTickSpy = vi.spyOn(factoryTick, 'startTick').mockImplementation(() => ({
+      started: true,
+      already_active: false,
+    }));
 
     const response = await factoryHandlers.handleRetryFactoryVerify({
       project: project.id,
@@ -462,6 +515,12 @@ describe('factory pause enforcement', () => {
       state: LOOP_STATES.VERIFY,
       project_resumed: true,
       project_status: 'running',
+      tick_armed: true,
+      tick_started: true,
+      tick_skipped_reason: null,
+      automation_readiness: {
+        ready: true,
+      },
     });
     expect(factoryHealth.getProject(project.id).status).toBe('running');
     expect(factoryLoopInstances.getInstance(instance.id).paused_at_stage).toBeNull();
@@ -482,6 +541,55 @@ describe('factory pause enforcement', () => {
       actor: 'test-operator',
       source: 'mcp',
     });
+  });
+
+  it('retry_factory_verify resumes but does not restart ticking when automation controls are blocked', async () => {
+    const project = registerFactoryProject({
+      status: 'paused',
+      autoContinue: false,
+      trustLevel: 'autonomous',
+    });
+    const item = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'manual',
+      title: 'Retry paused verify project without automation',
+      description: 'The project row can resume, but the recurring tick should not arm.',
+      status: 'verifying',
+    });
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: item.id,
+      batch_id: 'factory-retry-paused-verify-blocked',
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.VERIFY,
+      paused_at_stage: 'VERIFY',
+      last_action_at: new Date().toISOString(),
+    });
+    const startTickSpy = vi.spyOn(factoryTick, 'startTick').mockImplementation(() => {});
+
+    const response = await factoryHandlers.handleRetryFactoryVerify({
+      project: project.id,
+      actor: 'test-operator',
+    });
+
+    expect(response.structuredData).toMatchObject({
+      project_id: project.id,
+      state: LOOP_STATES.VERIFY,
+      project_resumed: true,
+      project_status: 'running',
+      tick_armed: false,
+      tick_started: false,
+      tick_skipped_reason: 'automation_not_ready',
+      automation_readiness: {
+        ready: false,
+        blocker_codes: expect.arrayContaining(['auto_continue_disabled', 'approval_gates_enabled']),
+      },
+    });
+    expect(factoryHealth.getProject(project.id).status).toBe('running');
+    expect(factoryLoopInstances.getInstance(instance.id).paused_at_stage).toBeNull();
+    expect(startTickSpy).not.toHaveBeenCalled();
+    expect(submitSpy).not.toHaveBeenCalled();
   });
 
   it('keeps one scheduled auto-advance timer per instance', async () => {
@@ -1049,6 +1157,56 @@ describe('factory pause enforcement', () => {
     expect(afterTick.paused_at_stage).toBe(LOOP_STATES.VERIFY);
   });
 
+  it('only starts startup ticks for running projects that are automation-ready', () => {
+    vi.useFakeTimers();
+
+    try {
+      registerFactoryProject({ status: 'running', autoContinue: true });
+      registerFactoryProject({ status: 'running', autoContinue: false });
+      registerFactoryProject({
+        status: 'running',
+        autoContinue: true,
+        trustLevel: 'autonomous',
+      });
+
+      const setImmediateSpy = vi.spyOn(global, 'setImmediate');
+      expect(factoryTick.initFactoryTicks()).toBe(1);
+      expect(setImmediateSpy).not.toHaveBeenCalled();
+    } finally {
+      factoryTick.stopAll();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not start startup ticks when factory project work is disabled', () => {
+    const previous = process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED;
+    process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED = '0';
+    vi.useFakeTimers();
+
+    try {
+      registerFactoryProject({ status: 'running', autoContinue: true });
+      const paused = registerFactoryProject({ status: 'paused', autoContinue: true });
+      factoryHealth.updateProject(paused.id, {
+        config_json: JSON.stringify({
+          loop: { auto_continue: true },
+          baseline_broken_since: new Date().toISOString(),
+        }),
+      });
+
+      const setImmediateSpy = vi.spyOn(global, 'setImmediate');
+      expect(factoryTick.initFactoryTicks()).toBe(0);
+      expect(setImmediateSpy).not.toHaveBeenCalled();
+    } finally {
+      factoryTick.stopAll();
+      vi.useRealTimers();
+      if (previous === undefined) {
+        delete process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED;
+      } else {
+        process.env.TORQUE_FACTORY_PROJECT_WORK_ENABLED = previous;
+      }
+    }
+  });
+
   it('starts ticks for paused project-row VERIFY batch waits on startup', () => {
     vi.useFakeTimers();
     const decisionLog = require('../factory/decision-log');
@@ -1090,7 +1248,9 @@ describe('factory pause enforcement', () => {
       });
 
       expect(factoryTick._internalForTests.hasPausedVerifyBatchWait(factoryHealth.getProject(project.id))).toBe(true);
+      const setImmediateSpy = vi.spyOn(global, 'setImmediate');
       expect(factoryTick.initFactoryTicks()).toBe(1);
+      expect(setImmediateSpy).toHaveBeenCalledTimes(1);
     } finally {
       factoryTick.stopAll();
       vi.useRealTimers();
@@ -1483,7 +1643,7 @@ describe('factory pause enforcement', () => {
 
     expect(terminateSpy).not.toHaveBeenCalled();
     expect(factoryLoopInstances.getInstance(instance.id).terminated_at).toBeNull();
-    expect(advanceSpy).toHaveBeenCalledWith(instance.id, { autoAdvance: true });
+    expect(advanceSpy).toHaveBeenCalledWith(instance.id);
     expect(submitSpy).not.toHaveBeenCalled();
   });
 

@@ -3,6 +3,10 @@
 const { listRecoveryCandidates } = require('./candidate-query');
 const { createClassifier } = require('./classifier');
 const { createRegistry } = require('./registry');
+const {
+  isFactoryProjectWorkEnabled,
+  summarizeProjectAutomationReadiness,
+} = require('../automation-readiness');
 
 const MAX_ATTEMPTS = 5;
 
@@ -61,6 +65,11 @@ function logDecision(db, { project_id, stage, action, reasoning, outcome, confid
          typeof confidence === 'number' ? confidence : 1,
          batch_id || null,
          new Date().toISOString());
+}
+
+function hasAutomationReadinessFields(project) {
+  return Object.prototype.hasOwnProperty.call(project || {}, 'trust_level')
+    || Object.prototype.hasOwnProperty.call(project || {}, 'config_json');
 }
 
 // Counts auto-recovery strategy_selected decisions for a given matched_rule
@@ -411,6 +420,9 @@ function createAutoRecoveryEngine({
   }
 
   async function recoverOne(project) {
+    if (!isFactoryProjectWorkEnabled()) {
+      return { attempted: false, strategy: null, skipped: 'factory_project_work_disabled' };
+    }
     const decision = latestRelevantDecisionForProject(db, project);
     if (isTerminalRealDecision(decision)) {
       logDecision(db, {
@@ -428,6 +440,29 @@ function createAutoRecoveryEngine({
       });
       markExhausted(project.id, 'terminal_decision');
       return { attempted: false, strategy: null, skipped: 'terminal_decision' };
+    }
+
+    if (hasAutomationReadinessFields(project)) {
+      const automationReadiness = summarizeProjectAutomationReadiness(project);
+      if (!automationReadiness.ready) {
+        logDecision(db, {
+          project_id: project.id,
+          stage: decision?.stage || project.loop_paused_at_stage || 'verify',
+          action: 'auto_recovery_skipped_automation_not_ready',
+          reasoning: 'Auto-recovery skipped because unattended automation controls are not ready for this project.',
+          outcome: {
+            ready: false,
+            blocker_codes: automationReadiness.blocker_codes,
+            blockers: automationReadiness.blockers,
+          },
+          confidence: 1,
+          batch_id: decision?.batch_id || null,
+        });
+        db.prepare(`UPDATE factory_projects
+                    SET auto_recovery_last_action_at = ?
+                    WHERE id = ?`).run(new Date().toISOString(), project.id);
+        return { attempted: false, strategy: null, skipped: 'automation_not_ready' };
+      }
     }
 
     // 2026-05-03: skip recovery when the latest decision is a benign
@@ -596,6 +631,14 @@ function createAutoRecoveryEngine({
   }
 
   async function tick() {
+    if (!isFactoryProjectWorkEnabled()) {
+      return {
+        candidates: 0,
+        attempts: 0,
+        rearmed: 0,
+        skipped: 'factory_project_work_disabled',
+      };
+    }
     const currentNowMs = nowMs();
     const rearmed = rearmRecoveredProjects();
     const candidates = listRecoveryCandidates(db, { nowMs: currentNowMs });

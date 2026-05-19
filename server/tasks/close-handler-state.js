@@ -43,12 +43,16 @@ function drainCloseHandlerResolvers() {
 function waitForPendingHandlers(timeout = 15000) {
   if (pendingCloseHandlers <= 0) return Promise.resolve();
   return new Promise((resolve) => {
-    let wrappedResolve;
+    const timerRef = { current: null };
+    const wrappedResolve = () => {
+      clearTimeout(timerRef.current);
+      resolve();
+    };
     const timer = setTimeout(() => {
       closeHandlerResolvers = closeHandlerResolvers.filter(r => r !== wrappedResolve);
       resolve(); // don't reject — just stop waiting
     }, timeout);
-    wrappedResolve = () => { clearTimeout(timer); resolve(); };
+    timerRef.current = timer;
     closeHandlerResolvers.push(wrappedResolve);
   });
 }

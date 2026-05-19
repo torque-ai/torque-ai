@@ -328,7 +328,7 @@ describe('prettyPrintReport', () => {
     };
     const out = prettyPrintReport(report);
     expect(out).toMatch(/emitted_not_in_catalog \(1\):/);
-    expect(out).toMatch(/  - undocumented_x/);
+    expect(out).toMatch(/ {2}- undocumented_x/);
     expect(out).not.toMatch(/foo\.js:42/);
   });
 

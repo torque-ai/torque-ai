@@ -91,29 +91,24 @@ function handleListRetrospectives(args) {
   };
 }
 
-async function handleGenerateRetrospective(args) {
-  const { workflow_id, project_id } = args;
-  if (!workflow_id) {
-    return { content: [{ type: 'text', text: 'Error: workflow_id is required' }], isError: true };
-  }
-
-  let generator;
+async function handleGenerateRetrospective(args = {}) {
   try {
-    generator = getRetrospectiveGenerator();
-  } catch (err) {
-    return {
-      content: [{ type: 'text', text: `Error: retrospective generator unavailable — ${err.message}` }],
-      isError: true,
-    };
-  }
+    const { workflow_id, project_id } = args;
+    if (!workflow_id) {
+      return { content: [{ type: 'text', text: 'Error: workflow_id is required' }], isError: true };
+    }
 
-  try {
+    const generator = getRetrospectiveGenerator();
     const result = await generator.generateRetrospective(workflow_id, project_id || null);
     return {
       content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
     };
   } catch (err) {
-    logger.error('generate_retrospective failed', { workflow_id, project_id, err: err.message });
+    logger.error('generate_retrospective failed', {
+      workflow_id: args.workflow_id || null,
+      project_id: args.project_id || null,
+      err: err.message,
+    });
     return {
       content: [{ type: 'text', text: `Error generating retrospective: ${err.message}` }],
       isError: true,

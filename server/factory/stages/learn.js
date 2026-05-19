@@ -25,6 +25,7 @@
 // whole analysis object; the full analysis rides the `analysis` bridge.
 
 const { LOOP_STATES } = require('../loop-states');
+const { shouldRunUnattendedFactoryWork } = require('../automation-readiness');
 const logger = require('../../logger').child({ component: 'factory-learn-stage' });
 
 // ─── LEARN executor — Phase 3 (body lifted out of loop-controller) ───────────
@@ -40,7 +41,6 @@ const logger = require('../../logger').child({ component: 'factory-learn-stage' 
 // `maybeShipWorkItemAfterLearn` are loop-controller-internal and injected.
 
 const LEARN_EXECUTOR_DEPS = ['safeLogDecision', 'maybeShipWorkItemAfterLearn'];
-const LEARN_EXECUTOR_OPTIONAL_DEPS = ['retrospectiveGenerator'];
 
 /**
  * @param {{
@@ -246,9 +246,9 @@ function createLearnStageRunner(deps = {}) {
       };
     }
 
-    // 3. auto_continue — recycle the loop back to SENSE for another pass.
+    // 3. automation-ready auto_continue — recycle the loop back to SENSE for another pass.
     const cfg = parseProjectConfigObject(latestProject);
-    if (cfg && cfg.loop && cfg.loop.auto_continue === true) {
+    if (cfg && cfg.loop && cfg.loop.auto_continue === true && shouldRunUnattendedFactoryWork(latestProject)) {
       const moveToSense = tryMoveInstanceToStage(instance, LOOP_STATES.SENSE, {
         batch_id: null,
         work_item_id: null,

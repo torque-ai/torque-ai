@@ -186,9 +186,16 @@ describe('LEARN runner (Phase 2c Step B — policy lifted in)', () => {
     expect(deps.recordFactoryIdleIfExhausted).toHaveBeenCalled();
   });
 
-  it('auto_continue=true → disposition=continue, nextState=SENSE, recycle move issued', async () => {
+  it('automation-ready auto_continue=true → disposition=continue, nextState=SENSE, recycle move issued', async () => {
     const deps = makeLearnDeps({
       executeLearnStage: async () => ({ feedback_id: 'fb-3' }),
+      getProjectOrThrow: () => ({
+        id: 42,
+        name: 'demo',
+        status: 'running',
+        trust_level: 'dark',
+        config: { loop: { auto_continue: true } },
+      }),
       parseProjectConfigObject: () => ({ loop: { auto_continue: true } }),
     });
     const run = createLearnStageRunner(deps);
@@ -205,6 +212,13 @@ describe('LEARN runner (Phase 2c Step B — policy lifted in)', () => {
   it('auto_continue but recycle blocked → reason=stage_occupied', async () => {
     const deps = makeLearnDeps({
       executeLearnStage: async () => ({ feedback_id: 'fb-3b' }),
+      getProjectOrThrow: () => ({
+        id: 42,
+        name: 'demo',
+        status: 'running',
+        trust_level: 'dark',
+        config: { loop: { auto_continue: true } },
+      }),
       parseProjectConfigObject: () => ({ loop: { auto_continue: true } }),
       tryMoveInstanceToStage: vi.fn(() => ({ instance: baseInstance, blocked: true })),
     });
@@ -212,6 +226,25 @@ describe('LEARN runner (Phase 2c Step B — policy lifted in)', () => {
     const outcome = await run(learnCtx());
     expect(outcome.disposition).toBe('continue');
     expect(outcome.reason).toBe('stage_occupied');
+  });
+
+  it('approval-gated auto_continue terminates after LEARN instead of recycling', async () => {
+    const deps = makeLearnDeps({
+      executeLearnStage: async () => ({ feedback_id: 'fb-3c' }),
+      getProjectOrThrow: () => ({
+        id: 42,
+        name: 'demo',
+        status: 'running',
+        trust_level: 'autonomous',
+        config: { loop: { auto_continue: true } },
+      }),
+      parseProjectConfigObject: () => ({ loop: { auto_continue: true } }),
+    });
+    const run = createLearnStageRunner(deps);
+    const outcome = await run(learnCtx());
+    expect(outcome.disposition).toBe('terminate');
+    expect(outcome.advanceResult).toMatchObject({ new_state: 'IDLE', reason: 'learn_completed' });
+    expect(deps.tryMoveInstanceToStage).not.toHaveBeenCalled();
   });
 
   it('no auto_continue → disposition=terminate, advanceResult learn_completed', async () => {

@@ -30,7 +30,6 @@ describe('factory decision-actions catalog', () => {
 
   it('reports dynamic-action sites for manual review (non-fatal)', () => {
     if (report.dynamic_action_sites.length > 0) {
-      // eslint-disable-next-line no-console
       console.warn(`Dynamic action sites (manual review): ${report.dynamic_action_sites.length}`);
     }
     expect(Array.isArray(report.dynamic_action_sites)).toBe(true);

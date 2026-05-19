@@ -1,6 +1,4 @@
 const fs = require('fs');
-const os = require('os');
-const path = require('path');
 const { randomUUID } = require('crypto');
 
 const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');

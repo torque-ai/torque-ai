@@ -24,6 +24,12 @@ const eventBus = require('../event-bus');
 const defaultLogger = require('../logger').child({ component: 'factory-startup-reconciler' });
 const loopController = require('./loop-controller');
 const { LOOP_STATES } = require('./loop-states');
+const {
+  isFactoryProjectWorkEnabled,
+  shouldAutoStartContinuousLoop,
+  shouldRunUnattendedFactoryWork,
+  shouldUseConfigDrivenAutoAdvance,
+} = require('./automation-readiness');
 const worktreeReconcile = require('./worktree-reconcile');
 
 let alreadyReconciled = false;
@@ -142,7 +148,20 @@ function countRunningOrQueuedTasksForBatch(batchId, logger = defaultLogger) {
 function scheduleStart(projectId, logger) {
   setImmediate(() => {
     try {
+      if (!isFactoryProjectWorkEnabled()) {
+        safeLog(logger, 'info', 'startup reconciler skipped auto-start because factory project work is disabled', {
+          project_id: projectId,
+        });
+        return;
+      }
       if (shouldSkipForOperatorPause(projectId, logger)) {
+        return;
+      }
+      const fresh = factoryHealth.getProject(projectId);
+      if (!shouldUseConfigDrivenAutoAdvance(fresh)) {
+        safeLog(logger, 'info', 'startup reconciler skipped auto-start because automation controls are not ready', {
+          project_id: projectId,
+        });
         return;
       }
       loopController.startLoopAutoAdvance(projectId);
@@ -158,10 +177,29 @@ function scheduleStart(projectId, logger) {
 function scheduleAdvance(projectId, instance, state, logger) {
   setImmediate(() => {
     try {
+      if (!isFactoryProjectWorkEnabled()) {
+        safeLog(logger, 'info', 'startup reconciler skipped advance because factory project work is disabled', {
+          project_id: projectId,
+          instance_id: instance.id,
+          loop_state: state,
+        });
+        return;
+      }
       if (shouldSkipForOperatorPause(projectId, logger)) {
         return;
       }
-      loopController.advanceLoopAsync(instance.id, { autoAdvance: true });
+      const fresh = factoryHealth.getProject(projectId);
+      if (!shouldUseConfigDrivenAutoAdvance(fresh)) {
+        safeLog(logger, 'info', 'startup reconciler skipped advance because automation controls are not ready', {
+          project_id: projectId,
+          instance_id: instance.id,
+          loop_state: state,
+        });
+        return;
+      }
+      loopController.advanceLoopAsync(instance.id, {
+        autoAdvance: false,
+      });
     } catch (err) {
       safeLog(logger, 'debug', 'startup reconciler advance failed', {
         project_id: projectId,
@@ -171,6 +209,20 @@ function scheduleAdvance(projectId, instance, state, logger) {
       });
     }
   });
+}
+
+function shouldAdvanceOnStartup(project, instance, state, logger) {
+  if (shouldRunUnattendedFactoryWork(project)) {
+    return true;
+  }
+  const reason = isFactoryProjectWorkEnabled() ? 'automation_not_ready' : 'factory_project_work_disabled';
+  safeLog(logger, 'info', 'startup reconciler left active instance parked because unattended work is not enabled', {
+    project_id: project?.id,
+    instance_id: instance?.id,
+    loop_state: state,
+    reason,
+  });
+  return false;
 }
 
 function emitVerifyNeedsRetry(project, instance, logger) {
@@ -235,6 +287,9 @@ function createActionCounters() {
 function dispatchAutoRecoveryStartupReconcile({ logger = defaultLogger } = {}) {
   if (autoRecoveryStartupDispatched) {
     return { dispatched: false, reason: 'already_dispatched' };
+  }
+  if (!isFactoryProjectWorkEnabled()) {
+    return { dispatched: false, reason: 'factory_project_work_disabled' };
   }
 
   try {
@@ -314,14 +369,17 @@ function reconcileFactoryProjectsOnStartup({ logger = defaultLogger, db = null }
         const preSyncLoopState = preSyncState.loop_state == null
           ? null
           : String(preSyncState.loop_state).toUpperCase();
-        const wasRunningBeforeRestart = (
+        const hadLoopBeforeRestart = (
           preSyncLoopState !== null
           && preSyncLoopState !== LOOP_STATES.IDLE
-        )
+        );
+        const wasRunningBeforeRestart = hadLoopBeforeRestart
           || config?.loop?.auto_advance === true
           || config?.loop?.auto_continue === true;
+        const canRestartWithoutOperator = shouldRunUnattendedFactoryWork(project)
+          && (hadLoopBeforeRestart || shouldAutoStartContinuousLoop(project));
 
-        if (wasRunningBeforeRestart) {
+        if (wasRunningBeforeRestart && canRestartWithoutOperator) {
           scheduleStart(project.id, logger);
           actions.restarted += 1;
         } else {
@@ -341,8 +399,12 @@ function reconcileFactoryProjectsOnStartup({ logger = defaultLogger, db = null }
             paused_at_stage: paused,
             loop_state: state,
           });
-          scheduleAdvance(project.id, instance, state, logger);
-          actions.advanced += 1;
+          if (shouldAdvanceOnStartup(project, instance, state, logger)) {
+            scheduleAdvance(project.id, instance, state, logger);
+            actions.advanced += 1;
+          } else {
+            actions.skipped += 1;
+          }
           continue;
         }
 
@@ -364,14 +426,22 @@ function reconcileFactoryProjectsOnStartup({ logger = defaultLogger, db = null }
               task_status: planGenerationWait.task_status,
               ready_to_advance: planGenerationWait.ready_to_advance === true,
             });
-            scheduleAdvance(project.id, instance, state, logger);
-            actions.advanced += 1;
+            if (shouldAdvanceOnStartup(project, instance, state, logger)) {
+              scheduleAdvance(project.id, instance, state, logger);
+              actions.advanced += 1;
+            } else {
+              actions.skipped += 1;
+            }
             continue;
           }
           if (countRunningOrQueuedTasksForBatch(instance.batch_id, logger) === 0) {
             loopController.terminateInstanceAndSync(instance.id, { abandonWorktree: true });
-            scheduleStart(project.id, logger);
-            actions.restarted += 1;
+            if (shouldRunUnattendedFactoryWork(project)) {
+              scheduleStart(project.id, logger);
+              actions.restarted += 1;
+            } else {
+              actions.skipped += 1;
+            }
           } else {
             actions.skipped += 1;
           }
@@ -389,8 +459,12 @@ function reconcileFactoryProjectsOnStartup({ logger = defaultLogger, db = null }
           continue;
         }
 
-        scheduleAdvance(project.id, instance, state, logger);
-        actions.advanced += 1;
+        if (shouldAdvanceOnStartup(project, instance, state, logger)) {
+          scheduleAdvance(project.id, instance, state, logger);
+          actions.advanced += 1;
+        } else {
+          actions.skipped += 1;
+        }
       }
     } catch (err) {
       actions.skipped += 1;
