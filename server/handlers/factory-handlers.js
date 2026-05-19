@@ -1952,6 +1952,8 @@ async function handleProjectHealth(args) {
 
 async function handleScanProjectHealth(args) {
   const project = resolveProject(args.project);
+  const disabled = blockWhenFactoryProjectWorkDisabled('scan_project_health', project);
+  if (disabled) return disabled;
   const dimensions = args.dimensions || [...factoryHealth.VALID_DIMENSIONS];
   const scanType = args.scan_type || 'incremental';
 
@@ -2972,6 +2974,8 @@ function parseFindingsMarkdown(filePath) {
 
 async function handlePollGitHubIssues(args) {
   const project = resolveProject(args.project);
+  const disabled = blockWhenFactoryProjectWorkDisabled('poll_github_issues', project);
+  if (disabled) return disabled;
   const effectiveConfig = {
     ...(project.config || {}),
   };
@@ -2989,6 +2993,8 @@ async function handlePollGitHubIssues(args) {
 
 async function handleTriggerArchitect(args) {
   const project = resolveProject(args.project);
+  const disabled = blockWhenFactoryProjectWorkDisabled('trigger_architect', project);
+  if (disabled) return disabled;
   const cycle = await runArchitectCycle(project.id, 'manual');
   return jsonResponse({
     message: `Architect cycle completed for "${project.name}"`,
@@ -3749,6 +3755,8 @@ async function handleFactoryLoopInstanceJobStatus(args) {
 
 async function handleAttachFactoryBatch(args) {
   const project = resolveProject(args.project);
+  const disabled = blockWhenFactoryProjectWorkDisabled('attach_factory_batch', project);
+  if (disabled) return disabled;
   const result = loopController.attachBatchIdForProject(project.id, args.batch_id);
   return jsonResponse(result);
 }

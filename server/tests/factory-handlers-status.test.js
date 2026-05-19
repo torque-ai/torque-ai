@@ -1880,10 +1880,14 @@ describe('factory_status', () => {
         ['approve_factory_gate', { project: 'project-work-disabled-manual', stage: 'PLAN' }],
         ['retry_factory_verify', { project: 'project-work-disabled-manual' }],
         ['resume_project_baseline_fixed', { project: 'project-work-disabled-manual' }],
+        ['scan_project_health', { project: 'project-work-disabled-manual' }],
+        ['poll_github_issues', { project: 'project-work-disabled-manual' }],
+        ['trigger_architect', { project: 'project-work-disabled-manual' }],
         ['start_factory_loop_instance', { project: 'project-work-disabled-manual' }],
         ['advance_factory_loop_instance', { instance: 'project-work-disabled-manual-instance' }],
         ['approve_factory_gate_instance', { instance: 'project-work-disabled-manual-instance', stage: 'PLAN' }],
         ['retry_factory_verify_instance', { instance: 'project-work-disabled-manual-instance' }],
+        ['attach_factory_batch', { project: 'project-work-disabled-manual', batch_id: 'factory-disabled-manual-batch' }],
       ];
 
       for (const [tool, args] of blockedCalls) {

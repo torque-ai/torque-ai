@@ -263,6 +263,7 @@ function pascalToSnake(s) {
 const FIXUPS = {
   'export_report_c_s_v': 'export_report_csv',
   'export_report_j_s_o_n': 'export_report_json',
+  'poll_git_hub_issues': 'poll_github_issues',
 };
 
 // Exported handle* functions that are internal callbacks, not MCP tools.
