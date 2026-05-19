@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { setupTestDbOnly, teardownTestDb, getText } = require('./vitest-setup');
+const { enableTestProviders } = require('./test-helpers');
 const { v4: uuidv4 } = require('uuid');
 
 const automationTsTools = require('../handlers/automation-ts-tools');
@@ -52,6 +53,7 @@ describe('Path traversal hardening', () => {
   beforeAll(() => {
     const env = setupTestDbOnly('p0-path-traversal');
     db = env.db;
+    enableTestProviders(db, ['ollama']);
   });
 
   afterAll(() => {

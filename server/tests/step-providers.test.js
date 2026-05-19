@@ -2,7 +2,7 @@ const { randomUUID } = require('crypto');
 const { setupTestDb, teardownTestDb, safeTool, getText } = require('./vitest-setup');
 const _path = require('path');
 const os = require('os');
-const { TEST_MODELS } = require('./test-helpers');
+const { TEST_MODELS, enableTestProviders } = require('./test-helpers');
 
 describe('Per-Step Provider Routing', () => {
   let db;
@@ -10,6 +10,7 @@ describe('Per-Step Provider Routing', () => {
   beforeAll(() => {
     const env = setupTestDb('step-providers');
     db = env.db;
+    enableTestProviders(db, ['claude-cli', 'ollama']);
   });
   afterAll(() => { teardownTestDb(); });
 

@@ -34,7 +34,7 @@ describe('E2E: Fallback and recovery', () => {
   it('no healthy hosts: ollama task stays queued when the fallback host is unreachable', async () => {
     // Don't register any hosts and force single-host fallback to an unreachable port
     ctx.db.setConfig('ollama_host', 'http://127.0.0.1:1');
-    for (const provider of ['ollama', 'ollama-cloud', 'deepinfra', 'codex', 'claude-cli']) {
+    for (const provider of ['ollama', 'ollama-cloud', 'deepinfra', 'codex', 'codex-spark', 'claude-cli']) {
       ctx.db.updateProvider?.(provider, { enabled: 0 });
     }
 

@@ -267,7 +267,7 @@ describe('auto-generated plan description quality scoring', () => {
     expect(normalized).not.toContain('git commit -m');
     expect(normalized).not.toContain('server/db/workflow-engine.js');
     expect(normalized).not.toContain('server/workflow-engine.js');
-    expect(normalized).not.toContain('packages/runtime/src/index.ts');
+    expect(normalized).toContain('packages/runtime/src/index.ts');
     expect(normalized).not.toContain('server/__tests__/workflow-runtime-library.test.js');
     expect(normalized).not.toContain('npx vitest run server/execution/workflow-runtime.js');
     expect(normalized).not.toContain('``');

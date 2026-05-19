@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { setupTestDbModule, teardownTestDb, rawDb: _rawDb } = require('./vitest-setup');
+const { enableTestProviders } = require('./test-helpers');
 
 let testDir;
 let db;
@@ -11,6 +12,7 @@ let seq = 0;
 
 function setup() {
   ({ db, mod, testDir } = setupTestDbModule('../db/provider/routing-core', 'provrouting'));
+  enableTestProviders(db, ['claude-cli', 'ollama']);
   taskCore = require('../db/task-core');
   configCore = require('../db/config-core');
 }

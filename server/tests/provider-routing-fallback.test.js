@@ -11,6 +11,7 @@ const {
   createTaskWorkspaceManager,
   stubTaskSubmissionSideEffects,
 } = require('./task-workspace-helpers');
+const { enableTestProviders } = require('./test-helpers');
 
 const workspaces = createTaskWorkspaceManager({ prefix: 'torque-provider-routing-' });
 
@@ -28,7 +29,8 @@ function safeTool(name, args = {}) {
 
 describe('Provider Routing & Fallback', { retry: 2 }, () => {
   beforeAll(() => {
-    setupTestDb('providers');
+    const { db } = setupTestDb('providers');
+    enableTestProviders(db, ['claude-cli', 'ollama']);
     stubTaskSubmissionSideEffects();
   });
 

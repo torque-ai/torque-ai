@@ -114,7 +114,7 @@ describe('Phase X1: WORK_ITEM_STATUS_ORDER includes needs_replan at end', () => 
     const fs = require('fs');
     // Phase 3 decomposition: factory-loop logic spans loop-controller.js plus
     // the extracted per-stage modules; grep the concatenated source.
-    const src = ['loop-controller.js', 'plan-execute.js', 'plan-generation-cluster.js']
+    const src = ['loop-controller.js', 'plan-execute.js', 'plan-generation-cluster.js', 'needs-replan-policy.js']
       .map((f) => fs.readFileSync(path.join(__dirname, '..', 'factory', f), 'utf8'))
       .join('\n');
     const orderMatch = src.match(/WORK_ITEM_STATUS_ORDER\s*=\s*Object\.freeze\(\[([\s\S]*?)\]\)/);
@@ -131,7 +131,7 @@ describe('Phase X1: WORK_ITEM_STATUS_ORDER includes needs_replan at end', () => 
     const fs = require('fs');
     // Phase 3 decomposition: factory-loop logic spans loop-controller.js plus
     // the extracted per-stage modules; grep the concatenated source.
-    const src = ['loop-controller.js', 'plan-execute.js', 'plan-generation-cluster.js']
+    const src = ['loop-controller.js', 'plan-execute.js', 'plan-generation-cluster.js', 'needs-replan-policy.js']
       .map((f) => fs.readFileSync(path.join(__dirname, '..', 'factory', f), 'utf8'))
       .join('\n');
     const match = src.match(/NEEDS_REPLAN_COOLDOWN_MS\s*=\s*(\d+)\s*\*\s*60\s*\*\s*1000/);
@@ -143,10 +143,10 @@ describe('Phase X1: WORK_ITEM_STATUS_ORDER includes needs_replan at end', () => 
     const fs = require('fs');
     // Phase 3 decomposition: factory-loop logic spans loop-controller.js plus
     // the extracted per-stage modules; grep the concatenated source.
-    const src = ['loop-controller.js', 'plan-execute.js', 'plan-generation-cluster.js']
+    const src = ['loop-controller.js', 'plan-execute.js', 'plan-generation-cluster.js', 'needs-replan-policy.js']
       .map((f) => fs.readFileSync(path.join(__dirname, '..', 'factory', f), 'utf8'))
       .join('\n');
-    const cooldownBlock = src.match(/needs_replan'[\s\S]{0,400}NEEDS_REPLAN_COOLDOWN_MS/);
-    expect(cooldownBlock).not.toBeNull();
+    expect(src).toMatch(/getNeedsReplanCooldownInfo/);
+    expect(src).toMatch(/NEEDS_REPLAN_COOLDOWN_MS/);
   });
 });

@@ -16,6 +16,7 @@ const os = require('os');
 const fs = require('fs');
 const hostManagement = require('../db/host/management');
 const { ensureTestSchema } = require('./vitest-setup');
+const { enableTestProviders } = require('./test-helpers');
 const { getVitestTemplateBufferPath } = require('./vitest-template-paths');
 
 const TEMPLATE_BUF = getVitestTemplateBufferPath();
@@ -170,6 +171,8 @@ function registerMockHost(db, url, modelNames = ['codellama:latest'], opts = {})
   const priority = opts.priority || 10;
   const maxConcurrent = opts.maxConcurrent || 4;
   const hostId = opts.id || `mock-${name}-${Date.now()}`;
+
+  enableTestProviders(db, ['ollama']);
 
   const host = hostManagement.addOllamaHost({
     id: hostId,

@@ -3,6 +3,7 @@ const {
   createTaskWorkspaceManager,
   stubTaskSubmissionSideEffects,
 } = require('./task-workspace-helpers');
+const { enableTestProviders } = require('./test-helpers');
 
 const workspaces = createTaskWorkspaceManager({ prefix: 'torque-provider-failover-' });
 
@@ -21,7 +22,8 @@ function safeTool(name, args = {}) {
 
 describe('Provider Failover', () => {
   beforeAll(() => {
-    setupTestDb('provider-failover');
+    const { db } = setupTestDb('provider-failover');
+    enableTestProviders(db, ['claude-cli', 'ollama']);
     stubTaskSubmissionSideEffects();
   });
 
