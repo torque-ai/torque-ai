@@ -1289,6 +1289,57 @@ describe('factory_status', () => {
     }));
   });
 
+  it('reports disabled project work as the idle reason before waiting work', async () => {
+    await withFactoryProjectWorkDisabled(async () => {
+      const db = rawDb();
+
+      insertFactoryProject(db, {
+        id: 'project-work-disabled-idle',
+        name: 'Work Disabled Idle',
+        status: 'running',
+        trustLevel: 'dark',
+        configJson: JSON.stringify({ loop: { auto_continue: true } }),
+        testDir,
+      });
+      factoryIntake.createWorkItem({
+        project_id: 'project-work-disabled-idle',
+        source: 'manual',
+        title: 'Waiting item while disabled',
+        description: 'Idle diagnosis should surface the project-work kill switch first.',
+        requestor: 'test',
+      });
+
+      const result = await safeTool('factory_status', {});
+
+      expect(result.isError).toBeFalsy();
+      const diagnosis = result.structuredData.summary.idle_diagnosis;
+      expect(diagnosis).toMatchObject({
+        idle: true,
+        reason_code: 'factory_project_work_disabled',
+        message: expect.stringMatching(/project work is globally disabled/i),
+        counts: {
+          running_projects: 1,
+          open_work_items: 1,
+          factory_project_work_enabled: 0,
+          task_queue: {
+            total_non_terminal: 0,
+            schedulable: 0,
+          },
+        },
+      });
+      expect(diagnosis.actions).toContainEqual(expect.objectContaining({
+        type: 'factory_automation_plan',
+        effect_scope: 'control_plane',
+        mutates_control_plane: false,
+        processes_project_work: false,
+        project_ids: ['project-work-disabled-idle'],
+      }));
+      expect(diagnosis.actions).not.toContainEqual(expect.objectContaining({
+        type: 'start_factory_loop',
+      }));
+    });
+  });
+
   it('adds idle diagnosis to lightweight project lists when requested', async () => {
     const db = rawDb();
 

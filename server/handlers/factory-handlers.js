@@ -1302,6 +1302,7 @@ function buildFactoryIdleDiagnosis(projects, taskQueue = null) {
   const pausedProjectIds = projectIdList(projectList, (project) => project.status === 'paused');
   const activeLoopProjectIds = projectIdList(projectList, hasActiveFactoryLoop);
   const pausedActiveLoopProjectIds = projectIdList(projectList, hasPausedActiveFactoryLoop);
+  const projectWorkEnabled = isFactoryProjectWorkEnabled();
   const openWorkItems = projectList.reduce((sum, project) => (
     sum + (Number(project.open_work_item_count) || 0)
   ), 0);
@@ -1313,6 +1314,7 @@ function buildFactoryIdleDiagnosis(projects, taskQueue = null) {
     active_loop_projects: activeLoopProjectIds.length,
     paused_active_loop_projects: pausedActiveLoopProjectIds.length,
     open_work_items: openWorkItems,
+    factory_project_work_enabled: projectWorkEnabled ? 1 : 0,
     task_queue: resolvedTaskQueue,
   };
   const projectIds = {
@@ -1351,6 +1353,10 @@ function buildFactoryIdleDiagnosis(projects, taskQueue = null) {
     reasonCode = 'no_running_projects';
     message = 'No factory projects are running.';
     actions.push(makeControlPlaneIdleAction('Review automation readiness before resuming a project.', pausedProjectIds));
+  } else if (!projectWorkEnabled) {
+    reasonCode = 'factory_project_work_disabled';
+    message = 'Factory project work is globally disabled; armed scheduler ticks will skip registered project work.';
+    actions.push(makeControlPlaneIdleAction('Inspect readiness while project work remains disabled.', runningProjectIds));
   } else if (openWorkItems > 0) {
     reasonCode = 'work_waiting_for_loop';
     message = 'Open factory work items exist, but no loop is currently active.';
