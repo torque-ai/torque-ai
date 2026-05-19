@@ -1923,6 +1923,16 @@ describe('factory_status', () => {
                 count: 1,
               },
             ],
+            oldest_items: [
+              {
+                id: reviewA.id,
+                title: 'Needs review A',
+                priority: 50,
+                reject_reason: 'zero_diff_across_retries',
+                created_at: '2026-05-01T10:00:00.000Z',
+                updated_at: '2026-05-01T11:00:00.000Z',
+              },
+            ],
           },
           {
             project_id: 'project-review-breakdown-b',
@@ -1936,6 +1946,16 @@ describe('factory_status', () => {
               {
                 reject_reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
                 count: 1,
+              },
+            ],
+            oldest_items: [
+              {
+                id: reviewB.id,
+                title: 'Needs review B',
+                priority: 50,
+                reject_reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
+                created_at: '2026-05-02T10:00:00.000Z',
+                updated_at: '2026-05-02T12:00:00.000Z',
               },
             ],
           },
@@ -1953,6 +1973,24 @@ describe('factory_status', () => {
               {
                 reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
                 count: 2,
+              },
+            ],
+            oldest_items: [
+              {
+                id: exhaustedB.id,
+                title: 'Escalation exhausted B',
+                priority: 50,
+                reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
+                created_at: '2026-05-03T10:00:00.000Z',
+                updated_at: '2026-05-03T11:00:00.000Z',
+              },
+              {
+                id: secondExhaustedB.id,
+                title: 'Escalation exhausted B again',
+                priority: 50,
+                reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
+                created_at: '2026-05-04T10:00:00.000Z',
+                updated_at: '2026-05-05T10:00:00.000Z',
               },
             ],
           },

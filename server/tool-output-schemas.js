@@ -126,6 +126,21 @@ const AUTOMATION_MANUAL_INTERVENTION_SCHEMA = {
                   required: ['reject_reason', 'count'],
                 },
               },
+              oldest_items: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'number' },
+                    title: { type: ['string', 'null'] },
+                    priority: { type: 'number' },
+                    reject_reason: { type: ['string', 'null'] },
+                    created_at: { type: ['string', 'null'] },
+                    updated_at: { type: ['string', 'null'] },
+                  },
+                  required: ['id', 'title', 'priority', 'reject_reason', 'created_at', 'updated_at'],
+                },
+              },
             },
             required: ['project_id', 'project_name', 'status', 'count'],
           },
@@ -151,6 +166,21 @@ const AUTOMATION_MANUAL_INTERVENTION_SCHEMA = {
                     count: { type: 'number' },
                   },
                   required: ['reject_reason', 'count'],
+                },
+              },
+              oldest_items: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'number' },
+                    title: { type: ['string', 'null'] },
+                    priority: { type: 'number' },
+                    reject_reason: { type: ['string', 'null'] },
+                    created_at: { type: ['string', 'null'] },
+                    updated_at: { type: ['string', 'null'] },
+                  },
+                  required: ['id', 'title', 'priority', 'reject_reason', 'created_at', 'updated_at'],
                 },
               },
             },

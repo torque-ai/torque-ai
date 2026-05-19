@@ -469,6 +469,48 @@ function getOperatorOwnedQueueStats(project_id) {
   return stats;
 }
 
+function normalizePositiveInteger(value, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+  return Math.max(1, Math.floor(numeric));
+}
+
+function getOperatorOwnedQueuePreview(project_id, { limitPerStatus = 3 } = {}) {
+  if (!project_id) throw new Error('project_id is required');
+  const statuses = ['needs_review', 'escalation_exhausted'];
+  const limit = normalizePositiveInteger(limitPerStatus, 3);
+  const preview = {
+    needs_review: [],
+    escalation_exhausted: [],
+  };
+  const stmt = db.prepare(`
+    SELECT
+      id,
+      title,
+      priority,
+      reject_reason,
+      strftime('%Y-%m-%dT%H:%M:%fZ', created_at) as created_at,
+      strftime('%Y-%m-%dT%H:%M:%fZ', updated_at) as updated_at
+    FROM factory_work_items
+    WHERE project_id = ?
+      AND status = ?
+    ORDER BY strftime('%Y-%m-%dT%H:%M:%fZ', created_at) ASC, id ASC
+    LIMIT ?
+  `);
+
+  for (const status of statuses) {
+    preview[status] = stmt.all(project_id, status, limit).map((row) => ({
+      id: row.id,
+      title: row.title || null,
+      priority: Number.isFinite(Number(row.priority)) ? Number(row.priority) : 0,
+      reject_reason: row.reject_reason || null,
+      created_at: row.created_at || null,
+      updated_at: row.updated_at || null,
+    }));
+  }
+  return preview;
+}
+
 function createFromFindings(project_id, findings, source) {
   const created = [];
   const skipped = [];
@@ -595,6 +637,7 @@ module.exports = {
   getIntakeStats,
   getOperatorOwnedReasonStats,
   getOperatorOwnedQueueStats,
+  getOperatorOwnedQueuePreview,
   createFromFindings,
   VALID_SOURCES,
   VALID_STATUSES,

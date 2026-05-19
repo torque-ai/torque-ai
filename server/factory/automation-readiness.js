@@ -374,6 +374,7 @@ function getCount(counts, key) {
 }
 
 const MAX_REJECT_REASON_COUNTS_PER_BLOCKER = 5;
+const MAX_WORK_ITEM_BLOCKER_PREVIEW_ITEMS = 3;
 
 function normalizeNullableTimestamp(value) {
   if (typeof value !== 'string') return null;
@@ -412,6 +413,28 @@ function normalizeWorkItemBlockerQueueStats(project, status) {
   return Object.values(stats).some(Boolean) ? stats : null;
 }
 
+function normalizeWorkItemBlockerQueuePreview(project, status) {
+  const byStatus = project?._work_item_blocker_queue_preview
+    || project?.work_item_blocker_queue_preview
+    || {};
+  const rows = Array.isArray(byStatus?.[status]) ? byStatus[status] : [];
+  return rows
+    .map((row) => ({
+      id: Number.isFinite(Number(row?.id)) ? Number(row.id) : null,
+      title: typeof row?.title === 'string' && row.title.trim()
+        ? row.title
+        : null,
+      priority: Number.isFinite(Number(row?.priority)) ? Number(row.priority) : 0,
+      reject_reason: typeof row?.reject_reason === 'string' && row.reject_reason.trim()
+        ? row.reject_reason
+        : null,
+      created_at: normalizeNullableTimestamp(row?.created_at),
+      updated_at: normalizeNullableTimestamp(row?.updated_at),
+    }))
+    .filter((row) => row.id !== null)
+    .slice(0, MAX_WORK_ITEM_BLOCKER_PREVIEW_ITEMS);
+}
+
 function makeWorkItemBlockerEntry(project, status, count) {
   const entry = {
     project_id: project?.id || null,
@@ -426,6 +449,10 @@ function makeWorkItemBlockerEntry(project, status, count) {
   const rejectReasonCounts = normalizeRejectReasonCounts(project, status);
   if (rejectReasonCounts.length > 0) {
     entry.reject_reason_counts = rejectReasonCounts;
+  }
+  const oldestItems = normalizeWorkItemBlockerQueuePreview(project, status);
+  if (oldestItems.length > 0) {
+    entry.oldest_items = oldestItems;
   }
   return entry;
 }
