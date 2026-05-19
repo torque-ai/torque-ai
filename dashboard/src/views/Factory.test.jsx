@@ -257,6 +257,40 @@ describe('Factory overview', () => {
     expect(screen.getByText(/0 running .* 1 paused .* 0 open items .* 0 queued/i)).toBeInTheDocument();
   });
 
+  it('labels the global project-work disabled idle state explicitly', () => {
+    const baseShell = useFactoryShell();
+    const diagnosis = {
+      idle: true,
+      reason_code: 'factory_project_work_disabled',
+      message: 'Factory project work is globally disabled; armed scheduler ticks will skip registered project work.',
+      counts: {
+        running_projects: 1,
+        paused_projects: 0,
+        open_work_items: 3,
+        factory_project_work_enabled: 0,
+        task_queue: {
+          total_non_terminal: 0,
+        },
+      },
+    };
+
+    useFactoryShell.mockReturnValue({
+      ...baseShell,
+      idleDiagnosis: diagnosis,
+      outletContext: {
+        ...baseShell.outletContext,
+        idleDiagnosis: diagnosis,
+      },
+    });
+
+    renderFactory();
+
+    expect(screen.getByRole('status', { name: /factory idle diagnosis/i })).toBeInTheDocument();
+    expect(screen.getByText('Project work disabled')).toBeInTheDocument();
+    expect(screen.getByText(/armed scheduler ticks will skip registered project work/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 running .* 0 paused .* 3 open items .* 0 queued/i)).toBeInTheDocument();
+  });
+
   it('surfaces automation readiness blockers above the project grid', () => {
     const baseShell = useFactoryShell();
     const blockedProject = {

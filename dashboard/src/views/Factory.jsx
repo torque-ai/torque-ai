@@ -21,6 +21,7 @@ const IDLE_REASON_TITLES = {
   all_projects_paused: 'All projects paused',
   manual_gate_pending: 'Manual gate pending',
   no_running_projects: 'No running projects',
+  factory_project_work_disabled: 'Project work disabled',
   work_waiting_for_loop: 'Work waiting for a loop',
   queue_empty_no_open_work: 'Queue empty',
 };
