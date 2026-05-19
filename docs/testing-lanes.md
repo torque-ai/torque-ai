@@ -16,8 +16,11 @@ scripts/test-lane.ps1 -Lane auto -Preset server-smoke
 scripts/test-lane.ps1 -Lane 2 -Command "cd server; npx vitest run tests/api-server.test.js"
 ```
 
-Use `-Lane auto` for factory-style runs; it picks the first free lane and exits
-only when all lanes are owned by live processes. Explicit lanes still exit
+Use `-Lane auto` for factory-style runs; it picks the first lane whose lock is
+free and whose configured ports are not already listening. This keeps local
+verification from selecting lane 1 when the live TORQUE server is using the
+default 3456-3459 port block. Auto lane selection exits only when all lanes are
+locked or port-conflicted. Explicit lanes do not probe ports and still exit
 immediately if another live process owns that lane lock. Stale locks whose PID
 is no longer alive are reclaimed automatically.
 
