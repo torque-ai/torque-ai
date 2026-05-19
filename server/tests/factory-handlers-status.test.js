@@ -1645,6 +1645,7 @@ describe('factory_status', () => {
     expect(result.structuredData.summary.automation_readiness).toMatchObject({
       ready: false,
       hands_off_ready: false,
+      blocked_only_by_project_work_disabled: false,
       total_projects: 2,
       ready_projects: 1,
       blocked_projects: 1,
@@ -1752,10 +1753,12 @@ describe('factory_status', () => {
     expect(result.structuredData).toMatchObject({
       ready: true,
       hands_off_ready: false,
+      blocked_only_by_project_work_disabled: false,
       message: expect.stringMatching(/operator-owned work/i),
       summary: {
         ready: true,
         hands_off_ready: false,
+        blocked_only_by_project_work_disabled: false,
         blocked_projects: 0,
         manual_intervention: {
           required: true,
@@ -2137,9 +2140,11 @@ describe('factory_status', () => {
       expect(result.structuredData).toMatchObject({
         ready: true,
         hands_off_ready: false,
+        blocked_only_by_project_work_disabled: false,
         summary: {
           ready: true,
           hands_off_ready: false,
+          blocked_only_by_project_work_disabled: false,
           project_work_enabled: false,
           manual_intervention: {
             required: true,
@@ -2161,6 +2166,39 @@ describe('factory_status', () => {
             },
           },
         ],
+      });
+
+      const armResult = await safeTool('arm_factory_tick', { project: 'project-work-disabled-ready' });
+      expect(armResult.isError).toBeFalsy();
+      expect(armResult.structuredData).toMatchObject({
+        tick_active: true,
+        immediate_tick: false,
+        processes_project_work: false,
+      });
+
+      const armedPlan = await safeTool('factory_automation_plan', {});
+      expect(armedPlan.isError).toBeFalsy();
+      expectStructuredDataConformsToOutputSchema('factory_automation_plan', armedPlan.structuredData);
+      expect(armedPlan.structuredData).toMatchObject({
+        ready: true,
+        hands_off_ready: false,
+        blocked_only_by_project_work_disabled: true,
+        message: expect.stringMatching(/project work is globally disabled/i),
+        summary: {
+          ready: true,
+          hands_off_ready: false,
+          blocked_only_by_project_work_disabled: true,
+          project_work_enabled: false,
+          manual_intervention: {
+            required: true,
+            reason_codes: ['factory_project_work_disabled'],
+            counts: {
+              factory_project_work_enabled: 0,
+              scheduler_unarmed_projects: 0,
+            },
+          },
+        },
+        control_plane_plan: [],
       });
     });
   });
@@ -2385,6 +2423,7 @@ describe('factory_status', () => {
     expect(result.structuredData).toMatchObject({
       ready: false,
       hands_off_ready: false,
+      blocked_only_by_project_work_disabled: false,
       scope: {
         project: null,
         status: null,

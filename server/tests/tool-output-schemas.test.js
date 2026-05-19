@@ -159,6 +159,7 @@ describe('tool-output-schemas', () => {
       expect(statusSchema.properties.summary.properties.needs_review_work_items).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.control_plane_plan).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.hands_off_ready).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.blocked_only_by_project_work_disabled).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.counts.properties.scheduler_unarmed_projects).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.auto_recovery_coverage).toBeDefined();
@@ -211,8 +212,11 @@ describe('tool-output-schemas', () => {
       expect(planSchema.properties.summary).toBeDefined();
       expect(planSchema.required).toContain('message');
       expect(planSchema.required).toContain('hands_off_ready');
+      expect(planSchema.required).toContain('blocked_only_by_project_work_disabled');
       expect(planSchema.required).toContain('manual_intervention');
+      expect(planSchema.properties.blocked_only_by_project_work_disabled).toBeDefined();
       expect(planSchema.properties.summary.properties.hands_off_ready).toBeDefined();
+      expect(planSchema.properties.summary.properties.blocked_only_by_project_work_disabled).toBeDefined();
       expect(planSchema.properties.summary.properties.manual_intervention).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.counts.properties.scheduler_unarmed_projects).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.auto_recovery_coverage).toBeDefined();

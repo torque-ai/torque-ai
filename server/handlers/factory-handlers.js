@@ -1819,7 +1819,9 @@ function buildFactoryAutomationPlanData(args = {}) {
     : (summary.ready
       ? (summary.hands_off_ready
         ? 'Factory automation controls are ready for the requested scope.'
-        : 'Factory automation controls are ready, but operator-owned work or scheduler arming still needs intervention.')
+        : (summary.blocked_only_by_project_work_disabled
+          ? 'Factory automation controls are ready, but project work is globally disabled.'
+          : 'Factory automation controls are ready, but operator-owned work or scheduler arming still needs intervention.'))
       : `${summary.blocked_projects} project${summary.blocked_projects === 1 ? '' : 's'} need control-plane changes before hands-off cycling.`);
 
   const publicVisibleProjects = visibleProjects.map(stripFactoryAutomationPrivateFields);
@@ -1827,6 +1829,7 @@ function buildFactoryAutomationPlanData(args = {}) {
   return {
     ready: summary.ready,
     hands_off_ready: summary.hands_off_ready,
+    blocked_only_by_project_work_disabled: summary.blocked_only_by_project_work_disabled,
     message,
     scope: {
       project: args.project || null,

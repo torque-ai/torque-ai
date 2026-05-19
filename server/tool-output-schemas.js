@@ -265,6 +265,7 @@ const AUTOMATION_READINESS_SUMMARY_SCHEMA = {
   properties: {
     ready: { type: 'boolean' },
     hands_off_ready: { type: 'boolean' },
+    blocked_only_by_project_work_disabled: { type: 'boolean' },
     total_projects: { type: 'number' },
     ready_projects: { type: 'number' },
     blocked_projects: { type: 'number' },
@@ -287,7 +288,7 @@ const AUTOMATION_READINESS_SUMMARY_SCHEMA = {
     control_plane_plan: { type: 'array', items: AUTOMATION_CONTROL_PLANE_STEP_SCHEMA },
     manual_intervention: AUTOMATION_MANUAL_INTERVENTION_SCHEMA,
   },
-  required: ['ready', 'hands_off_ready', 'total_projects', 'ready_projects', 'blocked_projects', 'project_work_enabled', 'blockers', 'project_ids', 'control_plane_plan', 'manual_intervention'],
+  required: ['ready', 'hands_off_ready', 'blocked_only_by_project_work_disabled', 'total_projects', 'ready_projects', 'blocked_projects', 'project_work_enabled', 'blockers', 'project_ids', 'control_plane_plan', 'manual_intervention'],
 };
 
 const AUTOMATION_APPLY_STEP_SCHEMA = {
@@ -688,6 +689,7 @@ const OUTPUT_SCHEMAS = {
     properties: {
       ready: { type: 'boolean' },
       hands_off_ready: { type: 'boolean' },
+      blocked_only_by_project_work_disabled: { type: 'boolean' },
       message: { type: 'string' },
       scope: {
         type: 'object',
@@ -709,7 +711,7 @@ const OUTPUT_SCHEMAS = {
         items: FACTORY_PROJECT_SUMMARY_SCHEMA,
       },
     },
-    required: ['ready', 'hands_off_ready', 'message', 'scope', 'summary', 'work_item_status_counts', 'needs_review_work_items', 'needs_replan_work_items', 'manual_intervention', 'control_plane_plan', 'projects'],
+    required: ['ready', 'hands_off_ready', 'blocked_only_by_project_work_disabled', 'message', 'scope', 'summary', 'work_item_status_counts', 'needs_review_work_items', 'needs_replan_work_items', 'manual_intervention', 'control_plane_plan', 'projects'],
   },
 
   apply_factory_automation_plan: {

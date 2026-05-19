@@ -752,6 +752,15 @@ function makeArmFactoryTickStep(project) {
   );
 }
 
+function isBlockedOnlyByProjectWorkDisabled(readiness, manualIntervention) {
+  const reasonCodes = Array.isArray(manualIntervention?.reason_codes)
+    ? manualIntervention.reason_codes
+    : [];
+  return readiness?.ready === true
+    && reasonCodes.length === 1
+    && reasonCodes[0] === 'factory_project_work_disabled';
+}
+
 function buildFactoryAutomationReadiness(projects, options = {}) {
   const projectList = Array.isArray(projects) ? projects : [];
   const blockerCounts = {};
@@ -816,6 +825,7 @@ function buildFactoryAutomationReadiness(projects, options = {}) {
       ...schedulerControlPlanePlan,
     ],
     hands_off_ready: readiness.ready && !manualIntervention.required,
+    blocked_only_by_project_work_disabled: isBlockedOnlyByProjectWorkDisabled(readiness, manualIntervention),
     manual_intervention: manualIntervention,
   };
 }
