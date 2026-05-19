@@ -2,7 +2,7 @@
 
 import { describe, expect, it, beforeEach } from 'vitest';
 
-const { setupTestDbOnly, teardownTestDb } = require('./vitest-setup');
+const { setupTestDbOnly } = require('./vitest-setup');
 const { createCandidatePatches } = require('../validation/candidate-patches');
 
 let db;
@@ -108,7 +108,7 @@ describe('candidate-patches CRUD', () => {
 
   it('recordCandidate truncates verifyOutput longer than 8000 chars', () => {
     const longOutput = 'x'.repeat(10000);
-    const id = svc.recordCandidate({
+    svc.recordCandidate({
       taskId: 50,
       attempt: 1,
       validatorScore: 0.5,

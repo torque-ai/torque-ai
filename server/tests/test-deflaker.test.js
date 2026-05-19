@@ -196,7 +196,6 @@ describe('createTestDeflaker CRUD', () => {
 // ── Describe block 2: auto-verify-retry flaky integration ──────────────────
 
 describe('auto-verify-retry flaky integration', () => {
-  let db;      // database facade
   let handle;  // raw better-sqlite3 instance
 
   beforeAll(() => {
@@ -211,7 +210,7 @@ describe('auto-verify-retry flaky integration', () => {
   beforeEach(() => {
     handle = rawDb();
     handle.prepare('DELETE FROM test_outcomes').run();
-    db = require('./helpers/database-facade');
+    require('./helpers/database-facade');
   });
 
   afterEach(() => {

@@ -876,6 +876,7 @@ describe('tools.js live registry integration', () => {
     ['register_specialist', 'handleRegisterSpecialist'],
     ['route_turn', 'handleRouteTurn'],
     ['get_session_history', 'handleGetSessionHistory'],
+    ['reopen_workflow', 'handleReopenWorkflow'],
     ['resume_workflow', 'handleResumeWorkflow'],
     ['resume_all_workflows', 'handleResumeAllWorkflows'],
   ])('contains %s routed to %s', (toolName, handlerName) => {
@@ -901,8 +902,9 @@ describe('tools.js live registry integration', () => {
     ]));
   });
 
-  it('includes workflow resume MCP tool defs in the live TOOLS catalog', () => {
+  it('includes workflow recovery MCP tool defs in the live TOOLS catalog', () => {
     expect(getToolNames()).toEqual(expect.arrayContaining([
+      'reopen_workflow',
       'resume_workflow',
       'resume_all_workflows',
     ]));

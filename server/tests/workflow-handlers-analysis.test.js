@@ -789,21 +789,23 @@ describe('Workflow Handlers', () => {
     });
 
     it('times out quickly for workflow with no terminal tasks', async () => {
+      const startSpy = mockWorkflowTaskStartsAsQueued();
       const wfId = createWorkflowDirect('await-timeout-wf').id;
       await safeTool('add_workflow_task', {
         workflow_id: wfId, node_id: 'at-a', task_description: 'Await timeout A'
       });
       await safeTool('run_workflow', { workflow_id: wfId });
+      expect(startSpy).toHaveBeenCalledTimes(1);
 
       const result = await safeTool('await_workflow', {
         workflow_id: wfId,
         timeout_minutes: 0.01,
         poll_interval_ms: 1000
       });
-      // Should either timeout or return a task
       expect(result.isError).toBeFalsy();
       const text = getText(result);
-      expect(text.length).toBeGreaterThan(0);
+      expect(text).toContain('Workflow Timed Out');
+      expect(text).toContain('await-timeout-wf');
     });
 
     it('returns completed task when all tasks are already terminal', async () => {
@@ -1138,9 +1140,11 @@ describe('Workflow Handlers', () => {
       // Verify workflow is now running
       const updatedWf = db.getWorkflow(wf.id);
       expect(updatedWf.status).toBe('running');
+      expect(updatedWf.total_tasks).toBe(1);
+      expect(updatedWf.completed_tasks).toBe(0);
     });
 
-    it('re-opens a failed workflow when task is added', async () => {
+    it('re-opens a failed workflow and refreshes task counts when task is added', async () => {
       const wf = createWorkflowDirect('reopen-failed-wf', { status: 'failed' });
 
       const result = await safeTool('add_workflow_task', {
@@ -1152,6 +1156,8 @@ describe('Workflow Handlers', () => {
 
       const updatedWf = db.getWorkflow(wf.id);
       expect(updatedWf.status).toBe('running');
+      expect(updatedWf.total_tasks).toBe(1);
+      expect(updatedWf.failed_tasks).toBe(0);
     });
   });
 

@@ -600,6 +600,12 @@ describe('workflow-advanced handlers', () => {
 
       const updateStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation(() => {});
       const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      const updateCountsSpy = vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue({
+        total_tasks: 4,
+        completed_tasks: 1,
+        failed_tasks: 0,
+        skipped_tasks: 0,
+      });
       vi.spyOn(taskManager, 'startTask').mockImplementation(() => {});
 
       const result = handlers.handleReopenWorkflow({ workflow_id: 'wf-1' });
@@ -615,6 +621,7 @@ describe('workflow-advanced handlers', () => {
         status: 'running',
         completed_at: null,
       }));
+      expect(updateCountsSpy).toHaveBeenCalledWith('wf-1');
       expect(textOf(result)).toContain('Workflow Reopened');
       expect(textOf(result)).toContain('**Tasks Reset:** 3');
     });
@@ -634,6 +641,12 @@ describe('workflow-advanced handlers', () => {
 
       const updateStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation(() => {});
       vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue({
+        total_tasks: 2,
+        completed_tasks: 0,
+        failed_tasks: 0,
+        skipped_tasks: 0,
+      });
       vi.spyOn(taskManager, 'startTask').mockImplementation(() => {});
 
       const result = handlers.handleReopenWorkflow({ workflow_id: 'wf-1' });
@@ -654,6 +667,12 @@ describe('workflow-advanced handlers', () => {
       vi.spyOn(workflowEngine, 'getWorkflowDependencies').mockReturnValue([]);
       vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation(() => {});
       vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue({
+        total_tasks: 1,
+        completed_tasks: 0,
+        failed_tasks: 0,
+        skipped_tasks: 0,
+      });
       vi.spyOn(taskManager, 'startTask').mockImplementation(() => {});
 
       const result = handlers.handleReopenWorkflow({ workflow_id: 'wf-1' });

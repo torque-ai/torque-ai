@@ -58,6 +58,8 @@ function setup() {
   db.setConfig('hyperbolic_enabled', '0');
   db.setConfig('openrouter_enabled', '0');
   db.setConfig('ollama_cloud_enabled', '0');
+  db.setConfig('ollama_enabled', '1');
+  db.updateProvider('ollama', { enabled: 1, max_concurrent: 8 });
 }
 
 async function cleanup() {
@@ -263,7 +265,10 @@ describe('slot enforcement (via startTask)', () => {
       taskId,
       task,
     }));
-    const id = createTask({ provider: 'claude-cli' });
+    const id = createTask({
+      provider: 'claude-cli',
+      metadata: JSON.stringify({ user_provider_override: true }),
+    });
     const result = await tm.startTask(id);
     const task = db.getTask(id);
 
@@ -315,7 +320,10 @@ describe('safeStartTask requeue accounting', () => {
     db.setConfig('budget_check_enabled', '0');
     db.updateProvider('claude-cli', { enabled: 0 });
 
-    const id = createTask({ provider: 'claude-cli' });
+    const id = createTask({
+      provider: 'claude-cli',
+      metadata: JSON.stringify({ user_provider_override: true }),
+    });
     const result = tm.safeStartTask(id, 'test');
     const task = db.getTask(id);
 
@@ -1302,7 +1310,7 @@ describe('provider slot concurrency enforcement (via startTask)', () => {
     const id = createTask({ provider: 'claude-cli' });
     db.updateProvider('claude-cli', { enabled: 1, max_concurrent: 5 });
 
-    const result = await tm.startTask(id);
+    await tm.startTask(id);
 
     expect(spawnSpy).toHaveBeenCalledTimes(1);
     expect(db.getTask(id).status).toBe('running');
@@ -1607,7 +1615,10 @@ describe('task status transitions (via startTask)', () => {
     db.updateProvider('claude-cli', { enabled: 0 });
     const spawnSpy = vi.spyOn(processLifecycle, 'spawnAndTrackProcess');
 
-    const id = createTask({ provider: 'claude-cli' });
+    const id = createTask({
+      provider: 'claude-cli',
+      metadata: JSON.stringify({ user_provider_override: true }),
+    });
     const result = await tm.startTask(id);
 
     expect(result.queued).toBe(true);

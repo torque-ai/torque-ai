@@ -1580,13 +1580,15 @@ function handleAddWorkflowTask(args) {
     }
   }
 
-  // Update workflow task count
-  workflowEngine.updateWorkflowCounts(args.workflow_id);
-
   // Re-open completed/failed workflows when new tasks are added (extends the workflow)
-  if (['completed', 'failed'].includes(workflow.status)) {
+  const workflowWasTerminal = ['completed', 'failed'].includes(workflow.status);
+  if (workflowWasTerminal) {
     workflowEngine.updateWorkflow(args.workflow_id, { status: 'running', completed_at: null });
   }
+
+  // Update workflow task count after any re-open so terminal-status guards do
+  // not leave the workflow with stale task totals.
+  workflowEngine.updateWorkflowCounts(args.workflow_id);
 
   // If workflow is running or completed, auto-start the new task when possible
   // (completed workflows get extended when new tasks are added mid-review)

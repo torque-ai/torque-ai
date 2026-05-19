@@ -548,6 +548,7 @@ function handleReopenWorkflow(args) {
     completed_at: null,
     context: { ...currentCtx, acknowledged_tasks: [] },
   });
+  workflowEngine.updateWorkflowCounts(args.workflow_id);
 
   // Start tasks that are now pending.
   const freshTasks = workflowEngine.getWorkflowTasks(args.workflow_id);

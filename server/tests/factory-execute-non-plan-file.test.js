@@ -394,7 +394,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     const currentPath = path.join(projectDir, '.factory-worktrees', 'current-item');
     fs.mkdirSync(otherPath, { recursive: true });
     initializeCleanGitWorktree(currentPath);
-    const worktreeRow = factoryWorktrees.recordWorktree({
+    factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
       batch_id: batchId,
@@ -483,7 +483,7 @@ describe('factory loop-controller EXECUTE for non-plan-file work items', () => {
     const batchId = `factory-${project.id}-shared`;
     const currentPath = path.join(projectDir, '.factory-worktrees', 'current-item-stale');
     initializeCleanGitWorktree(currentPath);
-    const worktreeRow = factoryWorktrees.recordWorktree({
+    factoryWorktrees.recordWorktree({
       project_id: project.id,
       work_item_id: workItem.id,
       batch_id: batchId,

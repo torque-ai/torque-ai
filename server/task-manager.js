@@ -4,6 +4,7 @@
  *
  * Note: Uses spawn() (not exec()) for security - no shell injection possible
  */
+/* eslint-disable no-unused-vars -- Legacy task-manager keeps DI/export shims while callers finish migrating to container services. */
 
 // spawn moved to execution/process-lifecycle.js (D4.3)
 const crypto = require('crypto');
@@ -1094,7 +1095,6 @@ try {
 Object.assign(module.exports, {
   startTask,
   cancelTask,
-  stopTaskForRestart,
   markTaskCleanedUp,
   processQueue,
   // stopTaskForRestart was MIA from the export block prior to 2026-05-06 even

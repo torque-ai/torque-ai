@@ -11,7 +11,6 @@
  * Factory shape: createFaultLocalization({ db, logger }) → { rankSuspiciousFiles, extractFailingTestFiles, formatLocalizationContext }
  */
 
-const path = require('path');
 const defaultLogger = require('../logger').child({ component: 'fault-localization' });
 
 // ---------------------------------------------------------------------------
@@ -284,7 +283,7 @@ function createFaultLocalization(deps = {}) {
    * @param {{ taskId?: string, verifyOutput: string, workingDirectory?: string }}
    * @returns {Array<{ filePath: string, score: number, failedTests: number, passedTests: number }>}
    */
-  function rankSuspiciousFiles({ taskId, verifyOutput, workingDirectory } = {}) {
+  function rankSuspiciousFiles({ taskId, verifyOutput, workingDirectory: _workingDirectory } = {}) {
     const { perFile, totalFailed } = parseTestOutput(verifyOutput);
 
     // If structured parsing found nothing, fall back to stack-trace
