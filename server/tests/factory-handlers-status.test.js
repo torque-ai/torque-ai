@@ -1915,7 +1915,6 @@ describe('factory_status', () => {
       required: true,
       reason_codes: expect.arrayContaining([
         'work_items_need_review',
-        'work_items_escalation_exhausted',
       ]),
       counts: {
         needs_review_work_items: 2,
@@ -2112,6 +2111,8 @@ describe('factory_status', () => {
         ],
       },
     });
+    expect(result.structuredData.summary.manual_intervention.reason_codes)
+      .not.toContain('work_items_escalation_exhausted');
     expect(result.structuredData.summary.control_plane_plan.every(
       (step) => step.processes_project_work === false
     )).toBe(true);

@@ -531,6 +531,10 @@ function buildAutoRecoveryCoverage(workItemBlockers) {
   };
 }
 
+function hasManualWorkItemBlockers(totalCount, coverage) {
+  return totalCount > 0 && coverage?.fully_covered !== true;
+}
+
 function normalizeWorkItemBlockerQueueStats(project, status) {
   const byStatus = project?._work_item_blocker_queue_stats
     || project?.work_item_blocker_queue_stats
@@ -652,14 +656,19 @@ function buildManualInterventionSummary(projects, readiness, taskQueue = null, s
   const approvalGatedProjects = getCount(readiness, 'approval_gated_projects');
   const blockedProjects = getCount(readiness, 'blocked_projects');
   const reasonCodes = [];
+  const autoRecoveryCoverage = buildAutoRecoveryCoverage(workItemBlockers);
 
   if (!projectWorkEnabled) reasonCodes.push('factory_project_work_disabled');
   if (blockedProjects > 0) reasonCodes.push('control_plane_blocked');
   if (operatorPausedProjects > 0) reasonCodes.push('operator_paused_projects');
   if (approvalGatedProjects > 0) reasonCodes.push('approval_gates_enabled');
   if (pendingApprovalTasks > 0) reasonCodes.push('task_approval_pending');
-  if (needsReviewWorkItems > 0) reasonCodes.push('work_items_need_review');
-  if (escalationExhaustedWorkItems > 0) reasonCodes.push('work_items_escalation_exhausted');
+  if (hasManualWorkItemBlockers(needsReviewWorkItems, autoRecoveryCoverage.needs_review)) {
+    reasonCodes.push('work_items_need_review');
+  }
+  if (hasManualWorkItemBlockers(escalationExhaustedWorkItems, autoRecoveryCoverage.escalation_exhausted)) {
+    reasonCodes.push('work_items_escalation_exhausted');
+  }
   if (schedulerUnarmedProjectIds.length > 0) reasonCodes.push('factory_tick_unarmed');
 
   return {
@@ -682,7 +691,7 @@ function buildManualInterventionSummary(projects, readiness, taskQueue = null, s
       needs_review: workItemBlockers.needs_review.slice(0, 20),
       escalation_exhausted: workItemBlockers.escalation_exhausted.slice(0, 20),
     },
-    auto_recovery_coverage: buildAutoRecoveryCoverage(workItemBlockers),
+    auto_recovery_coverage: autoRecoveryCoverage,
   };
 }
 
