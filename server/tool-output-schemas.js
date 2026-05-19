@@ -13,6 +13,73 @@ const WORK_ITEM_STATUS_COUNTS_SCHEMA = {
   additionalProperties: { type: 'number' },
 };
 
+const FACTORY_TASK_QUEUE_STATUS_COUNTS_SCHEMA = {
+  type: 'object',
+  properties: {
+    running: { type: 'number' },
+    queued: { type: 'number' },
+    pending: { type: 'number' },
+    waiting: { type: 'number' },
+    blocked: { type: 'number' },
+    pending_provider_switch: { type: 'number' },
+    retry_scheduled: { type: 'number' },
+    pending_approval: { type: 'number' },
+  },
+  required: [
+    'running',
+    'queued',
+    'pending',
+    'waiting',
+    'blocked',
+    'pending_provider_switch',
+    'retry_scheduled',
+    'pending_approval',
+  ],
+  additionalProperties: { type: 'number' },
+};
+
+const FACTORY_TASK_QUEUE_COUNTS_SCHEMA = {
+  type: 'object',
+  properties: {
+    by_status: FACTORY_TASK_QUEUE_STATUS_COUNTS_SCHEMA,
+    total_non_terminal: { type: 'number' },
+    schedulable: { type: 'number' },
+    project_paused_waiting: { type: 'number' },
+    manual_gate_pending: { type: 'number' },
+  },
+  required: [
+    'by_status',
+    'total_non_terminal',
+    'schedulable',
+    'project_paused_waiting',
+    'manual_gate_pending',
+  ],
+};
+
+const FACTORY_IDLE_DIAGNOSIS_COUNTS_SCHEMA = {
+  type: 'object',
+  properties: {
+    total_projects: { type: 'number' },
+    running_projects: { type: 'number' },
+    paused_projects: { type: 'number' },
+    active_loop_projects: { type: 'number' },
+    paused_active_loop_projects: { type: 'number' },
+    open_work_items: { type: 'number' },
+    factory_project_work_enabled: { type: 'number' },
+    task_queue: FACTORY_TASK_QUEUE_COUNTS_SCHEMA,
+  },
+  required: [
+    'total_projects',
+    'running_projects',
+    'paused_projects',
+    'active_loop_projects',
+    'paused_active_loop_projects',
+    'open_work_items',
+    'factory_project_work_enabled',
+    'task_queue',
+  ],
+};
+
 const AUTOMATION_BLOCKER_SCHEMA = {
   type: 'object',
   properties: {
@@ -336,7 +403,7 @@ const FACTORY_IDLE_DIAGNOSIS_SCHEMA = {
     idle: { type: 'boolean' },
     reason_code: { type: 'string' },
     message: { type: 'string' },
-    counts: { type: 'object', additionalProperties: true },
+    counts: FACTORY_IDLE_DIAGNOSIS_COUNTS_SCHEMA,
     project_ids: {
       type: 'object',
       additionalProperties: {

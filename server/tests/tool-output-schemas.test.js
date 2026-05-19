@@ -150,11 +150,20 @@ describe('tool-output-schemas', () => {
       const factoryAutomationPlanDef = factoryDefs.find((def) => def.name === 'factory_automation_plan');
       const applyFactoryAutomationPlanDef = factoryDefs.find((def) => def.name === 'apply_factory_automation_plan');
       const armFactoryTickDef = factoryDefs.find((def) => def.name === 'arm_factory_tick');
+      const statusIdleDiagnosisSchema = statusSchema.properties.summary.properties.idle_diagnosis;
+      const statusIdleCountsSchema = statusIdleDiagnosisSchema.properties.counts;
+      const listIdleCountsSchema = listSchema.properties.idle_diagnosis.properties.counts;
 
       expect(statusSchema.properties.summary.properties.automation_readiness).toBeDefined();
       expect(statusSchema.properties.summary.properties.idle_diagnosis).toBeDefined();
       expect(statusSchema.properties.summary.properties.idle_diagnosis.properties.actions.items.properties.processes_project_work).toBeDefined();
       expect(statusSchema.properties.summary.properties.idle_diagnosis.properties.actions.items.properties.effect_scope).toBeDefined();
+      expect(statusIdleCountsSchema.properties.factory_project_work_enabled).toBeDefined();
+      expect(statusIdleCountsSchema.properties.task_queue.properties.schedulable).toBeDefined();
+      expect(statusIdleCountsSchema.properties.task_queue.properties.by_status.properties.pending_approval).toBeDefined();
+      expect(statusIdleCountsSchema.required).toContain('factory_project_work_enabled');
+      expect(statusIdleCountsSchema.properties.task_queue.required).toContain('schedulable');
+      expect(statusIdleCountsSchema.properties.task_queue.properties.by_status.required).toContain('pending_approval');
       expect(statusSchema.properties.summary.properties.work_item_status_counts).toBeDefined();
       expect(statusSchema.properties.summary.properties.needs_review_work_items).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.control_plane_plan).toBeDefined();
@@ -207,6 +216,8 @@ describe('tool-output-schemas', () => {
       });
       expect(listSchema.properties.automation_readiness).toBeDefined();
       expect(listSchema.properties.idle_diagnosis.properties.actions.items.properties.processes_project_work).toBeDefined();
+      expect(listIdleCountsSchema.properties.factory_project_work_enabled).toBeDefined();
+      expect(listIdleCountsSchema.properties.task_queue.properties.by_status.properties.retry_scheduled).toBeDefined();
       expect(listSchema.properties.projects.items.properties.automation_readiness).toBeDefined();
       expect(listSchema.properties.projects.items.properties.automation_readiness.properties.control_plane_plan).toBeDefined();
       expect(planSchema.properties.summary).toBeDefined();
