@@ -385,6 +385,50 @@ function runShellCommand(command, options = {}) {
   return lastResult;
 }
 
+function formatLogDetails(details) {
+  if (!details || typeof details !== 'object') return '';
+  try {
+    return ` ${JSON.stringify(details)}`;
+  } catch {
+    return '';
+  }
+}
+
+function makeLaneDependencyLogger(stream = process.stderr) {
+  const write = (level, message, details) => {
+    stream.write(`[test-lane] ${level}: ${message}${formatLogDetails(details)}\n`);
+  };
+  return {
+    info: (message, details) => write('info', message, details),
+    warn: (message, details) => write('warn', message, details),
+  };
+}
+
+function defaultPrepareWorktreeVerifyDependencies(cwd, logger) {
+  try {
+    const helper = require('../server/utils/worktree-verify-deps');
+    if (typeof helper.prepareWorktreeVerifyDependencies !== 'function') {
+      return { prepared: false, reason: 'helper_missing', packages: [] };
+    }
+    return helper.prepareWorktreeVerifyDependencies(cwd, logger);
+  } catch (error) {
+    if (logger && typeof logger.warn === 'function') {
+      logger.warn('worktree dependency preflight unavailable', {
+        cwd,
+        error: error && error.message ? error.message : String(error),
+      });
+    }
+    return { prepared: false, reason: 'helper_unavailable', packages: [] };
+  }
+}
+
+function prepareSelectedCommandDependencies(selected, options = {}) {
+  const prepare = options.prepareWorktreeVerifyDependencies || defaultPrepareWorktreeVerifyDependencies;
+  const logger = options.logger || makeLaneDependencyLogger();
+  const cwd = selected?.cwd || repoRootFromScript();
+  return prepare(cwd, logger);
+}
+
 function parseArgs(argv) {
   const parsed = { lane: 'auto', preset: null, command: null, commandBase64: null, file: null, root: null, printEnv: false };
   for (let i = 0; i < argv.length; i += 1) {
@@ -406,7 +450,7 @@ function parseArgs(argv) {
   return parsed;
 }
 
-function main(argv = process.argv.slice(2)) {
+function main(argv = process.argv.slice(2), options = {}) {
   const args = parseArgs(argv);
   if (args.command && args.commandBase64) {
     throw new Error('Use only one of --command or --command-base64.');
@@ -441,6 +485,11 @@ function main(argv = process.argv.slice(2)) {
     return 0;
   }
 
+  prepareSelectedCommandDependencies(selected, {
+    prepareWorktreeVerifyDependencies: options.prepareWorktreeVerifyDependencies,
+    logger: options.logger,
+  });
+
   const { config, release } = acquireSelectedLaneLock(args.lane, {
     root: args.root,
     command: selected.command,
@@ -453,7 +502,7 @@ function main(argv = process.argv.slice(2)) {
     process.stderr.write(`[test-lane] lane=${config.lane} data=${config.dataDir}\n`);
     process.stderr.write(`[test-lane] ports dashboard=${config.dashboardPort} api=${config.apiPort} mcp=${config.mcpPort} gateway=${config.mcpGatewayPort} gpu=${config.gpuMetricsPort} coord=${config.coordPort} vite=${config.dashboardDevPort}\n`);
     process.stderr.write(`[test-lane] command=${selected.command}\n`);
-    const result = runShellCommand(selected.command, { cwd: selected.cwd, env });
+    const result = (options.runShellCommand || runShellCommand)(selected.command, { cwd: selected.cwd, env });
     if (result.error) throw result.error;
     return result.status == null ? 1 : result.status;
   } finally {
@@ -484,8 +533,10 @@ module.exports = {
   normalizeServerVitestCommand,
   isPidAlive,
   isAutoLane,
+  main,
   normalizeRootScopedRequirePaths,
   parseArgs,
+  prepareSelectedCommandDependencies,
   releaseLaneLock,
   resolveLaneConfig,
   runShellCommand,

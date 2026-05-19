@@ -69,6 +69,14 @@ The default lane root is `C:\tmp\torque-test-lanes` on Windows and
 
 Running tests without the launcher keeps the existing defaults.
 
+When the launcher runs from a repo-managed worktree under `.worktrees/`, it
+prepares package dependencies before claiming a lane by using the existing
+`server/utils/worktree-verify-deps.js` helper. Missing or incomplete
+`node_modules` directories for the root, `server`, and `dashboard` packages are
+linked from the main checkout when possible, including missing package bin
+shims. This prevents false local failures such as `vitest` not being found in a
+fresh feature worktree.
+
 ## Factory Verification
 
 When the TORQUE factory verifies a project that contains `scripts/test-lane.js`,

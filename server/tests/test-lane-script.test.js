@@ -11,9 +11,11 @@ const {
   getPresetCommand,
   isAutoLane,
   isFocusedVitestCoverageCommand,
+  main,
   normalizeRootScopedRequirePaths,
   normalizeServerVitestCommand,
   parseArgs,
+  prepareSelectedCommandDependencies,
   releaseLaneLock,
   resolveLaneConfig,
   unavailableLanePorts,
@@ -198,6 +200,41 @@ describe('test-lane script helpers', () => {
 
     expect(config.lane).toBe(1);
     expect(release()).toBe(true);
+  });
+
+  test('prepares dependencies for the selected command cwd', () => {
+    const selected = { cwd: 'C:\\repo\\torque-public\\.worktrees\\feat-x\\server', command: 'npm test' };
+    const logger = { info: vi.fn(), warn: vi.fn() };
+    const result = { prepared: true, packages: [] };
+    const prepareWorktreeVerifyDependencies = vi.fn(() => result);
+
+    expect(prepareSelectedCommandDependencies(selected, {
+      logger,
+      prepareWorktreeVerifyDependencies,
+    })).toBe(result);
+    expect(prepareWorktreeVerifyDependencies).toHaveBeenCalledWith(selected.cwd, logger);
+  });
+
+  test('main prepares dependencies before acquiring a lane and running the command', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-lane-main-deps-'));
+    const logger = { info: vi.fn(), warn: vi.fn() };
+    const prepareWorktreeVerifyDependencies = vi.fn(() => ({ prepared: false, reason: 'not_managed_worktree', packages: [] }));
+    const runShellCommand = vi.fn(() => ({ status: 0 }));
+
+    const status = main(['--lane', '1', '--root', root, '--command', 'node -e "process.exit(0)"'], {
+      logger,
+      prepareWorktreeVerifyDependencies,
+      runShellCommand,
+    });
+
+    expect(status).toBe(0);
+    expect(prepareWorktreeVerifyDependencies).toHaveBeenCalledTimes(1);
+    expect(runShellCommand).toHaveBeenCalledWith(
+      'node -e "process.exit(0)"',
+      expect.objectContaining({
+        env: expect.objectContaining({ TORQUE_TEST_LANE: '1' }),
+      })
+    );
   });
 
   test('parses launcher arguments and resolves presets', () => {
