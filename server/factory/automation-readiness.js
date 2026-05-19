@@ -375,6 +375,12 @@ function getCount(counts, key) {
 
 const MAX_REJECT_REASON_COUNTS_PER_BLOCKER = 5;
 
+function normalizeNullableTimestamp(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
 function normalizeRejectReasonCounts(project, status) {
   const byStatus = project?._work_item_blocker_reason_counts
     || project?.work_item_blocker_reason_counts
@@ -391,6 +397,21 @@ function normalizeRejectReasonCounts(project, status) {
     .slice(0, MAX_REJECT_REASON_COUNTS_PER_BLOCKER);
 }
 
+function normalizeWorkItemBlockerQueueStats(project, status) {
+  const byStatus = project?._work_item_blocker_queue_stats
+    || project?.work_item_blocker_queue_stats
+    || {};
+  const row = byStatus?.[status];
+  if (!row || typeof row !== 'object') return null;
+
+  const stats = {
+    oldest_created_at: normalizeNullableTimestamp(row.oldest_created_at),
+    oldest_updated_at: normalizeNullableTimestamp(row.oldest_updated_at),
+    newest_updated_at: normalizeNullableTimestamp(row.newest_updated_at),
+  };
+  return Object.values(stats).some(Boolean) ? stats : null;
+}
+
 function makeWorkItemBlockerEntry(project, status, count) {
   const entry = {
     project_id: project?.id || null,
@@ -398,6 +419,10 @@ function makeWorkItemBlockerEntry(project, status, count) {
     status,
     count,
   };
+  const queueStats = normalizeWorkItemBlockerQueueStats(project, status);
+  if (queueStats) {
+    Object.assign(entry, queueStats);
+  }
   const rejectReasonCounts = normalizeRejectReasonCounts(project, status);
   if (rejectReasonCounts.length > 0) {
     entry.reject_reason_counts = rejectReasonCounts;

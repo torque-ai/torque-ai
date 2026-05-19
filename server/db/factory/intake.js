@@ -436,6 +436,39 @@ function getOperatorOwnedReasonStats(project_id) {
   return stats;
 }
 
+function getOperatorOwnedQueueStats(project_id) {
+  if (!project_id) throw new Error('project_id is required');
+  const statuses = ['needs_review', 'escalation_exhausted'];
+  const rows = db.prepare(`
+    SELECT
+      status,
+      COUNT(*) as count,
+      MIN(strftime('%Y-%m-%dT%H:%M:%fZ', created_at)) as oldest_created_at,
+      MIN(strftime('%Y-%m-%dT%H:%M:%fZ', updated_at)) as oldest_updated_at,
+      MAX(strftime('%Y-%m-%dT%H:%M:%fZ', updated_at)) as newest_updated_at
+    FROM factory_work_items
+    WHERE project_id = ?
+      AND status IN (?, ?)
+    GROUP BY status
+    ORDER BY status ASC
+  `).all(project_id, ...statuses);
+
+  const stats = {
+    needs_review: null,
+    escalation_exhausted: null,
+  };
+  for (const row of rows) {
+    if (!statuses.includes(row.status)) continue;
+    stats[row.status] = {
+      count: row.count,
+      oldest_created_at: row.oldest_created_at || null,
+      oldest_updated_at: row.oldest_updated_at || null,
+      newest_updated_at: row.newest_updated_at || null,
+    };
+  }
+  return stats;
+}
+
 function createFromFindings(project_id, findings, source) {
   const created = [];
   const skipped = [];
@@ -561,6 +594,7 @@ module.exports = {
   linkItems,
   getIntakeStats,
   getOperatorOwnedReasonStats,
+  getOperatorOwnedQueueStats,
   createFromFindings,
   VALID_SOURCES,
   VALID_STATUSES,

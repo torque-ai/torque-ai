@@ -112,6 +112,9 @@ const AUTOMATION_MANUAL_INTERVENTION_SCHEMA = {
               project_name: { type: ['string', 'null'] },
               status: { type: 'string', enum: ['needs_review'] },
               count: { type: 'number' },
+              oldest_created_at: { type: ['string', 'null'] },
+              oldest_updated_at: { type: ['string', 'null'] },
+              newest_updated_at: { type: ['string', 'null'] },
               reject_reason_counts: {
                 type: 'array',
                 items: {
@@ -136,6 +139,9 @@ const AUTOMATION_MANUAL_INTERVENTION_SCHEMA = {
               project_name: { type: ['string', 'null'] },
               status: { type: 'string', enum: ['escalation_exhausted'] },
               count: { type: 'number' },
+              oldest_created_at: { type: ['string', 'null'] },
+              oldest_updated_at: { type: ['string', 'null'] },
+              newest_updated_at: { type: ['string', 'null'] },
               reject_reason_counts: {
                 type: 'array',
                 items: {

@@ -164,7 +164,13 @@ describe('tool-output-schemas', () => {
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.project_ids.properties.scheduler_unarmed).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.needs_review).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.oldest_created_at).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.oldest_updated_at).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.newest_updated_at).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.reject_reason_counts).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.oldest_created_at).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.oldest_updated_at).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.newest_updated_at).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.reject_reason_counts).toBeDefined();
       expect(statusSchema.properties.projects.items.properties.automation_readiness).toBeDefined();
       expect(statusSchema.properties.projects.items.properties.work_item_status_counts).toBeDefined();
@@ -199,7 +205,13 @@ describe('tool-output-schemas', () => {
       expect(planSchema.properties.manual_intervention.properties.project_ids.properties.scheduler_unarmed).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.needs_review).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted).toBeDefined();
+      expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.oldest_created_at).toBeDefined();
+      expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.oldest_updated_at).toBeDefined();
+      expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.newest_updated_at).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.reject_reason_counts).toBeDefined();
+      expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.oldest_created_at).toBeDefined();
+      expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.oldest_updated_at).toBeDefined();
+      expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.newest_updated_at).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.reject_reason_counts).toBeDefined();
       expect(planSchema.properties.work_item_status_counts).toBeDefined();
       expect(planSchema.properties.needs_review_work_items).toBeDefined();

@@ -927,6 +927,32 @@ function normalizeFactoryWorkItemBlockerReasonCounts(stats) {
   return normalized;
 }
 
+function normalizeNullableTimestamp(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+function normalizeFactoryWorkItemBlockerQueueStats(stats) {
+  const normalized = {
+    needs_review: null,
+    escalation_exhausted: null,
+  };
+  for (const status of Object.keys(normalized)) {
+    const row = stats?.[status];
+    if (!row || typeof row !== 'object') continue;
+    const count = Number.isFinite(Number(row.count)) ? Number(row.count) : 0;
+    if (count <= 0) continue;
+    normalized[status] = {
+      count,
+      oldest_created_at: normalizeNullableTimestamp(row.oldest_created_at),
+      oldest_updated_at: normalizeNullableTimestamp(row.oldest_updated_at),
+      newest_updated_at: normalizeNullableTimestamp(row.newest_updated_at),
+    };
+  }
+  return normalized;
+}
+
 function getFactoryWorkItemBlockerReasonCounts(projectId) {
   try {
     return normalizeFactoryWorkItemBlockerReasonCounts(
@@ -944,6 +970,23 @@ function getFactoryWorkItemBlockerReasonCounts(projectId) {
   }
 }
 
+function getFactoryWorkItemBlockerQueueStats(projectId) {
+  try {
+    return normalizeFactoryWorkItemBlockerQueueStats(
+      factoryIntake.getOperatorOwnedQueueStats(projectId)
+    );
+  } catch (error) {
+    logger.debug('Failed to inspect factory operator-owned work item queue age', {
+      err: error.message,
+      project_id: projectId,
+    });
+    return {
+      needs_review: null,
+      escalation_exhausted: null,
+    };
+  }
+}
+
 function countOpenFactoryWorkItems(projectId) {
   return countOpenFactoryWorkItemsFromStats(getFactoryWorkItemStatusCounts(projectId));
 }
@@ -952,7 +995,11 @@ function stripFactoryAutomationPrivateFields(project) {
   if (!project || typeof project !== 'object') {
     return project;
   }
-  const { _work_item_blocker_reason_counts, ...publicProject } = project;
+  const {
+    _work_item_blocker_reason_counts,
+    _work_item_blocker_queue_stats,
+    ...publicProject
+  } = project;
   return publicProject;
 }
 
@@ -1596,6 +1643,7 @@ async function handleListFactoryProjects(args = {}) {
       automation_readiness: summarizeProjectAutomationReadiness(project),
       work_item_status_counts: workItemStatusCounts,
       _work_item_blocker_reason_counts: getFactoryWorkItemBlockerReasonCounts(project.id),
+      _work_item_blocker_queue_stats: getFactoryWorkItemBlockerQueueStats(project.id),
       open_work_item_count: countOpenFactoryWorkItemsFromStats(workItemStatusCounts),
     };
   };
@@ -1666,6 +1714,7 @@ function buildFactoryAutomationPlanData(args = {}) {
       automation_readiness: summarizeProjectAutomationReadiness(project),
       work_item_status_counts: workItemStatusCounts,
       _work_item_blocker_reason_counts: getFactoryWorkItemBlockerReasonCounts(project.id),
+      _work_item_blocker_queue_stats: getFactoryWorkItemBlockerQueueStats(project.id),
       open_work_item_count: countOpenFactoryWorkItemsFromStats(workItemStatusCounts),
     };
   });
@@ -2633,6 +2682,7 @@ async function handleFactoryStatus() {
       open_work_item_count: openWorkItemCount,
       work_item_status_counts: workItemStatusCounts,
       _work_item_blocker_reason_counts: getFactoryWorkItemBlockerReasonCounts(p.id),
+      _work_item_blocker_queue_stats: getFactoryWorkItemBlockerQueueStats(p.id),
       automation_readiness: automationReadiness,
       alert_badge: alertBadge,
       balance,
@@ -2675,6 +2725,7 @@ async function handleFactoryStatus() {
   const publicSummaries = summaries.map(({
     _has_non_terminal_batch_tasks,
     _work_item_blocker_reason_counts,
+    _work_item_blocker_queue_stats,
     ...summary
   }) => summary);
 

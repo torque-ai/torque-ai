@@ -1867,6 +1867,31 @@ describe('factory_status', () => {
     factoryIntake.updateWorkItem(secondExhaustedB.id, {
       reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
     });
+    const setWorkItemTimes = db.prepare(`
+      UPDATE factory_work_items
+      SET created_at = ?, updated_at = ?
+      WHERE id = ?
+    `);
+    setWorkItemTimes.run(
+      '2026-05-01T10:00:00.000Z',
+      '2026-05-01T11:00:00.000Z',
+      reviewA.id
+    );
+    setWorkItemTimes.run(
+      '2026-05-02T10:00:00.000Z',
+      '2026-05-02T12:00:00.000Z',
+      reviewB.id
+    );
+    setWorkItemTimes.run(
+      '2026-05-03T10:00:00.000Z',
+      '2026-05-03T11:00:00.000Z',
+      exhaustedB.id
+    );
+    setWorkItemTimes.run(
+      '2026-05-04T10:00:00.000Z',
+      '2026-05-05T10:00:00.000Z',
+      secondExhaustedB.id
+    );
 
     const result = await safeTool('factory_automation_plan', {});
 
@@ -1889,6 +1914,9 @@ describe('factory_status', () => {
             project_name: 'Review Breakdown A',
             status: 'needs_review',
             count: 1,
+            oldest_created_at: '2026-05-01T10:00:00.000Z',
+            oldest_updated_at: '2026-05-01T11:00:00.000Z',
+            newest_updated_at: '2026-05-01T11:00:00.000Z',
             reject_reason_counts: [
               {
                 reject_reason: 'zero_diff_across_retries',
@@ -1901,6 +1929,9 @@ describe('factory_status', () => {
             project_name: 'Review Breakdown B',
             status: 'needs_review',
             count: 1,
+            oldest_created_at: '2026-05-02T10:00:00.000Z',
+            oldest_updated_at: '2026-05-02T12:00:00.000Z',
+            newest_updated_at: '2026-05-02T12:00:00.000Z',
             reject_reason_counts: [
               {
                 reject_reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
@@ -1915,6 +1946,9 @@ describe('factory_status', () => {
             project_name: 'Review Breakdown B',
             status: 'escalation_exhausted',
             count: 2,
+            oldest_created_at: '2026-05-03T10:00:00.000Z',
+            oldest_updated_at: '2026-05-03T11:00:00.000Z',
+            newest_updated_at: '2026-05-05T10:00:00.000Z',
             reject_reason_counts: [
               {
                 reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
