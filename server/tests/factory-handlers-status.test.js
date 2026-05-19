@@ -1912,6 +1912,12 @@ describe('factory_status', () => {
           total_count: 2,
           eligible_count: 1,
           unmatched_count: 1,
+          unmatched_reasons: [
+            {
+              reject_reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
+              count: 1,
+            },
+          ],
           deferred_count: 0,
           fully_covered: false,
         },
@@ -1919,6 +1925,12 @@ describe('factory_status', () => {
           total_count: 2,
           eligible_count: 1,
           unmatched_count: 1,
+          unmatched_reasons: [
+            {
+              reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
+              count: 1,
+            },
+          ],
           deferred_count: 0,
           fully_covered: false,
         },
@@ -1985,6 +1997,12 @@ describe('factory_status', () => {
                 count: 1,
               },
             ],
+            unmatched_auto_recovery_reasons: [
+              {
+                reject_reason: 'plan_quality_gate_rejected_after_intrabatch_retries',
+                count: 1,
+              },
+            ],
             oldest_items: [
               {
                 id: reviewB.id,
@@ -2030,6 +2048,12 @@ describe('factory_status', () => {
                 },
               ],
             },
+            unmatched_auto_recovery_reasons: [
+              {
+                reject_reason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
+                count: 1,
+              },
+            ],
             oldest_items: [
               {
                 id: exhaustedB.id,

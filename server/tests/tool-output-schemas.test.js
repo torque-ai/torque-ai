@@ -163,7 +163,9 @@ describe('tool-output-schemas', () => {
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.counts.properties.scheduler_unarmed_projects).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.auto_recovery_coverage).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.auto_recovery_coverage.properties.needs_review.properties.unmatched_count).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.auto_recovery_coverage.properties.needs_review.properties.unmatched_reasons).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.auto_recovery_coverage.properties.escalation_exhausted.properties.deferred_count).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.auto_recovery_coverage.properties.escalation_exhausted.properties.unmatched_reasons).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.project_ids.properties.scheduler_unarmed).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.needs_review).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted).toBeDefined();
@@ -171,6 +173,7 @@ describe('tool-output-schemas', () => {
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.oldest_updated_at).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.newest_updated_at).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.reject_reason_counts).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.unmatched_auto_recovery_reasons).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.oldest_items).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.known_auto_recovery).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.oldest_items.items.properties.known_auto_recovery).toBeDefined();
@@ -178,6 +181,7 @@ describe('tool-output-schemas', () => {
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.oldest_updated_at).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.newest_updated_at).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.reject_reason_counts).toBeDefined();
+      expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.unmatched_auto_recovery_reasons).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.oldest_items).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.known_auto_recovery).toBeDefined();
       expect(statusSchema.properties.summary.properties.automation_readiness.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.oldest_items.items.properties.known_auto_recovery).toBeDefined();
@@ -213,7 +217,9 @@ describe('tool-output-schemas', () => {
       expect(planSchema.properties.manual_intervention.properties.counts.properties.scheduler_unarmed_projects).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.auto_recovery_coverage).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.auto_recovery_coverage.properties.needs_review.properties.unmatched_count).toBeDefined();
+      expect(planSchema.properties.manual_intervention.properties.auto_recovery_coverage.properties.needs_review.properties.unmatched_reasons).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.auto_recovery_coverage.properties.escalation_exhausted.properties.deferred_count).toBeDefined();
+      expect(planSchema.properties.manual_intervention.properties.auto_recovery_coverage.properties.escalation_exhausted.properties.unmatched_reasons).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.project_ids.properties.scheduler_unarmed).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.needs_review).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted).toBeDefined();
@@ -221,6 +227,7 @@ describe('tool-output-schemas', () => {
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.oldest_updated_at).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.newest_updated_at).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.reject_reason_counts).toBeDefined();
+      expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.unmatched_auto_recovery_reasons).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.oldest_items).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.known_auto_recovery).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.needs_review.items.properties.oldest_items.items.properties.known_auto_recovery).toBeDefined();
@@ -228,6 +235,7 @@ describe('tool-output-schemas', () => {
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.oldest_updated_at).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.newest_updated_at).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.reject_reason_counts).toBeDefined();
+      expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.unmatched_auto_recovery_reasons).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.oldest_items).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.known_auto_recovery).toBeDefined();
       expect(planSchema.properties.manual_intervention.properties.work_item_blockers.properties.escalation_exhausted.items.properties.oldest_items.items.properties.known_auto_recovery).toBeDefined();

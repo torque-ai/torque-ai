@@ -400,12 +400,12 @@ function normalizeNullableTimestamp(value) {
   return trimmed || null;
 }
 
-function normalizeRejectReasonCounts(project, status) {
+function normalizeRejectReasonCounts(project, status, options = {}) {
   const byStatus = project?._work_item_blocker_reason_counts
     || project?.work_item_blocker_reason_counts
     || {};
   const rows = Array.isArray(byStatus?.[status]) ? byStatus[status] : [];
-  return rows
+  const normalized = rows
     .map((row) => ({
       reject_reason: typeof row?.reject_reason === 'string' && row.reject_reason.trim()
         ? row.reject_reason
@@ -413,7 +413,11 @@ function normalizeRejectReasonCounts(project, status) {
       count: getCount(row, 'count'),
     }))
     .filter((row) => row.count > 0)
-    .slice(0, MAX_REJECT_REASON_COUNTS_PER_BLOCKER);
+    .sort((a, b) => b.count - a.count || String(a.reject_reason || '').localeCompare(String(b.reject_reason || '')));
+  const limit = options.limit === undefined ? MAX_REJECT_REASON_COUNTS_PER_BLOCKER : options.limit;
+  return Number.isFinite(limit)
+    ? normalized.slice(0, Math.max(0, Number(limit)))
+    : normalized;
 }
 
 function getKnownAutoRecoveryDefinition(status, rejectReason) {
@@ -477,6 +481,7 @@ function buildAutoRecoveryCoverageForStatus(blockers) {
   let totalCount = 0;
   let eligibleCount = 0;
   let deferredCount = 0;
+  const unmatchedReasonCounts = new Map();
   for (const entry of entries) {
     const count = getCount(entry, 'count');
     totalCount += count;
@@ -493,12 +498,25 @@ function buildAutoRecoveryCoverageForStatus(blockers) {
         .filter((candidate) => candidate?.deferred_by_project_work_disabled === true)
         .reduce((sum, candidate) => sum + getCount(candidate, 'count'), 0)
     );
+    for (const reasonCount of Array.isArray(entry?.unmatched_auto_recovery_reasons)
+      ? entry.unmatched_auto_recovery_reasons
+      : []) {
+      const reason = reasonCount?.reject_reason || null;
+      const reasonTotal = unmatchedReasonCounts.get(reason) || 0;
+      unmatchedReasonCounts.set(reason, reasonTotal + getCount(reasonCount, 'count'));
+    }
   }
+
+  const unmatchedReasons = [...unmatchedReasonCounts.entries()]
+    .map(([rejectReason, count]) => ({ reject_reason: rejectReason, count }))
+    .filter((row) => row.count > 0)
+    .sort((a, b) => b.count - a.count || String(a.reject_reason || '').localeCompare(String(b.reject_reason || '')));
 
   return {
     total_count: totalCount,
     eligible_count: eligibleCount,
     unmatched_count: Math.max(0, totalCount - eligibleCount),
+    unmatched_reasons: unmatchedReasons,
     deferred_count: deferredCount,
     fully_covered: totalCount > 0 && eligibleCount >= totalCount,
   };
@@ -567,9 +585,15 @@ function makeWorkItemBlockerEntry(project, status, count) {
   if (queueStats) {
     Object.assign(entry, queueStats);
   }
-  const rejectReasonCounts = normalizeRejectReasonCounts(project, status);
+  const allRejectReasonCounts = normalizeRejectReasonCounts(project, status, { limit: null });
+  const rejectReasonCounts = allRejectReasonCounts.slice(0, MAX_REJECT_REASON_COUNTS_PER_BLOCKER);
   if (rejectReasonCounts.length > 0) {
     entry.reject_reason_counts = rejectReasonCounts;
+  }
+  const unmatchedAutoRecoveryReasons = allRejectReasonCounts
+    .filter((reasonCount) => !getKnownAutoRecoveryDefinition(status, reasonCount.reject_reason));
+  if (unmatchedAutoRecoveryReasons.length > 0) {
+    entry.unmatched_auto_recovery_reasons = unmatchedAutoRecoveryReasons;
   }
   const oldestItems = normalizeWorkItemBlockerQueuePreview(project, status);
   if (oldestItems.length > 0) {
