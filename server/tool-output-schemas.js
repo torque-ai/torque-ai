@@ -89,16 +89,29 @@ const WORK_ITEM_BLOCKER_AUTO_RECOVERY_SUMMARY_SCHEMA = {
   required: ['eligible_count', 'fully_eligible', 'candidates'],
 };
 
+const WORK_ITEM_REASON_COUNT_SCHEMA = {
+  type: 'object',
+  properties: {
+    reject_reason: { type: ['string', 'null'] },
+    count: { type: 'number' },
+  },
+  required: ['reject_reason', 'count'],
+};
+
 const WORK_ITEM_AUTO_RECOVERY_COVERAGE_ENTRY_SCHEMA = {
   type: 'object',
   properties: {
     total_count: { type: 'number' },
     eligible_count: { type: 'number' },
     unmatched_count: { type: 'number' },
+    unmatched_reasons: {
+      type: 'array',
+      items: WORK_ITEM_REASON_COUNT_SCHEMA,
+    },
     deferred_count: { type: 'number' },
     fully_covered: { type: 'boolean' },
   },
-  required: ['total_count', 'eligible_count', 'unmatched_count', 'deferred_count', 'fully_covered'],
+  required: ['total_count', 'eligible_count', 'unmatched_count', 'unmatched_reasons', 'deferred_count', 'fully_covered'],
 };
 
 const WORK_ITEM_AUTO_RECOVERY_COVERAGE_SCHEMA = {
@@ -195,14 +208,11 @@ const AUTOMATION_MANUAL_INTERVENTION_SCHEMA = {
               newest_updated_at: { type: ['string', 'null'] },
               reject_reason_counts: {
                 type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    reject_reason: { type: ['string', 'null'] },
-                    count: { type: 'number' },
-                  },
-                  required: ['reject_reason', 'count'],
-                },
+                items: WORK_ITEM_REASON_COUNT_SCHEMA,
+              },
+              unmatched_auto_recovery_reasons: {
+                type: 'array',
+                items: WORK_ITEM_REASON_COUNT_SCHEMA,
               },
               oldest_items: {
                 type: 'array',
@@ -227,14 +237,11 @@ const AUTOMATION_MANUAL_INTERVENTION_SCHEMA = {
               newest_updated_at: { type: ['string', 'null'] },
               reject_reason_counts: {
                 type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    reject_reason: { type: ['string', 'null'] },
-                    count: { type: 'number' },
-                  },
-                  required: ['reject_reason', 'count'],
-                },
+                items: WORK_ITEM_REASON_COUNT_SCHEMA,
+              },
+              unmatched_auto_recovery_reasons: {
+                type: 'array',
+                items: WORK_ITEM_REASON_COUNT_SCHEMA,
               },
               oldest_items: {
                 type: 'array',
