@@ -416,6 +416,20 @@ const FACTORY_IDLE_DIAGNOSIS_SCHEMA = {
   required: ['idle', 'reason_code', 'message', 'counts', 'project_ids', 'actions'],
 };
 
+const FACTORY_CONTROL_PLANE_PROJECT_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    name: { type: 'string' },
+    path: { type: 'string' },
+    status: { type: 'string' },
+    trust_level: { type: 'string' },
+    config_json: { type: ['string', 'null'] },
+  },
+  required: ['id', 'name', 'status'],
+  additionalProperties: true,
+};
+
 const FACTORY_PROJECT_SUMMARY_SCHEMA = {
   type: 'object',
   properties: {
@@ -779,6 +793,34 @@ const OUTPUT_SCHEMAS = {
       },
     },
     required: ['ready', 'hands_off_ready', 'blocked_only_by_project_work_disabled', 'message', 'scope', 'summary', 'work_item_status_counts', 'needs_review_work_items', 'needs_replan_work_items', 'manual_intervention', 'control_plane_plan', 'projects'],
+  },
+
+  resume_project: {
+    type: 'object',
+    properties: {
+      message: { type: 'string' },
+      project: FACTORY_CONTROL_PLANE_PROJECT_SCHEMA,
+      requeued_tasks: { type: 'number' },
+      queue_resume_skipped_reason: { type: ['string', 'null'] },
+      tick_immediate: { type: 'boolean' },
+      tick_armed: { type: 'boolean' },
+      tick_started: { type: 'boolean' },
+      tick_already_active: { type: 'boolean' },
+      tick_skipped_reason: { type: ['string', 'null'] },
+      automation_readiness: AUTOMATION_READINESS_SCHEMA,
+    },
+    required: [
+      'message',
+      'project',
+      'requeued_tasks',
+      'queue_resume_skipped_reason',
+      'tick_immediate',
+      'tick_armed',
+      'tick_started',
+      'tick_already_active',
+      'tick_skipped_reason',
+      'automation_readiness',
+    ],
   },
 
   apply_factory_automation_plan: {

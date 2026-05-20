@@ -101,7 +101,7 @@ describe('tool-output-schemas', () => {
         'get_context',
         // Factory
         'list_factory_projects', 'factory_status', 'factory_automation_plan',
-        'apply_factory_automation_plan', 'arm_factory_tick',
+        'resume_project', 'apply_factory_automation_plan', 'arm_factory_tick',
         // Phase 2
         ...PHASE2_PROVIDER_COST_MONITORING_TOOLS,
         // Phase 3
@@ -142,6 +142,7 @@ describe('tool-output-schemas', () => {
       const statusSchema = getOutputSchema('factory_status');
       const listSchema = getOutputSchema('list_factory_projects');
       const planSchema = getOutputSchema('factory_automation_plan');
+      const resumeProjectSchema = getOutputSchema('resume_project');
       const applyPlanSchema = getOutputSchema('apply_factory_automation_plan');
       const armTickSchema = getOutputSchema('arm_factory_tick');
       const factoryDefs = require('../tool-defs/factory-defs');
@@ -315,6 +316,22 @@ describe('tool-output-schemas', () => {
       expect(resumeProjectDef.inputSchema.properties.immediate_tick).toMatchObject({
         type: 'boolean',
       });
+      expect(resumeProjectSchema.required).toEqual(expect.arrayContaining([
+        'requeued_tasks',
+        'queue_resume_skipped_reason',
+        'tick_immediate',
+        'tick_armed',
+        'tick_started',
+        'tick_already_active',
+        'tick_skipped_reason',
+        'automation_readiness',
+      ]));
+      expect(resumeProjectSchema.properties.project.required).toEqual(expect.arrayContaining([
+        'id',
+        'name',
+        'status',
+      ]));
+      expect(resumeProjectSchema.properties.automation_readiness).toBeDefined();
       expect(armFactoryTickDef.inputSchema.properties.project).toMatchObject({
         type: 'string',
       });

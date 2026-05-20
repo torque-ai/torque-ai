@@ -2330,6 +2330,7 @@ describe('factory_status', () => {
       const result = await safeTool('resume_project', { project: 'project-work-disabled-resume' });
 
       expect(result.isError).toBeFalsy();
+      expectStructuredDataConformsToOutputSchema('resume_project', result.structuredData);
       expect(result.structuredData).toMatchObject({
         requeued_tasks: 0,
         queue_resume_skipped_reason: 'factory_project_work_disabled',
