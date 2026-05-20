@@ -116,7 +116,7 @@ function LoopInstanceCard({
   return (
     <article
       data-testid="loop-instance-card"
-      className="min-w-[18rem] flex-1 rounded-xl border border-slate-700/70 bg-slate-900/50 p-4"
+      className="min-w-[16rem] flex-1 rounded-lg border border-slate-700/70 bg-slate-900/50 p-3"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -135,7 +135,7 @@ function LoopInstanceCard({
         </span>
       </div>
 
-      <dl className="mt-4 space-y-2 text-sm">
+      <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
         <div className="flex items-start justify-between gap-3">
           <dt className="text-slate-500">Paused At</dt>
           <dd className="text-right text-slate-200">{pausedAtStage || '—'}</dd>
@@ -167,14 +167,14 @@ function LoopInstanceCard({
       </dl>
 
       {jobSnapshot?.status === 'running' && (
-        <p className="mt-3 text-xs text-cyan-300">Stage running... polling job status.</p>
+        <p className="mt-2 text-xs text-cyan-300">Stage running... polling job status.</p>
       )}
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
           disabled={advanceDisabled}
-          className="rounded bg-blue-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded bg-blue-600 px-2.5 py-1 text-xs text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={() => onAdvance(instance)}
         >
           {advanceBusy ? 'Advancing...' : 'Advance'}
@@ -182,7 +182,7 @@ function LoopInstanceCard({
         <button
           type="button"
           disabled={!canApproveGate || approveBusy}
-          className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded bg-emerald-600 px-2.5 py-1 text-xs text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={() => onApproveGate(instance)}
         >
           {approveBusy ? 'Approving...' : 'Approve Gate'}
@@ -191,7 +191,7 @@ function LoopInstanceCard({
           <button
             type="button"
             disabled={retryBusy}
-            className="rounded bg-amber-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded bg-amber-600 px-2.5 py-1 text-xs text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => onRetryVerify(instance)}
           >
             {retryBusy ? 'Retrying...' : 'Retry Verify'}
@@ -510,8 +510,8 @@ export default function LoopControlBar({
   }
 
   return (
-    <section className={`rounded-lg border border-slate-700 bg-slate-800/60 p-4 ${className}`.trim()}>
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+    <section className={`rounded-lg border border-slate-700 bg-slate-800/60 p-3 ${className}`.trim()}>
+      <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <span className="text-sm font-semibold text-slate-200">Factory Loop</span>
           {Array.isArray(projects) && projects.length > 0 && typeof setSelectedProjectId === 'function' ? (
@@ -579,18 +579,18 @@ export default function LoopControlBar({
       )}
 
       {instancesLoading && displayInstances.length === 0 ? (
-        <div className="mt-4 rounded-xl border border-slate-700/70 bg-slate-900/40 px-4 py-6 text-sm text-slate-400">
+        <div className="mt-2 rounded-lg border border-slate-700/70 bg-slate-900/40 px-3 py-2 text-xs text-slate-400">
           Loading loop instances...
         </div>
       ) : displayInstances.length === 0 ? (
         <div
           data-testid="loop-control-empty-state"
-          className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-900/40 px-4 py-6 text-sm text-slate-400"
+          className="mt-2 rounded-lg border border-dashed border-slate-700 bg-slate-900/40 px-3 py-2 text-xs text-slate-400"
         >
           No active loop instances for this project.
         </div>
       ) : (
-        <div className="mt-4 flex flex-wrap gap-3 overflow-x-auto pb-1">
+        <div className="mt-2 flex flex-wrap gap-2 overflow-x-auto pb-1">
           {displayInstances.map((instance) => {
             const instanceKey = getDisplayInstanceKey(instance);
             const resolvedJobKey = instance.legacy
