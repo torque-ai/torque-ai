@@ -290,6 +290,29 @@ dotnet test tests/example-project.Infrastructure.Tests/example-project.Infrastru
     expect(r.violation.detected_command).toMatch(/dotnet\s+test/i);
   });
 
+  it('submits when the bare dotnet test is the explicit plan validation command', async () => {
+    const verifyCommand = 'dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter "FullyQualifiedName~NetcodeProtocolTests"';
+    const GOOD_PLAN = `# Explicit targeted validation
+
+## Task 1: add malformed-read coverage
+
+- [ ] **Step 1: edit the targeted test**
+
+Edit \`simtests/NetcodeProtocolTests.cs\` only, adding focused malformed-read coverage for unsupported message type, wrong protocol version, trailing Ack bytes, and truncated Input payloads.
+
+- [ ] **Step 2: validate**
+
+Run \`${verifyCommand}\` and expect the targeted NetcodeProtocolTests cases to pass.
+`;
+    fs.mkdirSync(path.join(dir, 'simtests'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'simtests', 'NetcodeProtocolTests.cs'), '// fixture\n');
+    fs.writeFileSync(path.join(dir, 'simtests', 'SimCore.DotNet.Tests.csproj'), '<Project />\n');
+    fs.writeFileSync(planPath, GOOD_PLAN);
+    await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+
+    expect(submitMock).toHaveBeenCalledTimes(1);
+  });
+
   it('submits when the same heavy command is wrapped in torque-remote', async () => {
     const GOOD_PLAN = `# Heavy validation routed remotely
 

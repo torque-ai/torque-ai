@@ -220,6 +220,19 @@ Read \`server/tests/ollama-tools-coverage.test.js\`, then edit \`server/tests/TO
     expect(hardFails.some(f => f.rule === 'task_avoids_local_heavy_validation' && f.taskNumber === 1)).toBe(true);
   });
 
+  it('allows explicit work-item targeted validation when remote verification is disabled', () => {
+    const verifyCommand = 'dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter "FullyQualifiedName~NetcodeProtocolTests"';
+    const plan = `## Task 1: Add malformed-read tests\n\nEdit \`simtests/NetcodeProtocolTests.cs\` only, adding four focused NUnit tests for unsupported message type, wrong protocol version, trailing Ack bytes, and truncated Input command payloads. Acceptance criteria: malformed protocol reads must fail cleanly. Run \`${verifyCommand}\` and expect the targeted NetcodeProtocolTests cases to pass.`;
+    const { hardFails } = runDeterministicRules(plan, {
+      projectConfig: { prefer_remote_tests: false },
+      workItem: {
+        origin: { verification: verifyCommand },
+      },
+    });
+
+    expect(hardFails.find(f => f.rule === 'task_avoids_local_heavy_validation')).toBeUndefined();
+  });
+
   it('does not echo heavyweight validation commands back into replan feedback', () => {
     const verifyCommand = 'dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter "Category!=RequiresAndroidBuild"';
     const feedback = planQualityGate.buildFeedbackPrompt([{

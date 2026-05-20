@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const childProcess = require('node:child_process');
 const logger = require('../logger').child({ component: 'plan-executor' });
-const { parsePlanFile, extractVerifyCommand } = require('./plan-parser');
+const { parsePlanFile, extractExplicitVerifyCommand, extractVerifyCommand } = require('./plan-parser');
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
 
 const FILE_PATH_RE = /(?:^|[\s"'`(])((?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+)(?=$|[\s"'`),:])/gm;
@@ -447,6 +447,14 @@ function normalizeReusableTaskFilesModified(value) {
     .filter(Boolean);
 }
 
+function textContainsCommand(text, command) {
+  const raw = String(text || '');
+  const expected = String(command || '').trim();
+  if (!expected) return false;
+  if (raw.includes(expected)) return true;
+  return raw.replace(/\s+/g, ' ').includes(expected.replace(/\s+/g, ' '));
+}
+
 function hasReusableTaskFileEvidence(reusableTask) {
   return reusableTask?.same_batch === true
     && normalizeReusableTaskFilesModified(reusableTask.files_modified).length > 0;
@@ -487,6 +495,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
     const started = Date.now();
     const content = fs.readFileSync(plan_path, 'utf8');
     const parsed = parsePlanFile(content);
+    const explicit_verify_command = extractExplicitVerifyCommand(content);
     const verify_command = extractVerifyCommand(content, projectDefaults.verify_command);
     const planFilePaths = extractFilePaths(content);
     const mode = normalizeExecutionMode(execution_mode, dry_run);
@@ -552,7 +561,9 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
         const detectedCommand = findHeavyLocalValidationCommand(heavyValidationGuardSource, {
           ignoreDiagnosticFencedBlocks: true,
         });
-        if (detectedCommand) {
+        const explicitlyAllowedLocalValidation = explicit_verify_command
+          && textContainsCommand(heavyValidationGuardSource, explicit_verify_command);
+        if (detectedCommand && !explicitlyAllowedLocalValidation) {
           logger.warn(`task ${task.task_number} blocked at materialization — heavy local validation present`, {
             plan_path,
             task_number: task.task_number,

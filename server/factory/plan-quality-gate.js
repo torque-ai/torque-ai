@@ -9,6 +9,7 @@ const { isRemoteVerificationDisabled } = require('./shared/project-config');
 const { checkPlanImpact } = require('./codegraph-plan-augmenter');
 const { discoverExistingFileAlternates, collectArchitectScopeDetails } = require('./shared/scope-search');
 const { extractPlanDescriptionFilePaths, normalizePlanProjectRelativePath, projectFileExists } = require('./shared/plan-path');
+const { buildWorkItemValidationDetail } = require('./plan-builders/workitem-spec');
 
 const MAX_REPLAN_ATTEMPTS = 1;
 // Plan-quality semantic review is an advisory second opinion after the
@@ -518,6 +519,14 @@ function parseTasks(planMarkdown) {
   });
 }
 
+function lineContainsCommand(line, command) {
+  const raw = String(line || '');
+  const expected = String(command || '').trim();
+  if (!expected) return false;
+  if (raw.includes(expected)) return true;
+  return raw.replace(/\s+/g, ' ').includes(expected.replace(/\s+/g, ' '));
+}
+
 function runDeterministicRules(planMarkdown, options = {}) {
   const hardFails = [];
   const warnings = [];
@@ -525,6 +534,7 @@ function runDeterministicRules(planMarkdown, options = {}) {
     ? options.repoPath.trim()
     : null;
   const remoteVerificationDisabled = isRemoteVerificationDisabled(options.projectConfig || {});
+  const explicitWorkItemValidation = buildWorkItemValidationDetail(options.workItem);
 
   // Rule 10 — check before parsing, short-circuits runaway plans.
   if (typeof planMarkdown === 'string' && planMarkdown.length > RULES.plan_size_upper_bound.maxBytes) {
@@ -596,7 +606,9 @@ function runDeterministicRules(planMarkdown, options = {}) {
     }
 
     const heavyLocalValidation = findHeavyLocalValidationCommand(task.body);
-    if (heavyLocalValidation) {
+    const explicitlyAllowedLocalValidation = remoteVerificationDisabled
+      && lineContainsCommand(task.body, explicitWorkItemValidation);
+    if (heavyLocalValidation && !explicitlyAllowedLocalValidation) {
       hardFails.push({
         rule: 'task_avoids_local_heavy_validation',
         taskNumber: task.number,
@@ -1058,6 +1070,7 @@ async function evaluatePlan({ plan, workItem, project, projectConfig }) {
   const { hardFails, warnings } = runDeterministicRules(activePlan, {
     repoPath: project && typeof project.path === 'string' ? project.path : null,
     projectConfig,
+    workItem,
   });
   if (hardFails.length > 0) {
     const feedbackPrompt = buildFeedbackPrompt(hardFails, warnings, null);
