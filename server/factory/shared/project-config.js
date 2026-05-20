@@ -20,6 +20,26 @@ function getProjectConfigForPlanGate(project) {
   return parseProjectConfigObject(project);
 }
 
+function isRemoteVerificationDisabled(projectOrConfig) {
+  const cfg = projectOrConfig && (
+    projectOrConfig.config || projectOrConfig.config_json
+      ? parseProjectConfigObject(projectOrConfig)
+      : projectOrConfig
+  );
+  return cfg?.prefer_remote_tests === false || cfg?.remote_tests === false;
+}
+
+function getProjectVerifyCommand(projectOrConfig) {
+  const cfg = projectOrConfig && (
+    projectOrConfig.config || projectOrConfig.config_json
+      ? parseProjectConfigObject(projectOrConfig)
+      : projectOrConfig
+  );
+  return typeof cfg?.verify_command === 'string' && cfg.verify_command.trim()
+    ? cfg.verify_command.trim()
+    : null;
+}
+
 /**
  * Resolve the project's "expected" provider as declared in its lane policy.
  * Returns the lowercased provider name (e.g. "ollama", "codex") or null when
@@ -43,4 +63,6 @@ module.exports = {
   parseProjectConfigObject,
   getProjectConfigForPlanGate,
   getEffectiveProjectProvider,
+  getProjectVerifyCommand,
+  isRemoteVerificationDisabled,
 };

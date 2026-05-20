@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
 const { deterministicVerify } = require('./plan-augmenter');
+const { isRemoteVerificationDisabled } = require('./shared/project-config');
 const { checkPlanImpact } = require('./codegraph-plan-augmenter');
 const { discoverExistingFileAlternates, collectArchitectScopeDetails } = require('./shared/scope-search');
 const { extractPlanDescriptionFilePaths, normalizePlanProjectRelativePath, projectFileExists } = require('./shared/plan-path');
@@ -44,6 +45,10 @@ const RULES = {
   task_avoids_local_heavy_validation: {
     severity: 'hard', scope: 'task',
     description: 'Heavy validation/build commands in task bodies must use torque-remote or be left to the orchestrator verify step.',
+  },
+  task_avoids_disabled_remote_validation: {
+    severity: 'hard', scope: 'task',
+    description: 'Plans must not use torque-remote when project remote verification is disabled.',
   },
   task_avoids_config_file_test_targets: {
     severity: 'hard', scope: 'task',
@@ -114,6 +119,7 @@ const CREATE_TARGET_CONTEXT_RES = [
 const CONCRETE_BACKTICK_RE = /`[^`\n]+`/;
 const CONCRETE_QUOTED_RE = /"[^"\n]+"|'[^'\n]+'/;
 const CONCRETE_IDENTIFIER_RE = /\b(?:[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|[a-z]+(?:[A-Z][A-Za-z0-9]*)+|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+)\b/g;
+const TORQUE_REMOTE_COMMAND_RE = /\btorque-remote\b[^\n`]*/gi;
 const NESTED_WORKTREE_SETUP_PATTERNS = [
   {
     label: 'create worktree before editing',
@@ -210,6 +216,14 @@ function findConfigFileTestTargets(text) {
     }
   }
   return [...new Set(targets)];
+}
+
+function findTorqueRemoteCommands(text) {
+  const value = String(text || '');
+  TORQUE_REMOTE_COMMAND_RE.lastIndex = 0;
+  return [...new Set([...value.matchAll(TORQUE_REMOTE_COMMAND_RE)]
+    .map((match) => String(match[0] || '').trim())
+    .filter(Boolean))];
 }
 
 function normalizePlanPathCandidate(rawValue) {
@@ -440,6 +454,7 @@ function runDeterministicRules(planMarkdown, options = {}) {
   const repoPath = typeof options.repoPath === 'string' && options.repoPath.trim()
     ? options.repoPath.trim()
     : null;
+  const remoteVerificationDisabled = isRemoteVerificationDisabled(options.projectConfig || {});
 
   // Rule 10 — check before parsing, short-circuits runaway plans.
   if (typeof planMarkdown === 'string' && planMarkdown.length > RULES.plan_size_upper_bound.maxBytes) {
@@ -515,7 +530,18 @@ function runDeterministicRules(planMarkdown, options = {}) {
       hardFails.push({
         rule: 'task_avoids_local_heavy_validation',
         taskNumber: task.number,
-        detail: `Task ${task.number} includes heavyweight local validation (${heavyLocalValidation}). Use torque-remote for .NET/build-wrapper validation, or leave the full verify command to the orchestrator.`,
+        detail: remoteVerificationDisabled
+          ? `Task ${task.number} includes heavyweight local validation (${heavyLocalValidation}) while remote verification is disabled. Leave heavyweight validation to the orchestrator verify step.`
+          : `Task ${task.number} includes heavyweight local validation (${heavyLocalValidation}). Use torque-remote for .NET/build-wrapper validation, or leave the full verify command to the orchestrator.`,
+      });
+    }
+
+    const disabledRemoteCommands = remoteVerificationDisabled ? findTorqueRemoteCommands(task.body) : [];
+    if (disabledRemoteCommands.length > 0) {
+      hardFails.push({
+        rule: 'task_avoids_disabled_remote_validation',
+        taskNumber: task.number,
+        detail: `Task ${task.number} uses torque-remote while project remote verification is disabled: ${disabledRemoteCommands.join('; ')}. Use lightweight local task checks or leave heavyweight validation to the orchestrator.`,
       });
     }
 
@@ -896,6 +922,7 @@ async function evaluatePlan({ plan, workItem, project, projectConfig }) {
   }
   const { hardFails, warnings } = runDeterministicRules(activePlan, {
     repoPath: project && typeof project.path === 'string' ? project.path : null,
+    projectConfig,
   });
   if (hardFails.length > 0) {
     const feedbackPrompt = buildFeedbackPrompt(hardFails, warnings, null);
