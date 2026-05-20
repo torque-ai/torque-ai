@@ -95,6 +95,8 @@ function createPrioritizeStage(deps = {}) {
     getExecutePlanStageForTransition,
     STARVATION_THRESHOLD,
   } = deps;
+  const createShippedDetector = deps.createShippedDetector
+    || require('../shipped-detector').createShippedDetector;
 
   async function executePrioritizeStage(project, instance, selectedWorkItem = null) {
     if (selectedWorkItem && getNeedsReplanCooldownInfo(selectedWorkItem).active) {
@@ -190,36 +192,61 @@ function createPrioritizeStage(deps = {}) {
     // Auto-detect already-shipped items before wasting execution cycles.
     // If git commit subjects match the item's title (meaning a human or
     // prior session already fixed this), mark it shipped and re-select.
+    let shippedDetection = null;
     try {
-      const { createShippedDetector } = require('../shipped-detector');
       const detector = createShippedDetector({ repoRoot: project.path });
       const planContent = workItem.origin?.plan_path && fs.existsSync(workItem.origin.plan_path)
         ? fs.readFileSync(workItem.origin.plan_path, 'utf8')
         : workItem.description || '';
-      const detection = detector.detectShipped({ content: planContent, title: workItem.title });
-      if (detection.shipped && detection.confidence !== 'low') {
-        factoryIntake.updateWorkItem(workItem.id, { status: 'shipped' });
-        emitAutoShipped({
+      shippedDetection = detector.detectShipped({ content: planContent, title: workItem.title });
+    } catch (_e) { void _e; }
+
+    if (shippedDetection?.shipped && shippedDetection.confidence !== 'low') {
+      let shippedWorkItem = null;
+      try {
+        shippedWorkItem = factoryIntake.updateWorkItem(workItem.id, { status: 'shipped' });
+      } catch (err) {
+        logger.warn('PRIORITIZE auto-ship status update failed', {
           project_id: project.id,
-          stage: LOOP_STATES.PRIORITIZE,
-          reason: AUTO_SHIPPED_REASONS.AT_PRIORITIZE,
           work_item_id: workItem.id,
-          confidence: detection.confidence,
-          signals: detection.signals,
-          batch_id: getDecisionBatchId(project, workItem, null, instance),
-          extra: { ...getWorkItemDecisionContext(workItem) },
-          reasoning: `Shipped-detector found existing commits matching "${workItem.title}" with ${detection.confidence} confidence — skipping to next item.`,
+          title: workItem.title,
+          err: err && err.message,
         });
+      }
+
+      if (shippedWorkItem?.status === 'shipped') {
+        factoryIntake.releaseClaimForInstance(instance.id);
+        clearSelectedWorkItem(instance.id);
+        try {
+          emitAutoShipped({
+            project_id: project.id,
+            stage: LOOP_STATES.PRIORITIZE,
+            reason: AUTO_SHIPPED_REASONS.AT_PRIORITIZE,
+            work_item_id: workItem.id,
+            confidence: shippedDetection.confidence,
+            signals: shippedDetection.signals,
+            batch_id: getDecisionBatchId(project, workItem, null, instance),
+            extra: { ...getWorkItemDecisionContext(shippedWorkItem) },
+            reasoning: `Shipped-detector found existing commits matching "${workItem.title}" with ${shippedDetection.confidence} confidence — skipping to next item.`,
+          });
+        } catch (err) {
+          logger.warn('PRIORITIZE auto-ship decision logging failed after status update', {
+            project_id: project.id,
+            work_item_id: workItem.id,
+            title: workItem.title,
+            err: err && err.message,
+          });
+        }
         logger.info('PRIORITIZE auto-shipped already-done item', {
           project_id: project.id,
           work_item_id: workItem.id,
           title: workItem.title,
-          confidence: detection.confidence,
+          confidence: shippedDetection.confidence,
         });
         // Re-select next item recursively (bounded by open item count)
         return executePrioritizeStage(project, instance);
       }
-    } catch (_e) { void _e; }
+    }
 
     const scoring = scoreWorkItemForPrioritize(workItem, openItems);
     const updatedWorkItem = factoryIntake.updateWorkItem(workItem.id, {

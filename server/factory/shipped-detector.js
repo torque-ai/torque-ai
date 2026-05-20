@@ -72,6 +72,12 @@ function defaultRunGitLog(repoRoot, { grep, limit = 50 }) {
   }
 
   try {
+    const gitEnv = { ...process.env };
+    for (const key of Object.keys(gitEnv)) {
+      if (key.startsWith('GIT_')) {
+        delete gitEnv[key];
+      }
+    }
     const output = execFileSync('git', [
       '-C',
       repoRoot,
@@ -83,6 +89,7 @@ function defaultRunGitLog(repoRoot, { grep, limit = 50 }) {
       String(limit),
     ], {
       encoding: 'utf8',
+      env: gitEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });

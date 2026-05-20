@@ -33,6 +33,7 @@ function emitAutoShipped({
       `emitAutoShipped: unknown reason "${reason}". Add it to AUTO_SHIPPED_REASONS first. Valid: ${[...VALID_REASONS].join(', ')}`
     );
   }
+  const decisionStage = typeof stage === 'string' ? stage.toLowerCase() : stage;
 
   // Core keys win on collision so a caller can't bypass `reason` validation
   // by stuffing a different reason into `extra`. Stage-specific keys in
@@ -50,7 +51,7 @@ function emitAutoShipped({
 
   return decisionLog.logDecision({
     project_id,
-    stage,
+    stage: decisionStage,
     actor: 'factory-loop',
     action: 'auto_shipped',
     reasoning: reasoning || defaultReasoning,

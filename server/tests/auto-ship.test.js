@@ -48,7 +48,7 @@ describe('emitAutoShipped', () => {
     });
     expect(recorded.length).toBe(1);
     expect(recorded[0].action).toBe('auto_shipped');
-    expect(recorded[0].stage).toBe('PRIORITIZE');
+    expect(recorded[0].stage).toBe('prioritize');
     expect(recorded[0].actor).toBe('factory-loop');
     expect(recorded[0].confidence).toBe(1);
     expect(recorded[0].outcome.reason).toBe('at_prioritize');
