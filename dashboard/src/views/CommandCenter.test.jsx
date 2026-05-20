@@ -359,7 +359,6 @@ describe('CommandCenter', () => {
   });
 
   it('renders an operator brief with next action and clickable live signals', async () => {
-    setStorageValue('torque-command-center-project', 'alpha');
     const onOpenDrawer = vi.fn();
     tasksApi.list.mockImplementation(({ status }) => {
       if (status === 'failed') return Promise.resolve({ tasks: [failedTask], total: 1 });
@@ -369,10 +368,15 @@ describe('CommandCenter', () => {
 
     renderWithProviders(<CommandCenter onOpenDrawer={onOpenDrawer} />, { route: '/' });
 
+    await screen.findByRole('option', { name: 'alpha (3 tasks)' });
+    fireEvent.change(screen.getByLabelText('Filter by project'), { target: { value: 'alpha' } });
+
     const brief = await screen.findByRole('region', { name: 'Command Center briefing' });
-    expect(within(brief).getByText('Attention needed')).toBeInTheDocument();
-    expect(within(brief).getByText('Next: Retry failed tasks')).toBeInTheDocument();
-    expect(within(brief).getByText(/Q:42/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(brief).getByText('Attention needed')).toBeInTheDocument();
+      expect(within(brief).getByText('Next: Retry failed tasks')).toBeInTheDocument();
+      expect(within(brief).getByText(/Q:42/)).toBeInTheDocument();
+    });
 
     const signal = within(brief).getByRole('button', { name: /Failed deploy verification task/ });
     fireEvent.click(signal);
@@ -692,6 +696,75 @@ describe('CommandCenter', () => {
     renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByText(/Running test task/)).toBeInTheDocument();
+    });
+  });
+
+  it('defaults the board to all projects even when a log project was stored', async () => {
+    setStorageValue('torque-command-center-view', 'board');
+    setStorageValue('torque-command-center-project', 'DLPhone');
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'running') {
+        return Promise.resolve({
+          tasks: [
+            { ...runningTask, id: 'task-dlphone-1', task_description: 'DLPhone board task', project: 'DLPhone' },
+            { ...runningTask, id: 'task-netsim-1', task_description: 'NetSim board task', project: 'NetSim' },
+          ],
+        });
+      }
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<CommandCenter />, { route: '/' });
+
+    await waitFor(() => {
+      expect(screen.getByText('DLPhone board task')).toBeInTheDocument();
+      expect(screen.getByText('NetSim board task')).toBeInTheDocument();
+      expect(screen.getByLabelText('Filter by project')).toHaveValue('');
+    });
+  });
+
+  it('clears the factory loop scope when switching from running log to board', async () => {
+    setStorageValue('torque-command-center-view', 'log');
+    setStorageValue('torque-command-center-project', 'DLPhone');
+    factoryApi.projects.mockResolvedValue([{
+      id: 'factory-dlphone',
+      name: 'DLPhone',
+      path: 'C:\\Users\\<os-user>\\Projects\\DLPhone',
+      status: 'running',
+      trust_level: 'guided',
+      loop_state: 'EXECUTE',
+      loop_paused_at_stage: null,
+      loop_last_action_at: '2026-04-13T12:10:00Z',
+    }]);
+    factoryApi.loopStatus.mockResolvedValue({
+      loop_state: 'EXECUTE',
+      loop_paused_at_stage: null,
+      loop_last_action_at: '2026-04-13T12:10:05Z',
+    });
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'running') {
+        return Promise.resolve({
+          tasks: [
+            { ...runningTask, id: 'task-dlphone-1', task_description: 'DLPhone board task', project: 'DLPhone' },
+            { ...runningTask, id: 'task-netsim-1', task_description: 'NetSim board task', project: 'NetSim' },
+          ],
+        });
+      }
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<CommandCenter />, { route: '/' });
+
+    const log = await screen.findByRole('list', { name: 'Running Log' });
+    expect(within(log).getByText('DLPhone board task')).toBeInTheDocument();
+    expect(within(log).queryByText('NetSim board task')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Board' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('DLPhone board task')).toBeInTheDocument();
+      expect(screen.getByText('NetSim board task')).toBeInTheDocument();
+      expect(screen.getByLabelText('Filter by project')).toHaveValue('');
     });
   });
 

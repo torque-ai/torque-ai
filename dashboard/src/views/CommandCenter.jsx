@@ -1431,6 +1431,7 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
   const [searchInput, setSearchInput] = useState(() => searchParams.get('q') || '');
   const [searchQuery, setSearchQuery] = useState(() => (searchParams.get('q') || '').trim().toLowerCase());
   const searchTimerRef = useRef(null);
+  const previousViewModeRef = useRef(null);
   const prevTaskMapRef = useRef(new Map());
   const prevLiveIdsRef = useRef(new Set()); // Track WS-pushed task IDs for deletion detection (RB-056)
   const hasInitializedLiveTasksRef = useRef(false);
@@ -1524,6 +1525,14 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
   useEffect(() => {
     return () => clearTimeout(searchTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    const previousViewMode = previousViewModeRef.current;
+    previousViewModeRef.current = viewMode;
+    if (viewMode === 'board' && previousViewMode !== 'board' && selectedProject) {
+      setSelectedProject('');
+    }
+  }, [selectedProject, viewMode]);
 
   // Sync active filters to URL params
   useEffect(() => {
