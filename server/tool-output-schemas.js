@@ -459,6 +459,49 @@ const FACTORY_PROJECT_SUMMARY_SCHEMA = {
   required: ['id', 'name', 'path', 'trust_level', 'status', 'loop_state'],
 };
 
+const FACTORY_AUTOMATION_PLAN_OUTPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    ready: { type: 'boolean' },
+    hands_off_ready: { type: 'boolean' },
+    blocked_only_by_project_work_disabled: { type: 'boolean' },
+    message: { type: 'string' },
+    scope: {
+      type: 'object',
+      properties: {
+        project: { type: ['string', 'null'] },
+        status: { type: ['string', 'null'] },
+        blocked_only: { type: 'boolean' },
+      },
+      required: ['project', 'status', 'blocked_only'],
+    },
+    summary: AUTOMATION_READINESS_SUMMARY_SCHEMA,
+    work_item_status_counts: WORK_ITEM_STATUS_COUNTS_SCHEMA,
+    needs_review_work_items: { type: 'number' },
+    needs_replan_work_items: { type: 'number' },
+    manual_intervention: AUTOMATION_MANUAL_INTERVENTION_SCHEMA,
+    control_plane_plan: { type: 'array', items: AUTOMATION_CONTROL_PLANE_STEP_SCHEMA },
+    projects: {
+      type: 'array',
+      items: FACTORY_PROJECT_SUMMARY_SCHEMA,
+    },
+  },
+  required: [
+    'ready',
+    'hands_off_ready',
+    'blocked_only_by_project_work_disabled',
+    'message',
+    'scope',
+    'summary',
+    'work_item_status_counts',
+    'needs_review_work_items',
+    'needs_replan_work_items',
+    'manual_intervention',
+    'control_plane_plan',
+    'projects',
+  ],
+};
+
 const OUTPUT_SCHEMAS = {
   // ── Task lifecycle ──
 
@@ -765,35 +808,7 @@ const OUTPUT_SCHEMAS = {
     required: ['projects', 'summary'],
   },
 
-  factory_automation_plan: {
-    type: 'object',
-    properties: {
-      ready: { type: 'boolean' },
-      hands_off_ready: { type: 'boolean' },
-      blocked_only_by_project_work_disabled: { type: 'boolean' },
-      message: { type: 'string' },
-      scope: {
-        type: 'object',
-        properties: {
-          project: { type: ['string', 'null'] },
-          status: { type: ['string', 'null'] },
-          blocked_only: { type: 'boolean' },
-        },
-        required: ['project', 'status', 'blocked_only'],
-      },
-      summary: AUTOMATION_READINESS_SUMMARY_SCHEMA,
-      work_item_status_counts: WORK_ITEM_STATUS_COUNTS_SCHEMA,
-      needs_review_work_items: { type: 'number' },
-      needs_replan_work_items: { type: 'number' },
-      manual_intervention: AUTOMATION_MANUAL_INTERVENTION_SCHEMA,
-      control_plane_plan: { type: 'array', items: AUTOMATION_CONTROL_PLANE_STEP_SCHEMA },
-      projects: {
-        type: 'array',
-        items: FACTORY_PROJECT_SUMMARY_SCHEMA,
-      },
-    },
-    required: ['ready', 'hands_off_ready', 'blocked_only_by_project_work_disabled', 'message', 'scope', 'summary', 'work_item_status_counts', 'needs_review_work_items', 'needs_replan_work_items', 'manual_intervention', 'control_plane_plan', 'projects'],
-  },
+  factory_automation_plan: FACTORY_AUTOMATION_PLAN_OUTPUT_SCHEMA,
 
   resume_project: {
     type: 'object',
@@ -844,14 +859,8 @@ const OUTPUT_SCHEMAS = {
       applied_steps: { type: 'array', items: AUTOMATION_APPLY_STEP_SCHEMA },
       skipped_steps: { type: 'array', items: AUTOMATION_APPLY_STEP_SCHEMA },
       failed_steps: { type: 'array', items: AUTOMATION_APPLY_STEP_SCHEMA },
-      before: {
-        type: 'object',
-        additionalProperties: true,
-      },
-      after: {
-        type: 'object',
-        additionalProperties: true,
-      },
+      before: FACTORY_AUTOMATION_PLAN_OUTPUT_SCHEMA,
+      after: FACTORY_AUTOMATION_PLAN_OUTPUT_SCHEMA,
     },
     required: [
       'completed',

@@ -292,6 +292,11 @@ describe('tool-output-schemas', () => {
         'mutates_control_plane',
         'enables_future_processing',
       ]));
+      expect(applyPlanSchema.properties.before.required).toContain('blocked_only_by_project_work_disabled');
+      expect(applyPlanSchema.properties.before.properties.summary).toBeDefined();
+      expect(applyPlanSchema.properties.before.properties.control_plane_plan.items.required).toContain('processes_project_work');
+      expect(applyPlanSchema.properties.after.required).toContain('manual_intervention');
+      expect(applyPlanSchema.properties.after.properties.summary.properties.blocked_only_by_project_work_disabled).toBeDefined();
       expect(listFactoryProjectsDef.inputSchema.properties.include_automation_readiness).toMatchObject({
         type: 'boolean',
       });
