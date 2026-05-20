@@ -272,6 +272,12 @@ function isTruthyConfig(value) {
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
 }
 
+function isFalseyConfig(value) {
+  if (value === false || value === 0) return true;
+  if (typeof value !== 'string') return false;
+  return ['0', 'false', 'no', 'off'].includes(value.trim().toLowerCase());
+}
+
 function buildTorqueRemoteInvocation(command) {
   const normalized = String(command || '').trim();
   return `torque-remote bash -lc ${JSON.stringify(normalized)}`;
@@ -494,6 +500,29 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
     return projectName;
   }
 
+  function resolveProjectRemoteTestPreference(workingDir) {
+    try {
+      if (!db || !workingDir) return { project: null, config: null, forceLocal: false };
+      const project = typeof db.getProjectFromPath === 'function'
+        ? db.getProjectFromPath(workingDir)
+        : null;
+      if (!project) return { project: null, config: null, forceLocal: false };
+
+      const config = typeof db.getProjectConfig === 'function'
+        ? db.getProjectConfig(project)
+        : null;
+      const hasPreference = config
+        && Object.prototype.hasOwnProperty.call(config, 'prefer_remote_tests');
+      return {
+        project,
+        config,
+        forceLocal: hasPreference && isFalseyConfig(config.prefer_remote_tests),
+      };
+    } catch {
+      return { project: null, config: null, forceLocal: false };
+    }
+  }
+
   /**
    * Get remote config for a project by its working directory.
    * Returns null if remote tests are not configured or not enabled.
@@ -513,16 +542,14 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
     try {
       if (!db || !workingDir) return null;
 
-      // Resolve project name from working directory
-      const project = typeof db.getProjectFromPath === 'function'
-        ? db.getProjectFromPath(workingDir)
-        : null;
+      const preference = resolveProjectRemoteTestPreference(workingDir);
+      const { project, config } = preference;
       if (!project) return null;
 
-      // Fetch full project config row
-      const config = typeof db.getProjectConfig === 'function'
-        ? db.getProjectConfig(project)
-        : null;
+      if (preference.forceLocal) {
+        logger.info?.(`[remote-routing] prefer_remote_tests is disabled for "${project}"; running verification locally`);
+        return null;
+      }
 
       // Check explicit remote configuration
       if (config && isTruthyConfig(config.prefer_remote_tests)) {
@@ -746,6 +773,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
     }
 
     const remoteConfig = getRemoteConfig(cwd, { provider: options.provider });
+    const forceLocalTests = resolveProjectRemoteTestPreference(cwd).forceLocal;
 
     if (remoteConfig && agentRegistry) {
       const client = agentRegistry.getClient(remoteConfig.agentId);
@@ -811,7 +839,7 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
       return toRemoteFailureResult(new Error('Remote execution required but agent registry is unavailable'), Date.now());
     }
 
-    if (shouldUseTorqueRemoteWrapper(normalizedCommand, cwd, options)) {
+    if (!forceLocalTests && shouldUseTorqueRemoteWrapper(normalizedCommand, cwd, options)) {
       logTorqueRemoteConfigSource(cwd, logger);
       logger.info(`[remote-routing] Running via torque-remote wrapper: ${normalizedCommand}`);
       const preparedEnv = prepareLocalVerifyEnv(normalizedCommand);

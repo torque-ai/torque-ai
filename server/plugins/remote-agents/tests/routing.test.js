@@ -804,6 +804,49 @@ describe('remote-test-routing', () => {
       }
     });
 
+    it('does not auto-discover a workstation when remote tests are explicitly disabled', async () => {
+      const client = makeClient();
+      const agentRegistry = { getClient: vi.fn().mockReturnValue(client) };
+      const db = {
+        getProjectFromPath: vi.fn().mockReturnValue('torque'),
+        getProjectConfig: vi.fn().mockReturnValue({ prefer_remote_tests: false }),
+      };
+
+      const wsModelPath = require.resolve('../../../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      require.cache[wsModelPath] = {
+        id: wsModelPath, filename: wsModelPath, loaded: true,
+        exports: {
+          listWorkstations: vi.fn().mockReturnValue([
+            { name: 'omen', status: 'healthy', _capabilities: { test_runners: true } },
+          ]),
+          hasCapability: vi.fn((ws, cap) => ws._capabilities?.[cap] === true),
+        },
+      };
+
+      mockSpawn.mockReturnValueOnce(makeMockChild(0, 'local-verify-ok\n', ''));
+
+      try {
+        const router = createRemoteTestRouter({ agentRegistry, db, logger: makeLogger() });
+        const result = await router.runVerifyCommand(
+          'npx vitest run',
+          '/repo',
+          { provider: 'codex' }
+        );
+
+        expect(result.remote).toBe(false);
+        expect(result.success).toBe(true);
+        expect(result.output).toBe('local-verify-ok\n');
+        expect(agentRegistry.getClient).not.toHaveBeenCalled();
+      } finally {
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
+    });
+
     it('falls back to local for codex verify when no test_runner workstation exists', async () => {
       const db = {
         getProjectFromPath: vi.fn().mockReturnValue('torque'),
@@ -891,6 +934,62 @@ describe('remote-test-routing', () => {
           'torque-remote bash -lc "dotnet build example-project.sln -c Release --nologo"',
         ]);
         expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('Running via torque-remote wrapper'));
+      } finally {
+        existsSpy.mockRestore();
+        readFileSpy.mockRestore();
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
+    });
+
+    it('does not use torque-remote wrapper when remote tests are explicitly disabled', async () => {
+      const db = {
+        getProjectFromPath: vi.fn().mockReturnValue('example-project'),
+        getProjectConfig: vi.fn().mockReturnValue({ prefer_remote_tests: 0 }),
+      };
+
+      const wsModelPath = require.resolve('../../../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      require.cache[wsModelPath] = {
+        id: wsModelPath, filename: wsModelPath, loaded: true,
+        exports: {
+          listWorkstations: vi.fn().mockReturnValue([]),
+          hasCapability: vi.fn().mockReturnValue(false),
+        },
+      };
+
+      const existsSpy = vi.spyOn(fs, 'existsSync').mockImplementation((filePath) => {
+        const normalized = String(filePath).replace(/\\/g, '/');
+        return normalized.endsWith('/.torque-remote.json')
+          || normalized === 'C:/Program Files/Git/bin/bash.exe';
+      });
+      const readFileSpy = vi.spyOn(fs, 'readFileSync').mockImplementation((filePath) => {
+        const normalized = String(filePath).replace(/\\/g, '/');
+        if (normalized.endsWith('/.torque-remote.json')) {
+          return JSON.stringify({ transport: 'ssh' });
+        }
+        return '';
+      });
+      mockSpawn.mockReturnValueOnce(makeMockChild(0, 'local-verify-ok\n', ''));
+
+      try {
+        const logger = makeLogger();
+        const router = createRemoteTestRouter({ agentRegistry: null, db, logger });
+        const result = await router.runVerifyCommand(
+          'npm run lint && npm test',
+          '/repo',
+          { provider: 'codex' }
+        );
+
+        expect(result.success).toBe(true);
+        expect(result.remote).toBe(false);
+        expect(result.output).toBe('local-verify-ok\n');
+        expect(mockSpawn).toHaveBeenCalledTimes(1);
+        expect(mockSpawn.mock.calls[0][0]).toBe('npm run lint && npm test');
+        expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining('Running via torque-remote wrapper'));
       } finally {
         existsSpy.mockRestore();
         readFileSpy.mockRestore();
