@@ -514,6 +514,40 @@ describe('Close Phases', () => {
       vi.useRealTimers();
     });
 
+    it('blocks quota failover to providers outside an enforced factory lane policy', () => {
+      mockDb.isProviderQuotaError.mockReturnValue(true);
+      mockDb.getNextFallbackProvider.mockReturnValue('ollama');
+
+      const task = makeTask({
+        provider: 'codex',
+        retry_count: 0,
+        metadata: JSON.stringify({
+          factory_internal: true,
+          kind: 'plan_quality_review',
+          provider_lane_policy: {
+            expected_provider: 'codex',
+            allowed_providers: ['codex'],
+            allowed_fallback_providers: ['codex'],
+            enforce_handoffs: true,
+          },
+        }),
+      });
+      const proc = makeProc({ errorOutput: 'Rate limit exceeded' });
+      const ctx = makeCtx({ status: 'failed', task, proc, code: 1 });
+
+      closePhases.handleProviderFailover(ctx);
+
+      expect(ctx.earlyExit).toBe(false);
+      expect(ctx.status).toBe('failed');
+      expect(ctx.errorOutput).toContain('[Provider Failover Blocked]');
+      expect(ctx.errorOutput).toContain('blocked handoff to ollama');
+      expect(mockDb.approveProviderSwitch).not.toHaveBeenCalled();
+      expect(mockDb.recordFailoverEvent).not.toHaveBeenCalled();
+      expect(mockDb.setCodexExhausted).not.toHaveBeenCalled();
+      expect(mockDashboard.notifyTaskUpdated).not.toHaveBeenCalled();
+      expect(mocks.processQueue).not.toHaveBeenCalled();
+    });
+
     it('falls back locally for ollama failures', () => {
       const task = makeTask({ provider: 'ollama', retry_count: 0 });
       const proc = makeProc({ errorOutput: 'connection refused' });

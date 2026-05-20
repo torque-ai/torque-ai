@@ -22,6 +22,11 @@ const { failoverBackoffMs } = require('../utils/backoff');
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 const { GIT_SAFE_ENV, cleanupStaleGitStatusProcesses } = require('../utils/git');
 const { isScoutStructuredOutputTask } = require('../execution/completion-policy');
+const {
+  getProviderLanePolicyFromMetadata,
+  isProviderAllowedByLanePolicy,
+  providerLaneHandoffBlockReason,
+} = require('../factory/provider-lane-policy');
 
 const CODEX_SPARK_MODEL = 'gpt-5.3-codex-spark';
 
@@ -157,6 +162,21 @@ function isReadOnlyFactoryScoutTask(task) {
     || tags.includes('factory:starvation_recovery')
     || tags.includes('factory:reason=factory_starvation_recovery')
     || isScoutStructuredOutputTask(getTaskMetadata(task));
+}
+
+function getFailoverLaneDecision(task, fallbackProvider) {
+  const policy = getProviderLanePolicyFromMetadata(getTaskMetadata(task));
+  if (!policy) {
+    return { allowed: true, reason: null };
+  }
+  if (isProviderAllowedByLanePolicy(policy, fallbackProvider)) {
+    return { allowed: true, reason: null };
+  }
+  return {
+    allowed: false,
+    reason: providerLaneHandoffBlockReason(policy, fallbackProvider)
+      || `provider lane policy blocked handoff to ${fallbackProvider || 'unknown'}`,
+  };
 }
 
 function recoverModifiedFiles(ctx) {
@@ -432,6 +452,18 @@ function handleProviderFailover(ctx) {
     const fallbackProvider = db.getNextFallbackProvider(taskId);
 
     if (fallbackProvider) {
+      const laneDecision = getFailoverLaneDecision(task, fallbackProvider);
+      if (!laneDecision.allowed) {
+        logger.info(`[Provider Failover] ${laneDecision.reason} for task ${taskId}; leaving task failed`);
+        ctx.status = 'failed';
+        ctx.errorOutput = (ctx.errorOutput || errorOutput || '') +
+          `\n[Provider Failover Blocked] ${laneDecision.reason}`;
+        if (ctx.code === 0) {
+          ctx.code = 1;
+        }
+        return;
+      }
+
       logger.info(`[Provider Failover] ${currentProvider} quota exceeded, switching to ${fallbackProvider} for task ${taskId}`);
       if (currentProvider === 'codex' || currentProvider === 'codex-spark') {
         if (isCodexSparkQuotaError(task, errorPayload)) {
