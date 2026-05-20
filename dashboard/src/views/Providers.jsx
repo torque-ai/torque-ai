@@ -204,7 +204,7 @@ function ProviderRow({ provider, quota, sparkData, onToggle, onUpdateConcurrency
     <div className="border-b border-slate-700/50 last:border-b-0">
       {/* Main row */}
       <div
-        className="flex items-center gap-4 px-4 py-2.5 hover:bg-slate-800/30 cursor-pointer transition-colors"
+        className="flex items-center gap-4 px-3 py-1.5.5 hover:bg-slate-800/30 cursor-pointer transition-colors"
         tabIndex={0}
         role="button"
         onClick={() => setExpanded(!expanded)}
@@ -663,14 +663,14 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
 
   if (loading) {
     return (
-      <div className="p-6">
+      <div className="p-4">
         <LoadingSkeleton lines={5} />
       </div>
     );
   }
 
   return (
-    <div className="p-6">
+    <div className="p-4">
       {/* Codex exhaustion banner */}
       {codexExhausted && (
         <div className="mb-4 p-3 bg-red-900/50 border border-red-500 rounded-lg text-red-200">
@@ -680,7 +680,7 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
 
       {/* Add Provider Form */}
       {showAddProvider && (
-        <div className="glass-card p-5 mb-6">
+        <div className="glass-card p-5 mb-4">
           <h3 className="text-lg font-semibold text-white mb-3">Add Provider</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -706,13 +706,13 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
             </div>
           </div>
           <div className="flex gap-2 mt-4">
-            <button onClick={handleAddProvider} className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm">Create</button>
-            <button onClick={() => setShowAddProvider(false)} className="px-4 py-2 bg-slate-700 text-slate-300 rounded hover:bg-slate-600 text-sm">Cancel</button>
+            <button onClick={handleAddProvider} className="px-3 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm">Create</button>
+            <button onClick={() => setShowAddProvider(false)} className="px-3 py-1.5 bg-slate-700 text-slate-300 rounded hover:bg-slate-600 text-sm">Cancel</button>
           </div>
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-4">
           <h2 className="heading-lg text-white">Provider Statistics</h2>
           <div className="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700">
@@ -737,13 +737,13 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setShowAddProvider(!showAddProvider)}
-            className="px-4 py-2 bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 text-sm rounded-lg hover:bg-indigo-600/40"
+            className="px-3 py-1.5 bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 text-sm rounded-lg hover:bg-indigo-600/40"
           >{showAddProvider ? 'Cancel' : 'Add Provider'}</button>
           <select
             aria-label="Filter provider stats by time range"
             value={days}
             onChange={(e) => setDays(parseInt(e.target.value))}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
           >
           <option value={7}>Last 7 days</option>
           <option value={14}>Last 14 days</option>
@@ -753,7 +753,7 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <StatCard label="Total Tasks" value={totalTasks} subtext={`Last ${days} days`} gradient="blue" />
         <StatCard label="Providers" value={providersList.length} />
         <StatCard label="Hosts" value={hostCount} subtext="Ollama hosts" />
@@ -762,13 +762,13 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
 
       {/* Comparison mode */}
       {viewMode === 'compare' && (
-        <div className="glass-card p-6 mb-8">
-          <div className="flex items-center gap-4 mb-6">
+        <div className="glass-card p-4 mb-5">
+          <div className="flex items-center gap-4 mb-4">
             <select
               aria-label="Compare provider A"
               value={compareA}
               onChange={(e) => setCompareA(e.target.value)}
-              className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 flex-1"
+              className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500 flex-1"
             >
               <option value="">Select Provider A</option>
               {providersList.map(p => (
@@ -782,7 +782,7 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
               aria-label="Compare provider B"
               value={compareB}
               onChange={(e) => setCompareB(e.target.value)}
-              className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 flex-1"
+              className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500 flex-1"
             >
               <option value="">Select Provider B</option>
               {providersList.map(p => (
@@ -810,14 +810,14 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
 
       {/* Provider list — grouped */}
       {providersList.length === 0 ? (
-        <div className="glass-card p-12 text-center mb-8">
+        <div className="glass-card p-8 text-center mb-5">
           <p className="text-slate-400 text-lg mb-1">No providers configured</p>
           <p className="text-slate-500 text-sm">Submit a task to activate a provider</p>
         </div>
       ) : (
-        <div className="glass-card mb-8 overflow-hidden">
+        <div className="glass-card mb-5 overflow-hidden">
           {/* Column headers */}
-          <div className="flex items-center gap-4 px-4 py-2 border-b border-slate-700 text-[11px] text-slate-500 uppercase tracking-wider">
+          <div className="flex items-center gap-4 px-3 py-1.5 border-b border-slate-700 text-[11px] text-slate-500 uppercase tracking-wider">
             <span className="w-2.5" />
             <span className="w-36">Provider</span>
             <span className="w-2.5" />
@@ -852,9 +852,9 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
       )}
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Usage over time */}
-        <div className="glass-card p-6">
+        <div className="glass-card p-4">
           <h3 className="text-lg font-semibold text-white mb-4">Usage Over Time</h3>
           <div role="img" aria-label="Usage over time: total, completed, and failed tasks">
             <SVGLineChart
@@ -869,7 +869,7 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
         </div>
 
         {/* Provider breakdown */}
-        <div className="glass-card p-6">
+        <div className="glass-card p-4">
           <h3 className="text-lg font-semibold text-white mb-4">Provider Breakdown</h3>
           {pieData.length > 0 ? (
             <div role="img" aria-label={`Provider task distribution: ${pieData.map(d => `${d.name} ${d.value}`).join(', ')}`}>
@@ -888,7 +888,7 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
 
         {/* Per-provider success rate trend */}
         {activeProviders.length > 0 && trends?.series && (
-          <div className="glass-card p-6 lg:col-span-2">
+          <div className="glass-card p-4 lg:col-span-2">
             <h3 className="text-lg font-semibold text-white mb-4">Success Rate by Provider</h3>
             <SVGLineChart
               data={trends.series} xKey="date" height={280}
@@ -905,7 +905,7 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
 
         {/* Per-provider throughput (stacked area) */}
         {activeProviders.length > 0 && trends?.series && (
-          <div className="glass-card p-6 lg:col-span-2">
+          <div className="glass-card p-4 lg:col-span-2">
             <h3 className="text-lg font-semibold text-white mb-4">Tasks per Day by Provider</h3>
             <SVGLineChart
               data={trends.series} xKey="date" height={280}
@@ -922,7 +922,7 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
 
         {/* Duration comparison */}
         {durationData.length > 0 && (
-          <div className="glass-card p-6 lg:col-span-2">
+          <div className="glass-card p-4 lg:col-span-2">
             <h3 className="text-lg font-semibold text-white mb-4">Average Duration by Provider</h3>
             <SVGBarChart
               data={durationData} xKey="name" height={200} horizontal
@@ -937,7 +937,7 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
         )}
 
         {/* Aggregate success rate trend */}
-        <div className="glass-card p-6 lg:col-span-2">
+        <div className="glass-card p-4 lg:col-span-2">
           <h3 className="text-lg font-semibold text-white mb-4">Overall Success Rate Trend</h3>
           <SVGLineChart
             data={timeSeries} xKey="date" height={200}
@@ -948,7 +948,7 @@ export default function Providers({ statsVersion, tasksTick: _tasksTick }) {
         </div>
 
         {usageHistory.length > 0 && (
-          <div className="glass-card p-6 lg:col-span-2">
+          <div className="glass-card p-4 lg:col-span-2">
             <div className="flex items-center justify-between gap-4 mb-4">
               <h3 className="text-lg font-semibold text-white">7-Day Provider Usage</h3>
               <div className="inline-flex rounded-lg bg-slate-800 p-0.5 border border-slate-700">

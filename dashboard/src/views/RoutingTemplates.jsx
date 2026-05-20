@@ -490,7 +490,7 @@ export default function RoutingTemplates() {
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-300 text-sm">{loadError}</div>
       )}
       {/* Active Status */}
-      <div className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border ${
+      <div className={`flex items-center gap-2 px-3 py-1.5.5 rounded-lg border ${
         activeTemplateName
           ? 'bg-green-500/10 border-green-500/30'
           : 'bg-slate-800/50 border-slate-700/50'
@@ -603,7 +603,7 @@ export default function RoutingTemplates() {
               return (
                 <div key={cat.key} className="border border-slate-700/50 rounded-lg overflow-hidden">
                   {/* Main row */}
-                  <div className="flex items-center gap-3 px-4 py-2.5 bg-slate-800/30 hover:bg-slate-800/60 transition-colors">
+                  <div className="flex items-center gap-3 px-3 py-1.5.5 bg-slate-800/30 hover:bg-slate-800/60 transition-colors">
                     <button
                       onClick={() => toggleExpand(cat.key)}
                       className="text-slate-500 hover:text-white transition-colors text-xs w-4 text-center"
@@ -646,7 +646,7 @@ export default function RoutingTemplates() {
 
                   {/* Expanded panel */}
                   {isExpanded && (
-                    <div className="border-t border-slate-700/30 bg-slate-900/30 px-4 py-2 space-y-3">
+                    <div className="border-t border-slate-700/30 bg-slate-900/30 px-3 py-1.5 space-y-3">
                       {/* Chain editor (when rule is an array) */}
                       {Array.isArray(editingRules[cat.key]) && (
                         <div>
@@ -746,7 +746,7 @@ export default function RoutingTemplates() {
 
       {showConfirm && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowConfirm(null)}>
-          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" aria-label="Delete Template" onClick={(e) => e.stopPropagation()}>
+          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-4 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" aria-label="Delete Template" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-white font-semibold text-lg mb-2">Delete Template</h3>
             <p className="text-slate-300 text-sm mb-4">
               Delete template &ldquo;{showConfirm.name}&rdquo;? This action is irreversible.
@@ -754,13 +754,13 @@ export default function RoutingTemplates() {
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowConfirm(null)}
-                className="px-4 py-2 text-sm text-slate-400 hover:text-white rounded-lg transition-colors"
+                className="px-3 py-1.5 text-sm text-slate-400 hover:text-white rounded-lg transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmAction}
-                className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+                className="px-3 py-1.5 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
               >
                 Delete
               </button>

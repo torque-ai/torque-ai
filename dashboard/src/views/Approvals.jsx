@@ -158,14 +158,14 @@ function Pagination({ page, totalPages, total, onPage }) {
         <button
           disabled={page <= 1}
           onClick={() => onPage(page - 1)}
-          className="px-4 py-2 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
+          className="px-3 py-1.5 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
         >
           Previous
         </button>
         <button
           disabled={page >= totalPages}
           onClick={() => onPage(page + 1)}
-          className="px-4 py-2 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
+          className="px-3 py-1.5 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
         >
           Next
         </button>
@@ -322,7 +322,7 @@ function FactoryBatchCard({
 
   return (
     <div
-      className={`rounded-xl border ${
+      className={`rounded-lg border ${
         highlighted ? 'border-blue-500/40 bg-slate-900/70' : 'border-slate-700/60 bg-slate-900/50'
       }`}
     >
@@ -370,7 +370,7 @@ function FactoryBatchCard({
             const taskBusy = busyTaskIds.has(task.id);
 
             return (
-              <div key={task.id} className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-start md:justify-between">
+              <div key={task.id} className="flex flex-col gap-3 px-3 py-2 md:flex-row md:items-start md:justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-300">
@@ -706,7 +706,7 @@ export default function Approvals({ onOpenDrawer } = {}) {
 
   if (loading || factoryLoading) {
     return (
-      <div className="p-6">
+      <div className="p-4">
         <LoadingSkeleton lines={5} />
       </div>
     );
@@ -714,8 +714,8 @@ export default function Approvals({ onOpenDrawer } = {}) {
 
   if (loadError && pending.length === 0 && history.length === 0) {
     return (
-      <div className="p-6">
-        <div className="flex-1 flex items-center justify-center p-12">
+      <div className="p-4">
+        <div className="flex-1 flex items-center justify-center p-8">
           <div className="text-center max-w-md">
             <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
               <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -728,7 +728,7 @@ export default function Approvals({ onOpenDrawer } = {}) {
             </p>
             <button
               onClick={() => { setLoading(true); setLoadError(null); loadData(); }}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
             >
               Retry
             </button>
@@ -740,15 +740,15 @@ export default function Approvals({ onOpenDrawer } = {}) {
 
   return (
     <ErrorBoundary>
-    <div className="p-6">
-      <div className="mb-6">
+    <div className="p-4">
+      <div className="mb-4">
         <h2 className="heading-lg text-white">Approvals</h2>
         <p className="text-slate-400 text-sm mt-1">Review and act on pending approval requests</p>
       </div>
 
       <section
         aria-labelledby="factory-task-approvals-heading"
-        className={`mb-6 rounded-2xl border p-4 md:p-5 ${
+        className={`mb-4 rounded-lg border p-4 md:p-5 ${
           highlightedSource
             ? 'border-blue-500/40 bg-blue-500/5 shadow-[0_0_0_1px_rgba(59,130,246,0.1)]'
             : 'border-slate-700/60 bg-slate-800/30'
@@ -781,7 +781,7 @@ export default function Approvals({ onOpenDrawer } = {}) {
         </div>
 
         {factoryLoadError ? (
-          <div className="mt-4 rounded-xl border border-dashed border-red-700/40 bg-red-900/10 px-4 py-6 text-center">
+          <div className="mt-4 rounded-lg border border-dashed border-red-700/40 bg-red-900/10 px-4 py-6 text-center">
             <p className="text-sm text-red-400 mb-2">Failed to load factory task approvals</p>
             <p className="text-xs text-slate-500 mb-3">{factoryLoadError.message || 'An unexpected error occurred.'}</p>
             <button
@@ -795,7 +795,7 @@ export default function Approvals({ onOpenDrawer } = {}) {
           <div
             data-testid="factory-approvals-empty-state"
             role="status"
-            className="mt-4 rounded-xl border border-dashed border-slate-700/70 bg-slate-900/40 px-4 py-6 text-sm text-slate-400"
+            className="mt-4 rounded-lg border border-dashed border-slate-700/70 bg-slate-900/40 px-4 py-6 text-sm text-slate-400"
           >
             No tasks awaiting approval.
           </div>
@@ -826,7 +826,7 @@ export default function Approvals({ onOpenDrawer } = {}) {
         )}
       </section>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <StatCard label="Pending" value={pending.length} gradient="orange" />
         <StatCard label="Approved Today" value={approvedToday} gradient="green" />
         <StatCard label="Rejected Today" value={rejectedToday} gradient="red" />
@@ -836,7 +836,7 @@ export default function Approvals({ onOpenDrawer } = {}) {
       <div className="flex gap-2 mb-4 border-b border-slate-700/50">
         <button
           onClick={() => setActiveTab('pending')}
-          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+          className={`px-3 py-1.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
             activeTab === 'pending'
               ? 'border-blue-500 text-blue-400'
               : 'border-transparent text-slate-400 hover:text-white'
@@ -851,7 +851,7 @@ export default function Approvals({ onOpenDrawer } = {}) {
         </button>
         <button
           onClick={() => setActiveTab('history')}
-          className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+          className={`px-3 py-1.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
             activeTab === 'history'
               ? 'border-blue-500 text-blue-400'
               : 'border-transparent text-slate-400 hover:text-white'
@@ -878,7 +878,7 @@ export default function Approvals({ onOpenDrawer } = {}) {
               <tbody>
                 {pagedPending.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-8 text-center text-slate-500" data-testid="approvals-empty-state" role="status">
+                    <td colSpan={5} className="p-6 text-center text-slate-500" data-testid="approvals-empty-state" role="status">
                       No pending approvals
                     </td>
                   </tr>
@@ -993,7 +993,7 @@ export default function Approvals({ onOpenDrawer } = {}) {
               <tbody>
                 {pagedHistory.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-8 text-center text-slate-500" data-testid="history-empty-state" role="status">
+                    <td colSpan={5} className="p-6 text-center text-slate-500" data-testid="history-empty-state" role="status">
                       No approval history
                     </td>
                   </tr>

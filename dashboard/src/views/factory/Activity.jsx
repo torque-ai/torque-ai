@@ -43,7 +43,7 @@ function DecisionAuditTable({ decisionLoading, decisionLog }) {
 
   if (decisionLog.length === 0) {
     return (
-      <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
+      <div className="mt-6 rounded-lg border border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
         No audit decisions match the current filters.
       </div>
     );
@@ -55,11 +55,11 @@ function DecisionAuditTable({ decisionLoading, decisionLog }) {
         <table className="min-w-full divide-y divide-slate-700 text-left text-sm">
           <thead className="text-xs uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-4 py-3 font-medium">Time</th>
-              <th className="px-4 py-3 font-medium">Stage</th>
-              <th className="px-4 py-3 font-medium">Actor</th>
-              <th className="px-4 py-3 font-medium">Action</th>
-              <th className="px-4 py-3 font-medium">Confidence</th>
+              <th className="px-3 py-2 font-medium">Time</th>
+              <th className="px-3 py-2 font-medium">Stage</th>
+              <th className="px-3 py-2 font-medium">Actor</th>
+              <th className="px-3 py-2 font-medium">Action</th>
+              <th className="px-3 py-2 font-medium">Confidence</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-700/70">
@@ -133,7 +133,7 @@ function DecisionAuditTable({ decisionLoading, decisionLog }) {
                   {isExpanded && (
                     <tr>
                       <td colSpan={5} className="px-4 pb-4 pt-0">
-                        <div className="rounded-xl border border-slate-700/70 bg-slate-900/60 p-4">
+                        <div className="rounded-lg border border-slate-700/70 bg-slate-900/60 p-4">
                           <p className="text-xs uppercase tracking-wide text-slate-500">Reasoning</p>
                           <p className="mt-2 whitespace-pre-wrap text-sm text-slate-300">
                             {decision.reasoning || 'No reasoning recorded for this decision.'}
@@ -214,7 +214,7 @@ export default function Activity() {
   ].join('::');
 
   return (
-    <section className="rounded-2xl border border-slate-700 bg-slate-800 p-6">
+    <section className="rounded-lg border border-slate-700 bg-slate-800 p-4">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-3">
@@ -250,7 +250,7 @@ export default function Activity() {
         )}
       </div>
 
-      <div className="mt-6 rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+      <div className="mt-6 rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <label className="block text-sm text-slate-300">
             <span className="mb-1 block text-xs uppercase tracking-wide text-slate-500">Stage</span>
@@ -304,17 +304,17 @@ export default function Activity() {
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[180px,220px,minmax(0,1fr)]">
-        <div className="rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+        <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">Total Decisions</p>
-          <p className="mt-2 text-2xl font-semibold text-white">{auditSummary.total}</p>
+          <p className="mt-2 text-xl font-semibold text-white">{auditSummary.total}</p>
           <p className="mt-1 text-xs text-slate-400">
             {hasDecisionFilters ? 'Matching current filters' : 'Across this project'}
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+        <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">Average Confidence</p>
-          <p className="mt-2 text-2xl font-semibold text-white">
+          <p className="mt-2 text-xl font-semibold text-white">
             {toConfidencePercent(auditSummary.avg_confidence) === null
               ? '—'
               : `${toConfidencePercent(auditSummary.avg_confidence)}%`}
@@ -322,11 +322,11 @@ export default function Activity() {
           <p className="mt-1 text-xs text-slate-400">Based on recorded confidence scores</p>
         </div>
 
-        <div className="rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+        <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
           <p className="text-xs uppercase tracking-wide text-slate-500">Stage Breakdown</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {DECISION_STAGE_OPTIONS.map((stage) => (
-              <div key={stage} className="rounded-xl border border-slate-700/60 bg-slate-950/40 px-3 py-2">
+              <div key={stage} className="rounded-lg border border-slate-700/60 bg-slate-950/40 px-3 py-2">
                 <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
                   DECISION_STAGE_BADGE_STYLES[stage] || BADGE_FALLBACK_STYLE
                 }`}

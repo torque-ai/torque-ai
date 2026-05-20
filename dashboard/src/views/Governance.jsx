@@ -150,7 +150,7 @@ export default function Governance() {
 
   if (loading) {
     return (
-      <div className="p-6">
+      <div className="p-4">
         <LoadingSkeleton lines={8} />
       </div>
     );
@@ -162,8 +162,8 @@ export default function Governance() {
   const violations24h = rules.reduce((sum, rule) => sum + Number(rule.violation_count || 0), 0);
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
+    <div className="p-4">
+      <div className="mb-4">
         <h2 className="heading-lg text-white">Governance</h2>
         <p className="text-slate-400 text-sm mt-1">
           Manage enforceable operational rules and the judgment policies that stay advisory.
@@ -171,19 +171,19 @@ export default function Governance() {
       </div>
 
       {error ? (
-        <div className="mb-6 rounded-lg border border-red-500/30 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+        <div className="mb-4 rounded-lg border border-red-500/30 bg-red-950/30 px-3 py-2 text-sm text-red-200">
           {error}
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
         <StatCard label="Active Rules" value={activeRules} gradient="blue" />
         <StatCard label="Blocking" value={blockingRules} gradient="red" />
         <StatCard label="Warning" value={warningRules} gradient="orange" />
         <StatCard label="Violations (24h)" value={violations24h} gradient="purple" />
       </div>
 
-      <div className="glass-card overflow-hidden mb-6">
+      <div className="glass-card overflow-hidden mb-4">
         <div className="px-6 py-4 border-b border-slate-700/50">
           <h3 className="text-white font-semibold">Enforceable Rules</h3>
           <p className="text-slate-400 text-sm mt-1">
@@ -204,7 +204,7 @@ export default function Governance() {
           <tbody>
             {rules.length === 0 ? (
               <tr>
-                <td colSpan={5} className="p-8 text-center text-slate-500">
+                <td colSpan={5} className="p-6 text-center text-slate-500">
                   No governance rules found
                 </td>
               </tr>
@@ -269,7 +269,7 @@ export default function Governance() {
         </table>
       </div>
 
-      <div className="glass-card p-6">
+      <div className="glass-card p-4">
         <div className="mb-4">
           <h3 className="text-white font-semibold">Judgment Policies</h3>
           <p className="text-slate-400 text-sm mt-1">
@@ -281,7 +281,7 @@ export default function Governance() {
           {JUDGMENT_POLICIES.map((policy) => (
             <div
               key={policy}
-              className="border-l-2 border-blue-500/60 bg-slate-900 rounded-r-lg px-4 py-3"
+              className="border-l-2 border-blue-500/60 bg-slate-900 rounded-r-lg px-3 py-2"
             >
               <p className="text-sm text-slate-400">{policy}</p>
             </div>

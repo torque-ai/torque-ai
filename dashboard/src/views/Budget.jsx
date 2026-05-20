@@ -115,7 +115,7 @@ export default function Budget() {
 
   if (loading) {
     return (
-      <div className="p-6">
+      <div className="p-4">
         <LoadingSkeleton lines={5} />
       </div>
     );
@@ -123,8 +123,8 @@ export default function Budget() {
 
   if (apiError && !summary) {
     return (
-      <div className="p-6">
-        <div className="flex-1 flex items-center justify-center p-12">
+      <div className="p-4">
+        <div className="flex-1 flex items-center justify-center p-8">
           <div className="text-center max-w-md">
             <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
               <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -137,7 +137,7 @@ export default function Budget() {
             </p>
             <button
               onClick={() => { setLoading(true); setApiError(null); loadData(); }}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
             >
               Retry
             </button>
@@ -158,21 +158,21 @@ export default function Budget() {
 
   if (!hasBudgetData) {
     return (
-      <div className="p-6" data-testid="budget-empty-state" role="status">
-        <div className="flex items-center justify-between mb-6">
+      <div className="p-4" data-testid="budget-empty-state" role="status">
+        <div className="flex items-center justify-between mb-4">
           <h2 className="heading-lg text-white">Budget & Usage</h2>
           <select
             aria-label="Filter budget stats by time range"
             value={days}
             onChange={(e) => { setDays(parseInt(e.target.value)); setLoading(true); }}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
           >
             <option value={7}>Last 7 days</option>
             <option value={14}>Last 14 days</option>
             <option value={30}>Last 30 days</option>
           </select>
         </div>
-        <div className="flex-1 flex items-center justify-center p-12">
+        <div className="flex-1 flex items-center justify-center p-8">
           <div className="text-center max-w-md">
             <div className="w-12 h-12 rounded-full bg-slate-700/50 flex items-center justify-center mx-auto mb-4">
               <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -243,10 +243,10 @@ export default function Budget() {
 
   return (
     <ErrorBoundary>
-    <div className="p-6">
+    <div className="p-4">
       {/* API error indicator */}
       {apiError && (
-        <div className="mb-4 flex items-center gap-2 px-4 py-2.5 rounded-lg bg-red-950/50 border border-red-600/40 text-red-300 text-sm">
+        <div className="mb-4 flex items-center gap-2 px-3 py-1.5.5 rounded-lg bg-red-950/50 border border-red-600/40 text-red-300 text-sm">
           <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
@@ -261,7 +261,7 @@ export default function Budget() {
       )}
       {/* Budget alert bar */}
       {budgetLimit > 0 && budgetPct >= 80 && (
-        <div className={`mb-4 flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm ${
+        <div className={`mb-4 flex items-center gap-2 px-3 py-1.5.5 rounded-lg text-sm ${
           budgetPct >= 100
             ? 'bg-red-950/50 border border-red-600/40 text-red-300'
             : 'bg-amber-950/50 border border-amber-600/40 text-amber-300'
@@ -276,13 +276,13 @@ export default function Budget() {
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <h2 className="heading-lg text-white">Budget & Usage</h2>
         <select
           aria-label="Filter budget stats by time range"
           value={days}
           onChange={(e) => { setDays(parseInt(e.target.value)); setLoading(true); }}
-          className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
         >
           <option value={7}>Last 7 days</option>
           <option value={14}>Last 14 days</option>
@@ -291,7 +291,7 @@ export default function Budget() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
         <StatCard
           label="Total Cost"
           value={`$${Number(apiCost).toFixed(2)}`}
@@ -330,7 +330,7 @@ export default function Budget() {
 
       {/* Set Budget form */}
       {showBudgetForm && (
-        <form onSubmit={handleSaveBudget} className="glass-card p-6 mb-8 space-y-4">
+        <form onSubmit={handleSaveBudget} className="glass-card p-4 mb-5 space-y-4">
           <h3 className="text-lg font-semibold text-white">Set Budget</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -343,7 +343,7 @@ export default function Budget() {
                 value={budgetForm.budget_usd}
                 onChange={(e) => setBudgetForm({ ...budgetForm, budget_usd: e.target.value })}
                 placeholder="e.g. 50.00"
-                className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
               />
             </div>
             <div>
@@ -355,7 +355,7 @@ export default function Budget() {
                 max="100"
                 value={budgetForm.alert_threshold}
                 onChange={(e) => setBudgetForm({ ...budgetForm, alert_threshold: e.target.value })}
-                className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
               />
             </div>
             <div>
@@ -364,7 +364,7 @@ export default function Budget() {
                 id="budget-period"
                 value={budgetForm.period}
                 onChange={(e) => setBudgetForm({ ...budgetForm, period: e.target.value })}
-                className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
               >
                 <option value="monthly">Monthly</option>
                 <option value="weekly">Weekly</option>
@@ -375,7 +375,7 @@ export default function Budget() {
             <button
               type="submit"
               disabled={savingBudget}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
             >
               {savingBudget ? 'Saving...' : 'Save Budget'}
             </button>
@@ -396,7 +396,7 @@ export default function Budget() {
                     setSavingBudget(false);
                   }
                 }}
-                className="px-4 py-2 bg-red-600/20 hover:bg-red-600/40 text-red-400 text-sm rounded-lg disabled:opacity-50 transition-colors border border-red-600/30"
+                className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/40 text-red-400 text-sm rounded-lg disabled:opacity-50 transition-colors border border-red-600/30"
               >
                 Remove Budget
               </button>
@@ -404,7 +404,7 @@ export default function Budget() {
             <button
               type="button"
               onClick={() => setShowBudgetForm(false)}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
+              className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
             >
               Cancel
             </button>
@@ -413,9 +413,9 @@ export default function Budget() {
       )}
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Daily cost chart */}
-        <div className="glass-card p-6">
+        <div className="glass-card p-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-white">Cost Over Time</h3>
             <div className="flex bg-slate-800 rounded-lg p-0.5">
@@ -461,7 +461,7 @@ export default function Budget() {
         </div>
 
         {/* Provider breakdown pie */}
-        <div className="glass-card p-6">
+        <div className="glass-card p-4">
           <h3 className="text-lg font-semibold text-white mb-4">Provider Breakdown</h3>
           {pieData.length > 0 ? (
             <div role="img" aria-label={`Provider cost breakdown: ${pieData.map(d => `${d.name} $${Number(d.value).toFixed(2)}`).join(', ')}`}>
@@ -482,7 +482,7 @@ export default function Budget() {
 
       {/* Subscription Providers */}
       {Object.keys(subscriptionProviderTasks).length > 0 && (
-        <div className="glass-card p-6 mt-6">
+        <div className="glass-card p-4 mt-6">
           <h3 className="text-lg font-semibold text-white mb-4">Subscription Providers</h3>
           <p className="text-xs text-slate-500 mb-4">Flat-rate subscriptions - cost not tracked per task</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -508,7 +508,7 @@ export default function Budget() {
 
       {/* Budget progress */}
       {budgetLimit > 0 && (
-        <div className="glass-card p-6 mt-6">
+        <div className="glass-card p-4 mt-6">
           <h3 className="text-lg font-semibold text-white mb-1">Budget Progress</h3>
           <p className="text-xs text-slate-500 mb-4">API providers only — subscriptions excluded</p>
           <div className="flex items-center gap-8">

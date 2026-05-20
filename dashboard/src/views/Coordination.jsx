@@ -59,14 +59,14 @@ function Pagination({ page, totalPages, total, onPage }) {
         <button
           disabled={page <= 1}
           onClick={() => onPage(page - 1)}
-          className="px-4 py-2 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
+          className="px-3 py-1.5 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
         >
           Previous
         </button>
         <button
           disabled={page >= totalPages}
           onClick={() => onPage(page + 1)}
-          className="px-4 py-2 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
+          className="px-3 py-1.5 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
         >
           Next
         </button>
@@ -170,7 +170,7 @@ export default function Coordination() {
 
   if (loading) {
     return (
-      <div className="p-6">
+      <div className="p-4">
         <LoadingSkeleton lines={5} />
       </div>
     );
@@ -178,8 +178,8 @@ export default function Coordination() {
 
   if (apiError && !dashboard) {
     return (
-      <div className="p-6">
-        <div className="flex-1 flex items-center justify-center p-12">
+      <div className="p-4">
+        <div className="flex-1 flex items-center justify-center p-8">
           <div className="text-center max-w-md">
             <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
               <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -192,7 +192,7 @@ export default function Coordination() {
             </p>
             <button
               onClick={() => { setLoading(true); setApiError(null); loadData(); }}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
             >
               Retry
             </button>
@@ -204,14 +204,14 @@ export default function Coordination() {
 
   return (
     <ErrorBoundary>
-    <div className="p-6">
-      <div className="mb-6">
+    <div className="p-4">
+      <div className="mb-4">
         <h2 className="heading-lg text-white">Coordination</h2>
         <p className="text-slate-400 text-sm mt-1">Multi-agent coordination, routing rules, and active claims</p>
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
         <StatCard label="Active Agents" value={activeAgents} gradient="green" />
         <StatCard label="Tasks Claimed (24h)" value={tasksClaimed ?? 'N/A'} gradient="blue" />
         <StatCard label="Failovers (24h)" value={failovers} gradient="orange" />
@@ -224,7 +224,7 @@ export default function Coordination() {
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px capitalize ${
+            className={`px-3 py-1.5 text-sm font-medium transition-colors border-b-2 -mb-px capitalize ${
               activeTab === tab
                 ? 'border-blue-500 text-blue-400'
                 : 'border-transparent text-slate-400 hover:text-white'
@@ -251,7 +251,7 @@ export default function Coordination() {
               <tbody>
                 {pagedAgents.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="p-8 text-center text-slate-500">
+                    <td colSpan={4} className="p-6 text-center text-slate-500">
                       No agents registered
                     </td>
                   </tr>
@@ -320,7 +320,7 @@ export default function Coordination() {
               <tbody>
                 {pagedRules.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="p-8 text-center text-slate-500">
+                    <td colSpan={4} className="p-6 text-center text-slate-500">
                       No routing rules configured
                     </td>
                   </tr>
@@ -384,7 +384,7 @@ export default function Coordination() {
               <tbody>
                 {pagedClaims.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-8 text-center text-slate-500">
+                    <td colSpan={5} className="p-6 text-center text-slate-500">
                       No active claims
                     </td>
                   </tr>

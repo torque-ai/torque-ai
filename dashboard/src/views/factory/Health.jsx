@@ -101,12 +101,12 @@ export default function Health() {
   const detailEntries = getScoreEntries(detail.scores || {});
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-2xl border border-slate-700 bg-slate-800 p-6">
+    <div className="space-y-4">
+      <section className="rounded-lg border border-slate-700 bg-slate-800 p-4">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Project Detail</p>
-            <h2 className="mt-1 text-2xl font-semibold text-white">{selectedProject.name || 'Selected project'}</h2>
+            <h2 className="mt-1 text-xl font-semibold text-white">{selectedProject.name || 'Selected project'}</h2>
             <p className="mt-2 break-all font-mono text-xs text-slate-400">{selectedProject.path || 'No path configured'}</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -127,13 +127,13 @@ export default function Health() {
           </div>
         ) : (
           <div className="mt-6 grid gap-8 xl:grid-cols-[360px,1fr]">
-            <div className="rounded-2xl border border-slate-700 bg-slate-900/40 p-5">
+            <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-5">
               <div className="flex justify-center">
                 <RadarChart scores={detail.scores} size={320} showValues />
               </div>
-              <div className="mt-4 rounded-xl border border-slate-700/70 bg-slate-900/60 p-4">
+              <div className="mt-4 rounded-lg border border-slate-700/70 bg-slate-900/60 p-4">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Balance Score</p>
-                <p className="mt-1 text-2xl font-semibold text-white">{formatBalance(detail.balance)}</p>
+                <p className="mt-1 text-xl font-semibold text-white">{formatBalance(detail.balance)}</p>
                 <p className="mt-1 text-sm text-slate-400">Lower is more even across dimensions.</p>
                 {detail.weakest_dimension && (
                   <p className="mt-3 text-sm text-slate-300">
@@ -151,7 +151,7 @@ export default function Health() {
               </div>
 
               {detailEntries.length === 0 ? (
-                <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
+                <div className="mt-4 rounded-lg border border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
                   No health scores have been captured for this project yet.
                 </div>
               ) : (

@@ -17,7 +17,7 @@ function ArchitectReasoningPanel({ reasoningSummary }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="mt-6 rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+    <div className="mt-6 rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
       <button
         type="button"
         onClick={() => setExpanded((current) => !current)}
@@ -56,8 +56,8 @@ export default function Intake() {
   const backlogCycleLabel = formatCycleLabel(architectBacklog.cycleId);
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-2xl border border-slate-700 bg-slate-800 p-6">
+    <div className="space-y-4">
+      <section className="rounded-lg border border-slate-700 bg-slate-800 p-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <h2 className="text-xl font-semibold text-white">Intake Queue</h2>
@@ -92,7 +92,7 @@ export default function Intake() {
             <LoadingSkeleton lines={4} height={18} />
           </div>
         ) : intakeItems.length === 0 ? (
-          <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
+          <div className="mt-6 rounded-lg border border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
             No work items in the intake queue
           </div>
         ) : (
@@ -100,12 +100,12 @@ export default function Intake() {
             <table className="min-w-full divide-y divide-slate-700 text-left text-sm">
               <thead className="text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Title</th>
-                  <th className="px-4 py-3 font-medium">Source</th>
-                  <th className="px-4 py-3 font-medium">Priority</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Created At</th>
-                  <th className="px-4 py-3 text-right font-medium">Actions</th>
+                  <th className="px-3 py-2 font-medium">Title</th>
+                  <th className="px-3 py-2 font-medium">Source</th>
+                  <th className="px-3 py-2 font-medium">Priority</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
+                  <th className="px-3 py-2 font-medium">Created At</th>
+                  <th className="px-3 py-2 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/70">
@@ -154,7 +154,7 @@ export default function Intake() {
         )}
       </section>
 
-      <section className="rounded-2xl border border-slate-700 bg-slate-800 p-6">
+      <section className="rounded-lg border border-slate-700 bg-slate-800 p-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-3">
@@ -172,7 +172,7 @@ export default function Intake() {
             type="button"
             onClick={handleRerunArchitect}
             disabled={architectLoading}
-            className="inline-flex items-center justify-center rounded-lg border border-purple-500/30 bg-purple-500/10 px-4 py-2 text-sm font-medium text-purple-100 transition-colors hover:bg-purple-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center justify-center rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-sm font-medium text-purple-100 transition-colors hover:bg-purple-500/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {architectLoading ? 'Re-running...' : 'Re-run architect'}
           </button>
@@ -183,7 +183,7 @@ export default function Intake() {
             <LoadingSkeleton lines={4} height={18} />
           </div>
         ) : architectBacklog.items.length === 0 ? (
-          <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
+          <div className="mt-6 rounded-lg border border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
             No architect cycle yet — click Re-run to generate one.
           </div>
         ) : (

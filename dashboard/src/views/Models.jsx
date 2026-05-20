@@ -74,9 +74,9 @@ export default function Models() {
     return () => { cancelled = true; };
   }, [activeTab, days]);
 
-  if (loading) return <div className="p-6"><LoadingSkeleton lines={5} /></div>;
-  if (error) return <div className="p-6"><div className="text-red-400 text-sm">{error}</div></div>;
-  if (!data || !data.models?.length) return <div className="p-6 text-slate-400">No model data for the last {days} days.</div>;
+  if (loading) return <div className="p-4"><LoadingSkeleton lines={5} /></div>;
+  if (error) return <div className="p-4"><div className="text-red-400 text-sm">{error}</div></div>;
+  if (!data || !data.models?.length) return <div className="p-4 text-slate-400">No model data for the last {days} days.</div>;
 
   const { models, dailySeries } = data;
 
@@ -108,11 +108,11 @@ export default function Models() {
   const dailyData = Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold text-white">Models</h1>
+          <h1 className="text-xl font-bold text-white">Models</h1>
           <div className="flex bg-slate-800 rounded-lg p-0.5 border border-slate-700">
             <button
               onClick={() => setActiveTab('overview')}
@@ -154,27 +154,27 @@ export default function Models() {
 
           {/* Model Performance Table */}
           <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-700">
+            <div className="px-3 py-2 border-b border-slate-700">
               <h2 className="text-lg font-semibold text-white">Per-Model Breakdown</h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-slate-400 text-left border-b border-slate-700">
-                    <th scope="col" className="px-4 py-2">Model</th>
-                    <th scope="col" className="px-4 py-2 text-right">Tasks</th>
-                    <th scope="col" className="px-4 py-2 text-right">Success</th>
-                    <th scope="col" className="px-4 py-2 text-right">Failed</th>
-                    <th scope="col" className="px-4 py-2 text-right">Rate</th>
-                    <th scope="col" className="px-4 py-2 text-right">Avg Duration</th>
-                    <th scope="col" className="px-4 py-2 text-right">Cost</th>
-                    <th scope="col" className="px-4 py-2">Providers</th>
+                    <th scope="col" className="px-3 py-1.5">Model</th>
+                    <th scope="col" className="px-3 py-1.5 text-right">Tasks</th>
+                    <th scope="col" className="px-3 py-1.5 text-right">Success</th>
+                    <th scope="col" className="px-3 py-1.5 text-right">Failed</th>
+                    <th scope="col" className="px-3 py-1.5 text-right">Rate</th>
+                    <th scope="col" className="px-3 py-1.5 text-right">Avg Duration</th>
+                    <th scope="col" className="px-3 py-1.5 text-right">Cost</th>
+                    <th scope="col" className="px-3 py-1.5">Providers</th>
                   </tr>
                 </thead>
                 <tbody>
                   {models.map((m, i) => (
                     <tr key={m.model} className="border-b border-slate-700/50 hover:bg-slate-700/30">
-                      <td className="px-4 py-2 font-medium text-white flex items-center gap-2">
+                      <td className="px-3 py-1.5 font-medium text-white flex items-center gap-2">
                         <span
                           aria-hidden="true"
                           className="w-3 h-3 rounded-full inline-block"
@@ -182,17 +182,17 @@ export default function Models() {
                         />
                         {m.model}
                       </td>
-                      <td className="px-4 py-2 text-right text-slate-300">{m.total}</td>
-                      <td className="px-4 py-2 text-right text-green-400">{m.completed}</td>
-                      <td className="px-4 py-2 text-right text-red-400">{m.failed}</td>
-                      <td className="px-4 py-2 text-right">
+                      <td className="px-3 py-1.5 text-right text-slate-300">{m.total}</td>
+                      <td className="px-3 py-1.5 text-right text-green-400">{m.completed}</td>
+                      <td className="px-3 py-1.5 text-right text-red-400">{m.failed}</td>
+                      <td className="px-3 py-1.5 text-right">
                         <span className={m.success_rate >= 80 ? 'text-green-400' : m.success_rate >= 50 ? 'text-yellow-400' : 'text-red-400'}>
                           {m.success_rate}%
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-right text-slate-300">{formatDuration(m.avg_duration_seconds)}</td>
-                      <td className="px-4 py-2 text-right text-slate-300">${(m.total_cost || 0).toFixed(3)}</td>
-                      <td className="px-4 py-2 text-slate-400 text-xs">{m.providers.join(', ')}</td>
+                      <td className="px-3 py-1.5 text-right text-slate-300">{formatDuration(m.avg_duration_seconds)}</td>
+                      <td className="px-3 py-1.5 text-right text-slate-300">${(m.total_cost || 0).toFixed(3)}</td>
+                      <td className="px-3 py-1.5 text-slate-400 text-xs">{m.providers.join(', ')}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -201,7 +201,7 @@ export default function Models() {
           </div>
 
           {/* Charts Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Success Rate Comparison */}
             {successData.length > 0 && (
               <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
@@ -240,30 +240,30 @@ export default function Models() {
 
       {activeTab === 'leaderboard' && (
         <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-700">
+          <div className="px-3 py-2 border-b border-slate-700">
             <h2 className="text-lg font-semibold text-white">Model Leaderboard</h2>
             <p className="text-xs text-slate-400 mt-1">Ranked by success rate (last {days} days)</p>
           </div>
           {leaderboardLoading ? (
-            <div className="p-6 text-slate-400">Loading leaderboard...</div>
+            <div className="p-4 text-slate-400">Loading leaderboard...</div>
           ) : leaderboard.length === 0 ? (
-            <div className="p-6 text-slate-500">No leaderboard data for the last {days} days.</div>
+            <div className="p-4 text-slate-500">No leaderboard data for the last {days} days.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-slate-400 text-left border-b border-slate-700">
-                    <th scope="col" className="px-4 py-2 text-center w-16">Rank</th>
-                    <th scope="col" className="px-4 py-2">Model</th>
-                    <th scope="col" className="px-4 py-2 text-right">Success Rate</th>
-                    <th scope="col" className="px-4 py-2 text-right">Avg Duration</th>
-                    <th scope="col" className="px-4 py-2 text-right">Tasks</th>
+                    <th scope="col" className="px-3 py-1.5 text-center w-16">Rank</th>
+                    <th scope="col" className="px-3 py-1.5">Model</th>
+                    <th scope="col" className="px-3 py-1.5 text-right">Success Rate</th>
+                    <th scope="col" className="px-3 py-1.5 text-right">Avg Duration</th>
+                    <th scope="col" className="px-3 py-1.5 text-right">Tasks</th>
                   </tr>
                 </thead>
                 <tbody>
                   {leaderboard.map((entry) => (
                     <tr key={entry.model_name} className="border-b border-slate-700/50 hover:bg-slate-700/30">
-                      <td className="px-4 py-2 text-center">
+                      <td className="px-3 py-1.5 text-center">
                         <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
                           entry.rank === 1 ? 'bg-yellow-500/20 text-yellow-400' :
                           entry.rank === 2 ? 'bg-slate-400/20 text-slate-300' :
@@ -273,8 +273,8 @@ export default function Models() {
                           {entry.rank}
                         </span>
                       </td>
-                      <td className="px-4 py-2 font-medium text-white">{entry.model_name}</td>
-                      <td className="px-4 py-2 text-right">
+                      <td className="px-3 py-1.5 font-medium text-white">{entry.model_name}</td>
+                      <td className="px-3 py-1.5 text-right">
                         <span className={
                           entry.success_rate >= 80 ? 'text-green-400' :
                           entry.success_rate >= 50 ? 'text-yellow-400' : 'text-red-400'
@@ -282,10 +282,10 @@ export default function Models() {
                           {entry.success_rate}%
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-right text-slate-300">
+                      <td className="px-3 py-1.5 text-right text-slate-300">
                         {formatDuration(entry.avg_duration_s)}
                       </td>
-                      <td className="px-4 py-2 text-right text-slate-300">{entry.task_count}</td>
+                      <td className="px-3 py-1.5 text-right text-slate-300">{entry.task_count}</td>
                     </tr>
                   ))}
                 </tbody>

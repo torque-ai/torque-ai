@@ -230,11 +230,11 @@ function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurre
   );
 
   return (
-    <div className={`glass-card p-5 card-hover${!host.enabled ? ' opacity-60' : ''}`}>
+    <div className={`glass-card p-2 card-hover${!host.enabled ? ' opacity-60' : ''}`}>
       {/* Header */}
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex items-start justify-between mb-2">
         <div>
-          <h3 className="text-lg font-semibold text-white">{host.name || host.id}</h3>
+          <h3 className="text-base font-semibold text-white">{host.name || host.id}</h3>
           <p className="text-xs text-slate-400 mt-0.5 font-mono">{host.url}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -272,18 +272,18 @@ function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurre
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 mb-4">
-        <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+      <div className="grid grid-cols-3 gap-2 mb-2">
+        <div className="bg-slate-800/50 rounded-lg p-2 text-center">
           <p className="text-xs text-slate-500">Models</p>
-          <p className="text-lg font-bold text-white">{models.length}</p>
+          <p className="text-base font-bold text-white">{models.length}</p>
         </div>
-        <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+        <div className="bg-slate-800/50 rounded-lg p-2 text-center">
           <p className="text-xs text-slate-500">Running</p>
-          <p className="text-lg font-bold text-white">{host.running_tasks || 0}</p>
+          <p className="text-base font-bold text-white">{host.running_tasks || 0}</p>
         </div>
-        <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+        <div className="bg-slate-800/50 rounded-lg p-2 text-center">
           <p className="text-xs text-slate-500">Latency</p>
-          <p className="text-lg font-bold text-white">
+          <p className="text-base font-bold text-white">
             {host.response_time_ms ? `${host.response_time_ms}ms` : '-'}
           </p>
         </div>
@@ -334,36 +334,36 @@ function HostCard({ host, activity, onToggle, onRemove, onRefreshHosts, concurre
         <div className="mt-3 space-y-3">
           {activity.gpuMetrics.synthetic ? (
             /* Synthetic metrics from Ollama /api/ps — VRAM only, no GPU%/Temp */
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
                 <p className="text-xs text-slate-500">VRAM</p>
-                <p className="text-lg font-bold text-white">
+                <p className="text-base font-bold text-white">
                   {(activity.gpuMetrics.vramUsedMb / 1024).toFixed(1)}
                   <span className="text-xs text-slate-400">/{(activity.gpuMetrics.vramTotalMb / 1024).toFixed(1)}GB</span>
                 </p>
               </div>
-              <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
                 <p className="text-xs text-slate-500">Loaded</p>
-                <p className="text-lg font-bold text-white">{activity?.loadedModels?.length || 0} <span className="text-xs text-slate-400">models</span></p>
+                <p className="text-base font-bold text-white">{activity?.loadedModels?.length || 0} <span className="text-xs text-slate-400">models</span></p>
               </div>
             </div>
           ) : (
             /* Full metrics from nvidia-smi or gpu-metrics-server */
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
                 <p className="text-xs text-slate-500">GPU</p>
-                <p className="text-lg font-bold text-white">{activity.gpuMetrics.gpuUtilizationPercent}%</p>
+                <p className="text-base font-bold text-white">{activity.gpuMetrics.gpuUtilizationPercent}%</p>
               </div>
-              <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
                 <p className="text-xs text-slate-500">VRAM</p>
-                <p className="text-lg font-bold text-white">
+                <p className="text-base font-bold text-white">
                   {(activity.gpuMetrics.vramUsedMb / 1024).toFixed(1)}
                   <span className="text-xs text-slate-400">/{(activity.gpuMetrics.vramTotalMb / 1024).toFixed(1)}GB</span>
                 </p>
               </div>
-              <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+              <div className="bg-slate-800/50 rounded-lg p-2 text-center">
                 <p className="text-xs text-slate-500">Temp</p>
-                <p className={`text-lg font-bold ${
+                <p className={`text-base font-bold ${
                   activity.gpuMetrics.temperatureC >= 80 ? 'text-red-400' :
                   activity.gpuMetrics.temperatureC >= 70 ? 'text-yellow-400' : 'text-white'
                 }`}>
@@ -470,11 +470,11 @@ function WorkstationCard({ workstation, onProbe, onRemove, onToggle, peekStatus,
   const peekUrl = `http://${workstation.host}:9876`;
 
   return (
-    <div className={`glass-card p-5 card-hover${!isEnabled ? ' opacity-60' : ''}`}>
-      <div className="flex items-start justify-between gap-3 mb-4">
+    <div className={`glass-card p-2 card-hover${!isEnabled ? ' opacity-60' : ''}`}>
+      <div className="flex items-start justify-between gap-2 mb-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold text-white truncate">{workstation.name}</h3>
+            <h3 className="text-base font-semibold text-white truncate">{workstation.name}</h3>
             {workstation.is_default ? (
               <span className="px-2 py-0.5 rounded-full bg-blue-600/20 border border-blue-500/30 text-[11px] font-medium text-blue-300">
                 Default
@@ -502,16 +502,16 @@ function WorkstationCard({ workstation, onProbe, onRemove, onToggle, peekStatus,
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 mb-4">
-        <div className="bg-slate-800/50 rounded-lg p-3">
+      <div className="grid grid-cols-3 gap-2 mb-2">
+        <div className="bg-slate-800/50 rounded-lg p-2">
           <p className="text-xs text-slate-500 mb-1">Running</p>
           <p className="text-base font-semibold text-white">{workstation.running_tasks || 0}</p>
         </div>
-        <div className="bg-slate-800/50 rounded-lg p-3">
+        <div className="bg-slate-800/50 rounded-lg p-2">
           <p className="text-xs text-slate-500 mb-1">Models</p>
           <p className="text-base font-semibold text-white">{models.length}</p>
         </div>
-        <div className="bg-slate-800/50 rounded-lg p-3">
+        <div className="bg-slate-800/50 rounded-lg p-2">
           <p className="text-xs text-slate-500 mb-1">GPU</p>
           <p className="text-sm font-semibold text-white truncate" title={workstation.gpu_name || 'Not detected'}>
             {workstation.gpu_name || 'None'}
@@ -534,8 +534,8 @@ function WorkstationCard({ workstation, onProbe, onRemove, onToggle, peekStatus,
       </div>
 
       {workstation.gpu_name || workstation.gpu_vram_mb ? (
-        <div className="mt-4 p-3 rounded-lg bg-slate-800/40 border border-slate-700/60">
-          <div className="flex items-center justify-between gap-3 text-sm">
+        <div className="mt-2 p-2 rounded-lg bg-slate-800/40 border border-slate-700/60">
+          <div className="flex items-center justify-between gap-2 text-sm">
             <span className="text-slate-300 truncate">{workstation.gpu_name || 'GPU detected'}</span>
             {workstation.gpu_vram_mb ? (
               <span className="text-slate-400">{formatGb(workstation.gpu_vram_mb)}</span>
@@ -545,7 +545,7 @@ function WorkstationCard({ workstation, onProbe, onRemove, onToggle, peekStatus,
       ) : null}
 
       {workstation.gpu_vram_mb ? (
-        <div className="mt-4">
+        <div className="mt-2">
           <VramBar
             used={workstation.effective_vram_budget_mb || workstation.gpu_vram_mb}
             total={workstation.gpu_vram_mb}
@@ -556,7 +556,7 @@ function WorkstationCard({ workstation, onProbe, onRemove, onToggle, peekStatus,
       <CapacityBar running={workstation.running_tasks || 0} max={workstation.max_concurrent || 0} />
 
       {models.length > 0 ? (
-        <div className="mt-4">
+        <div className="mt-2">
           <p className="text-xs text-slate-400 mb-2">Models</p>
           <div className="flex flex-wrap gap-1.5">
             {models.slice(0, 6).map((model) => {
@@ -578,7 +578,7 @@ function WorkstationCard({ workstation, onProbe, onRemove, onToggle, peekStatus,
       ) : null}
 
       {/* Peek Server sub-section */}
-      <div className="mt-4 p-3 rounded-lg bg-slate-800/30 border border-slate-700/50">
+      <div className="mt-2 p-2 rounded-lg bg-slate-800/30 border border-slate-700/50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-400">Peek Server</span>
@@ -610,7 +610,7 @@ function WorkstationCard({ workstation, onProbe, onRemove, onToggle, peekStatus,
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-3 mt-4 pt-4 border-t border-slate-800">
+      <div className="flex items-center justify-between gap-2 mt-2 pt-4 border-t border-slate-800">
         <div className="text-xs text-slate-500">
           {workstation.last_health_check ? (
             <span title={format(new Date(workstation.last_health_check), 'MMM d, yyyy HH:mm:ss')}>
@@ -676,7 +676,7 @@ function AddWorkstationForm({ onAdd, onCancel, submitting }) {
   const canSubmit = name.trim() && host.trim() && secret.trim() && Number.isFinite(parseInt(port, 10)) && parseInt(port, 10) > 0;
 
   return (
-    <div className="glass-card p-5 space-y-4">
+    <div className="glass-card p-2 space-y-3">
       <div>
         <h3 className="text-sm font-semibold text-white">Add Workstation</h3>
         <div className="flex gap-1 mt-2">
@@ -701,7 +701,7 @@ function AddWorkstationForm({ onAdd, onCancel, submitting }) {
         <div className="space-y-3">
           <p className="text-xs text-slate-400">Run this on the remote machine:</p>
           <div className="relative">
-            <pre className="bg-slate-800 border border-slate-700 rounded-lg p-3 text-sm text-green-400 font-mono overflow-x-auto whitespace-pre-wrap break-all">
+            <pre className="bg-slate-800 border border-slate-700 rounded-lg p-2 text-sm text-green-400 font-mono overflow-x-auto whitespace-pre-wrap break-all">
               {bootstrapCmd}
             </pre>
             <button
@@ -728,14 +728,14 @@ function AddWorkstationForm({ onAdd, onCancel, submitting }) {
           </div>
           <p className="text-[11px] text-slate-500 italic">The workstation card will appear automatically once the agent connects.</p>
           <div className="flex justify-end">
-            <button type="button" onClick={onCancel} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors">
+            <button type="button" onClick={onCancel} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors">
               Close
             </button>
           </div>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         <div>
           <label htmlFor="workstation-name" className="text-xs text-slate-400 block mb-1">Name *</label>
           <input
@@ -800,14 +800,14 @@ function AddWorkstationForm({ onAdd, onCancel, submitting }) {
         <button
           type="button"
           onClick={onCancel}
-          className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
+          className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
         >
           Cancel
         </button>
         <button
           type="submit"
           disabled={!canSubmit || submitting}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
+          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
         >
           {submitting ? 'Adding...' : 'Add Workstation'}
         </button>
@@ -897,13 +897,13 @@ function CredentialModal({ hostName, existingTypes, onSave, onDelete, onClose })
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div ref={modalRef} className="glass-card p-6 max-w-md w-full mx-4" role="dialog" aria-modal="true" aria-label="Manage credentials" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-semibold text-white mb-1">Credentials for {hostName}</h3>
-        <p className="text-xs text-slate-400 mb-4">Stored encrypted at rest (AES-256-GCM)</p>
+      <div ref={modalRef} className="glass-card p-4 max-w-md w-full mx-4" role="dialog" aria-modal="true" aria-label="Manage credentials" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-semibold text-white mb-1">Credentials for {hostName}</h3>
+        <p className="text-xs text-slate-400 mb-2">Stored encrypted at rest (AES-256-GCM)</p>
 
         {/* Existing credentials */}
         {existingTypes.length > 0 && (
-          <div className="mb-4">
+          <div className="mb-2">
             <p className="text-xs text-slate-400 mb-2">Stored credentials:</p>
             <div className="space-y-1.5">
               {existingTypes.map((t) => (
@@ -934,7 +934,7 @@ function CredentialModal({ hostName, existingTypes, onSave, onDelete, onClose })
               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none" />
           </div>
 
-          <div className="space-y-2 mb-4">
+          <div className="space-y-2 mb-2">
             {fields.map((f) => (
               <div key={f.key}>
                 <label className="text-xs text-slate-400 block mb-1">{f.label}</label>
@@ -952,9 +952,9 @@ function CredentialModal({ hostName, existingTypes, onSave, onDelete, onClose })
           </div>
 
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors">Cancel</button>
+            <button type="button" onClick={onClose} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors">Cancel</button>
             <button type="submit" disabled={saving}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors">
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors">
               {saving ? 'Saving...' : isExisting ? 'Replace Credential' : 'Save Credential'}
             </button>
           </div>
@@ -983,10 +983,10 @@ function PeekHostCard({ host, onToggle, onRemove, onTest, onSaveCred, onDeleteCr
   }
 
   return (
-    <div className={`glass-card p-5 card-hover${!isEnabled ? ' opacity-60' : ''}`}>
-      <div className="flex items-start justify-between mb-4">
+    <div className={`glass-card p-2 card-hover${!isEnabled ? ' opacity-60' : ''}`}>
+      <div className="flex items-start justify-between mb-2">
         <div>
-          <h3 className="text-lg font-semibold text-white">{host.name}</h3>
+          <h3 className="text-base font-semibold text-white">{host.name}</h3>
           <p className="text-xs text-slate-400 mt-0.5 font-mono">{host.url}</p>
           {host.platform && (
             <span className="text-xs text-slate-500">{host.platform}</span>
@@ -1105,9 +1105,9 @@ function AddPeekHostForm({ onAdd, onCancel }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="glass-card p-5 space-y-3">
+    <form onSubmit={handleSubmit} className="glass-card p-2 space-y-3">
       <h3 className="text-sm font-semibold text-white">Add Remote Testing Host</h3>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="text-xs text-slate-400 block mb-1">Name *</label>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="remote-gpu-host"
@@ -1130,8 +1130,8 @@ function AddPeekHostForm({ onAdd, onCancel }) {
         </div>
       </div>
       <div className="flex justify-end gap-2">
-        <button type="button" onClick={onCancel} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors">Cancel</button>
-        <button type="submit" disabled={!name.trim() || !url.trim()} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors">Add Host</button>
+        <button type="button" onClick={onCancel} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors">Cancel</button>
+        <button type="submit" disabled={!name.trim() || !url.trim()} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors">Add Host</button>
       </div>
     </form>
   );
@@ -1538,15 +1538,15 @@ export default function Hosts({ hostActivity }) {
 
   if (loading) {
     return (
-      <div className="p-6">
+      <div className="p-4">
         <LoadingSkeleton lines={5} />
       </div>
     );
   }
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4">
+      <div className="flex items-center justify-between mb-2">
         <div>
           <h2 className="heading-lg text-white">Hosts</h2>
           <p className="text-sm text-slate-400 mt-1">
@@ -1557,7 +1557,7 @@ export default function Hosts({ hostActivity }) {
           <button
             onClick={handleScan}
             disabled={scanning}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/40 text-indigo-300 text-sm rounded-lg disabled:opacity-50 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/40 text-indigo-300 text-sm rounded-lg disabled:opacity-50 transition-colors"
           >
             <svg className={`w-4 h-4 ${scanning ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -1567,7 +1567,7 @@ export default function Hosts({ hostActivity }) {
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
           >
             <svg className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -1581,13 +1581,13 @@ export default function Hosts({ hostActivity }) {
 
       {/* Pending Models Approval Panel */}
       {pendingModels.length > 0 && (
-        <div className="glass-card p-5 mb-6 border border-amber-500/30">
-          <h3 className="text-lg font-semibold text-amber-300 mb-3">
+        <div className="glass-card p-2 mb-2 border border-amber-500/30">
+          <h3 className="text-base font-semibold text-amber-300 mb-3">
             {pendingModels.length} Model{pendingModels.length !== 1 ? 's' : ''} Pending Approval
           </h3>
           <div className="space-y-2">
             {pendingModels.map((m, i) => (
-              <div key={`${m.provider}-${m.model_name}-${i}`} className="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-2">
+              <div key={`${m.provider}-${m.model_name}-${i}`} className="flex items-center justify-between bg-slate-800/50 rounded-lg px-3 py-1.5">
                 <div>
                   <span className="text-white font-medium">{m.model_name}</span>
                   <span className="text-slate-400 text-sm ml-2">on {m.provider}</span>
@@ -1630,7 +1630,7 @@ export default function Hosts({ hostActivity }) {
       />
 
       <div>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-2">
           <div>
             <h2 className="heading-lg text-white">Workstations</h2>
             <p className="text-sm text-slate-400 mt-1">
@@ -1639,7 +1639,7 @@ export default function Hosts({ hostActivity }) {
           </div>
           <button
             onClick={() => setShowAddWorkstation((current) => !current)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/35 text-indigo-200 text-sm rounded-lg transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600/20 border border-indigo-500/30 hover:bg-indigo-600/35 text-indigo-200 text-sm rounded-lg transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -1659,12 +1659,12 @@ export default function Hosts({ hostActivity }) {
         ) : null}
 
         {workstationList.length === 0 ? (
-          <div className="glass-card p-8 text-center">
-            <p className="text-slate-400 text-lg mb-2">No workstations registered</p>
+          <div className="glass-card p-4 text-center">
+            <p className="text-slate-400 text-base mb-2">No workstations registered</p>
             <p className="text-slate-500 text-sm">Register a workstation agent to manage it here.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
             {workstationList.map((workstation) => (
               <WorkstationCard
                 key={workstation.id || workstation.name}
@@ -1681,8 +1681,8 @@ export default function Hosts({ hostActivity }) {
         )}
       </div>
 
-      <div className="mt-10">
-        <div className="mb-4">
+      <div className="mt-6">
+        <div className="mb-2">
           <h2 className="heading-lg text-white">Ollama Hosts</h2>
           <p className="text-sm text-slate-400 mt-1">
             {enabled} enabled, {healthy} healthy — {total} total
@@ -1690,14 +1690,14 @@ export default function Hosts({ hostActivity }) {
         </div>
 
         {hostList.length === 0 ? (
-          <div className="glass-card p-12 text-center">
-            <p className="text-slate-400 text-lg mb-2">No hosts configured</p>
+          <div className="glass-card p-5 text-center">
+            <p className="text-slate-400 text-base mb-2">No hosts configured</p>
             <p className="text-slate-500 text-sm">
               Use <code className="bg-slate-800 px-1.5 py-0.5 rounded text-xs">add_ollama_host</code> to register a host
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
             {hostList.map((host) => (
               <HostCard
                 key={host.id}
@@ -1720,26 +1720,26 @@ export default function Hosts({ hostActivity }) {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setConfirmRemoveWorkstation(null)}>
           <div
             ref={confirmDialogRef}
-            className="glass-card p-6 max-w-sm mx-4"
+            className="glass-card p-4 max-w-sm mx-4"
             role="dialog"
             aria-modal="true"
             aria-label="Confirm remove workstation"
             onClick={(event) => event.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold text-white mb-2">Remove Workstation</h3>
-            <p className="text-sm text-slate-300 mb-6">
+            <h3 className="text-base font-semibold text-white mb-2">Remove Workstation</h3>
+            <p className="text-sm text-slate-300 mb-2">
               Are you sure you want to remove <strong>{confirmRemoveWorkstation.name}</strong>? This cannot be undone.
             </p>
-            <div className="flex justify-end gap-3">
+            <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmRemoveWorkstation(null)}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
+                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleRemoveWorkstationConfirm}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm rounded-lg transition-colors"
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-sm rounded-lg transition-colors"
               >
                 Remove
               </button>
@@ -1751,14 +1751,14 @@ export default function Hosts({ hostActivity }) {
       {/* Peek host remove confirmation dialog */}
       {confirmRemovePeek && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setConfirmRemovePeek(null)}>
-          <div ref={confirmDialogRef} className="glass-card p-6 max-w-sm mx-4" role="dialog" aria-modal="true" aria-label="Confirm remove peek host" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-white mb-2">Remove Peek Host</h3>
-            <p className="text-sm text-slate-300 mb-4">
+          <div ref={confirmDialogRef} className="glass-card p-4 max-w-sm mx-4" role="dialog" aria-modal="true" aria-label="Confirm remove peek host" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-white mb-2">Remove Peek Host</h3>
+            <p className="text-sm text-slate-300 mb-2">
               Remove <strong>{confirmRemovePeek.name}</strong> and all stored credentials? This cannot be undone.
             </p>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setConfirmRemovePeek(null)} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors">Cancel</button>
-              <button onClick={handleRemovePeekConfirm} className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm rounded-lg transition-colors">Remove</button>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmRemovePeek(null)} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors">Cancel</button>
+              <button onClick={handleRemovePeekConfirm} className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-sm rounded-lg transition-colors">Remove</button>
             </div>
           </div>
         </div>
@@ -1767,21 +1767,21 @@ export default function Hosts({ hostActivity }) {
       {/* Remove confirmation dialog */}
       {confirmRemove && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setConfirmRemove(null)}>
-          <div ref={confirmDialogRef} className="glass-card p-6 max-w-sm mx-4" role="dialog" aria-modal="true" aria-label="Confirm remove host" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-white mb-2">Remove Host</h3>
-            <p className="text-sm text-slate-300 mb-4">
+          <div ref={confirmDialogRef} className="glass-card p-4 max-w-sm mx-4" role="dialog" aria-modal="true" aria-label="Confirm remove host" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-white mb-2">Remove Host</h3>
+            <p className="text-sm text-slate-300 mb-2">
               Are you sure you want to remove <strong>{confirmRemove.name}</strong>? This cannot be undone.
             </p>
-            <div className="flex justify-end gap-3">
+            <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmRemove(null)}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
+                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleRemoveConfirm}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm rounded-lg transition-colors"
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-sm rounded-lg transition-colors"
               >
                 Remove
               </button>

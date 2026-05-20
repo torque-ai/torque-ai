@@ -27,7 +27,7 @@ function getLoopStatePillStyle(loopState) {
 
 export function SelectProjectPrompt({ message = 'Select a factory project above to view its details.' }) {
   return (
-    <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-800/40 px-6 py-10 text-center text-sm text-slate-400">
+    <div className="rounded-lg border border-dashed border-slate-700 bg-slate-800/40 px-6 py-10 text-center text-sm text-slate-400">
       {message}
     </div>
   );
@@ -57,7 +57,7 @@ export function DimensionBar({ dimension, score }) {
   const value = Math.max(0, Math.min(100, Number(score) || 0));
 
   return (
-    <div className="rounded-xl border border-slate-700 bg-slate-900/50 p-3">
+    <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
       <div className="flex items-center justify-between gap-3 text-sm">
         <span className="font-medium text-slate-200">{formatLabel(dimension)}</span>
         <span className="font-mono text-slate-400">{Math.round(value)}</span>
@@ -143,7 +143,7 @@ export function ProjectCard({
           onSelect(project.id);
         }
       }}
-      className={`rounded-2xl border p-5 transition-all ${
+      className={`rounded-lg border p-5 transition-all ${
         selected
           ? 'border-blue-500/50 bg-slate-800 shadow-lg shadow-blue-950/30'
           : 'border-slate-700 bg-slate-800/80 hover:border-slate-600 hover:bg-slate-800'
@@ -199,7 +199,7 @@ export function ProjectCard({
       </div>
 
       {recoveryExhausted && (
-        <div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-rose-200">
+        <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-rose-200">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm font-medium">Auto-recovery exhausted — operator action required</p>
             <button
@@ -221,16 +221,16 @@ export function ProjectCard({
 
       <p className="mt-4 break-all font-mono text-xs text-slate-400">{project.path || 'No path configured'}</p>
 
-      <div className="mt-5 flex justify-center rounded-xl border border-slate-700/70 bg-slate-900/40 p-3">
+      <div className="mt-5 flex justify-center rounded-lg border border-slate-700/70 bg-slate-900/40 p-3">
         <RadarChart scores={project.scores} size={180} />
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-slate-700/70 bg-slate-900/40 p-3">
+        <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-3">
           <p className="text-xs uppercase tracking-wide text-slate-500">Balance</p>
           <p className="mt-1 text-lg font-semibold text-white">{formatBalance(project.balance)}</p>
         </div>
-        <div className="rounded-xl border border-slate-700/70 bg-slate-900/40 p-3">
+        <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-3">
           <p className="text-xs uppercase tracking-wide text-slate-500">Weakest</p>
           {weakest ? (
             <>
@@ -244,7 +244,7 @@ export function ProjectCard({
       </div>
 
       {activity?.lastAction && (
-        <div className="mt-4 rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3">
+        <div className="mt-4 rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-3">
           <p className="text-xs uppercase tracking-wide text-indigo-200/80">Last Action</p>
           <p className="mt-1 truncate text-sm text-slate-200" title={activity.lastAction}>{activity.lastAction}</p>
         </div>
@@ -306,7 +306,7 @@ export const ArchitectBacklogItemRow = memo(function ArchitectBacklogItemRow({ i
   const whyText = item.why || 'No rationale provided yet.';
 
   return (
-    <li className="rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+    <li className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-3">

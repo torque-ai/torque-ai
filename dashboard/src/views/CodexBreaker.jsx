@@ -135,7 +135,7 @@ export default function CodexBreaker() {
   const liveState = live.state || 'UNKNOWN';
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 space-y-4">
       <div>
         <h2 className="heading-lg text-white">Codex Breaker</h2>
         <p className="text-sm text-slate-400 mt-1">
@@ -144,7 +144,7 @@ export default function CodexBreaker() {
         </p>
       </div>
 
-      <section className="glass-card p-6">
+      <section className="glass-card p-4">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
@@ -176,13 +176,13 @@ export default function CodexBreaker() {
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             placeholder="Reason (optional)"
-            className="flex-1 min-w-[240px] bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            className="flex-1 min-w-[240px] bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500"
           />
           <button
             type="button"
             onClick={handleTrip}
             disabled={busy}
-            className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
+            className="px-3 py-1.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
           >
             Trip
           </button>
@@ -190,14 +190,14 @@ export default function CodexBreaker() {
             type="button"
             onClick={handleUntrip}
             disabled={busy}
-            className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
+            className="px-3 py-1.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
           >
             Untrip
           </button>
         </div>
       </section>
 
-      <section className="glass-card p-6">
+      <section className="glass-card p-4">
         <h3 className="heading-md text-white mb-3">Parked Work Items</h3>
         {!parkedAvailable ? (
           <p className="text-sm text-amber-300">Parked items unavailable.</p>

@@ -273,26 +273,26 @@ function ConfirmDialog({ action, pending, onCancel, onConfirm }) {
     >
       <div
         ref={modalRef}
-        className="glass-card p-6 max-w-md mx-4"
+        className="glass-card p-4 max-w-md mx-4"
         role="dialog"
         aria-modal="true"
         aria-label={title}
         onClick={(event) => event.stopPropagation()}
       >
         <h3 className="text-lg font-semibold text-white mb-2">{title}</h3>
-        <p className="text-sm text-slate-300 mb-6">{message}</p>
+        <p className="text-sm text-slate-300 mb-4">{message}</p>
         <div className="flex justify-end gap-3">
           <button
             onClick={onCancel}
             disabled={pending}
-            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
             disabled={pending}
-            className={`px-4 py-2 text-white text-sm rounded-lg transition-colors disabled:opacity-50 ${
+            className={`px-3 py-1.5 text-white text-sm rounded-lg transition-colors disabled:opacity-50 ${
               isMerge ? 'bg-blue-600 hover:bg-blue-500' : 'bg-red-600 hover:bg-red-500'
             }`}
           >
@@ -482,15 +482,15 @@ export default function VersionControl() {
 
   if (loading) {
     return (
-      <div className="p-6">
+      <div className="p-4">
         <LoadingSkeleton lines={6} />
       </div>
     );
   }
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="heading-lg text-white">Version Control</h2>
@@ -513,7 +513,7 @@ export default function VersionControl() {
           <button
             type="button"
             onClick={() => {}}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -523,7 +523,7 @@ export default function VersionControl() {
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-sm rounded-lg disabled:opacity-50 transition-colors"
           >
             <svg className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -533,14 +533,14 @@ export default function VersionControl() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
         <StatCard label="Active Worktrees" value={stats.activeWorktrees} gradient="green" />
         <StatCard label="Stale Worktrees" value={stats.staleWorktrees} gradient="orange" />
         <StatCard label="Commits Today" value={stats.commitsToday} gradient="blue" />
         <StatCard label="Policy Violations" value={stats.policyViolations} gradient={stats.policyViolations > 0 ? 'red' : 'purple'} />
       </div>
 
-      <div className="glass-card overflow-hidden mb-8">
+      <div className="glass-card overflow-hidden mb-5">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700/50">
           <div>
             <h3 className="text-lg font-semibold text-white">Worktrees</h3>
@@ -564,7 +564,7 @@ export default function VersionControl() {
             <tbody>
               {worktrees.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-slate-500">
+                  <td colSpan={7} className="p-6 text-center text-slate-500">
                     No tracked worktrees yet
                   </td>
                 </tr>
@@ -653,7 +653,7 @@ export default function VersionControl() {
             Loading release history...
           </div>
         ) : (releaseData.recent_releases || []).length === 0 ? (
-          <div className="p-8 text-center text-slate-500">
+          <div className="p-6 text-center text-slate-500">
             No releases recorded yet
           </div>
         ) : (
@@ -673,7 +673,7 @@ export default function VersionControl() {
                     <button
                       type="button"
                       onClick={() => setSelectedRelease(release)}
-                      className="group relative mb-4 block w-full cursor-pointer rounded-xl px-4 py-4 text-left transition-colors hover:bg-slate-700/30"
+                      className="group relative mb-4 block w-full cursor-pointer rounded-lg px-4 py-4 text-left transition-colors hover:bg-slate-700/30"
                     >
                       <span
                         className={`absolute -left-[34px] top-5 h-4 w-4 rounded-full border-4 border-slate-900 ${

@@ -171,11 +171,11 @@ function ProjectDetail({ projectId, onBack, onAction }) {
   }, [loadProject]);
 
   if (loading) {
-    return <div className="p-6 text-slate-400">Loading project...</div>;
+    return <div className="p-4 text-slate-400">Loading project...</div>;
   }
 
   if (!project) {
-    return <div className="p-6 text-red-400">Project not found</div>;
+    return <div className="p-4 text-red-400">Project not found</div>;
   }
 
   const statusColor = STATUS_COLORS[project.status] || 'bg-slate-500';
@@ -197,7 +197,7 @@ function ProjectDetail({ projectId, onBack, onAction }) {
   const effectiveViewMode = taskViewMode || (hasDeps ? 'graph' : 'table');
 
   return (
-    <div className="p-6">
+    <div className="p-4">
       <button
         onClick={onBack}
         className="text-slate-400 hover:text-white mb-4 flex items-center gap-2"
@@ -205,10 +205,10 @@ function ProjectDetail({ projectId, onBack, onAction }) {
         <span>&larr;</span> Back to Projects
       </button>
 
-      <div className="bg-slate-800 rounded-lg p-6 mb-6">
+      <div className="bg-slate-800 rounded-lg p-4 mb-4">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
-            <h2 className="text-2xl font-bold text-white">{project.name}</h2>
+            <h2 className="text-xl font-bold text-white">{project.name}</h2>
             {project.source_file && (
               <p className="text-sm text-slate-400">{project.source_file}</p>
             )}
@@ -243,7 +243,7 @@ function ProjectDetail({ projectId, onBack, onAction }) {
           {project.status === 'active' && (
             <button
               onClick={() => onAction(project.id, 'pause')}
-              className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white rounded transition-colors"
+              className="px-3 py-1.5 bg-yellow-600 hover:bg-yellow-500 text-white rounded transition-colors"
             >
               Pause Project
             </button>
@@ -251,7 +251,7 @@ function ProjectDetail({ projectId, onBack, onAction }) {
           {project.status === 'paused' && (
             <button
               onClick={() => onAction(project.id, 'resume')}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
             >
               Resume Project
             </button>
@@ -259,7 +259,7 @@ function ProjectDetail({ projectId, onBack, onAction }) {
           {project.failed_tasks > 0 && (
             <button
               onClick={() => onAction(project.id, 'retry')}
-              className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded transition-colors"
+              className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded transition-colors"
             >
               Retry Failed Tasks
             </button>
@@ -267,7 +267,7 @@ function ProjectDetail({ projectId, onBack, onAction }) {
         </div>
       </div>
 
-      <div className="bg-slate-800 rounded-lg p-6">
+      <div className="bg-slate-800 rounded-lg p-4">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-medium text-white">Tasks</h3>
           {project.tasks?.length > 0 && (
@@ -400,12 +400,12 @@ function ImportModal({ onClose, onImport }) {
         role="dialog"
         aria-modal="true"
         aria-label="Import project"
-        className="bg-slate-800 rounded-lg p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+        className="bg-slate-800 rounded-lg p-4 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-white">Import Plan</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl" aria-label="Close">
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl" aria-label="Close">
             &times;
           </button>
         </div>
@@ -510,14 +510,14 @@ function ImportModal({ onClose, onImport }) {
           <div className="flex gap-2 justify-end">
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded transition-colors"
+              className="px-3 py-1.5 bg-slate-600 hover:bg-slate-500 text-white rounded transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handlePreview}
               disabled={loading}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors disabled:opacity-50"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors disabled:opacity-50"
             >
               {loading ? 'Processing...' : 'Preview'}
             </button>
@@ -525,7 +525,7 @@ function ImportModal({ onClose, onImport }) {
               <button
                 onClick={handleCreate}
                 disabled={loading}
-                className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded transition-colors disabled:opacity-50"
               >
                 Create Project
               </button>
@@ -684,19 +684,19 @@ export default function PlanProjects() {
 
   if (loading) {
     return (
-      <div className="p-6">
+      <div className="p-4">
         <LoadingSkeleton lines={5} />
       </div>
     );
   }
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-white">Plan Projects</h1>
+    <div className="p-4">
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-xl font-bold text-white">Plan Projects</h1>
         <button
           onClick={() => setShowImport(true)}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
         >
           Import Plan
         </button>
@@ -704,13 +704,13 @@ export default function PlanProjects() {
 
       {/* Search + status filter tabs */}
       {projects.length > 0 && (
-        <div className="mb-6 space-y-3">
+        <div className="mb-4 space-y-3">
           <input
             type="text"
             placeholder="Search projects..."
             value={searchInput}
             onChange={(e) => handleSearchChange(e.target.value)}
-            className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+            className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
           />
           <div className="flex gap-1">
             {STATUS_TABS.map((tab) => (
@@ -740,7 +740,7 @@ export default function PlanProjects() {
           <p className="text-slate-400 mb-4">No projects yet</p>
           <button
             onClick={() => setShowImport(true)}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
           >
             Import Your First Plan
           </button>
@@ -770,7 +770,7 @@ export default function PlanProjects() {
             role="dialog"
             aria-modal="true"
             aria-label="Delete project confirmation"
-            className="bg-slate-800 rounded-lg p-6 max-w-sm w-full"
+            className="bg-slate-800 rounded-lg p-4 max-w-sm w-full"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-lg font-semibold text-white mb-2">Delete Project</h3>
@@ -780,13 +780,13 @@ export default function PlanProjects() {
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => setDeleteConfirm(null)}
-                className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded text-sm transition-colors"
+                className="px-3 py-1.5 bg-slate-600 hover:bg-slate-500 text-white rounded text-sm transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmDelete}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded text-sm transition-colors"
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded text-sm transition-colors"
               >
                 Delete
               </button>

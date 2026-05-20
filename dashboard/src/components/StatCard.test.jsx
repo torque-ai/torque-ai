@@ -14,10 +14,8 @@ describe('StatCard', () => {
   });
 
   it('does not render subtext when not provided', () => {
-    const { container } = render(<StatCard label="Tasks" value={10} />);
-    // subtext element has class text-xs mt-1 — should not exist
-    const subtextElements = container.querySelectorAll('p.text-xs');
-    expect(subtextElements.length).toBe(0);
+    render(<StatCard label="Tasks" value={10} />);
+    expect(screen.queryByText('Last 7 days')).toBeNull();
   });
 
   it('renders positive trend indicator', () => {

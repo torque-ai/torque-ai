@@ -2269,7 +2269,7 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
 
       {/* Stale data warning */}
       {staleData && (
-        <div className="mb-4 flex items-center gap-2 px-4 py-2.5 rounded-lg bg-amber-950/50 border border-amber-600/40 text-amber-300 text-sm">
+        <div className="mb-4 flex items-center gap-2 px-3 py-1.5.5 rounded-lg bg-amber-950/50 border border-amber-600/40 text-amber-300 text-sm">
           <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
@@ -2482,30 +2482,30 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
 
       {/* Empty state */}
       {viewMode === 'board' && allTasks.length === 0 && !staleData && (
-        <div className="glass-card p-8 md:p-10 mb-6">
-          <div className="text-center mb-8">
-            <h2 className="text-3xl font-semibold text-white mb-3">Welcome to TORQUE</h2>
+        <div className="glass-card p-6 md:p-8 mb-4">
+          <div className="text-center mb-5">
+            <h2 className="text-xl font-semibold text-white mb-3">Welcome to TORQUE</h2>
             <p className="text-slate-400 text-base md:text-lg">
               Your AI task orchestration platform is ready. Here's how to get started:
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div className="bg-slate-800/60 border-l-4 border-blue-400 rounded-xl p-5 text-left">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="bg-slate-800/60 border-l-4 border-blue-400 rounded-lg p-5 text-left">
               <p className="text-white font-semibold mb-2">1. Register a Project</p>
               <p className="text-slate-400 text-sm">
                 Configure your first project with <code className="bg-slate-900/80 px-1.5 py-0.5 rounded text-xs">set_project_defaults</code>
               </p>
             </div>
 
-            <div className="bg-slate-800/60 border-l-4 border-green-400 rounded-xl p-5 text-left">
+            <div className="bg-slate-800/60 border-l-4 border-green-400 rounded-lg p-5 text-left">
               <p className="text-white font-semibold mb-2">2. Scan Your Codebase</p>
               <p className="text-slate-400 text-sm">
                 Run <code className="bg-slate-900/80 px-1.5 py-0.5 rounded text-xs">scan_project</code> to discover test gaps and TODOs
               </p>
             </div>
 
-            <div className="bg-slate-800/60 border-l-4 border-purple-400 rounded-xl p-5 text-left">
+            <div className="bg-slate-800/60 border-l-4 border-purple-400 rounded-lg p-5 text-left">
               <p className="text-white font-semibold mb-2">3. Submit a Task</p>
               <button
                 onClick={() => setShowSubmitForm(true)}
@@ -2565,7 +2565,7 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
       <ActivityPanel events={activityLog} isOpen={activityOpen} onToggle={toggleActivityPanel} />
       {showConfirm && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowConfirm(null)}>
-          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" aria-label="Confirm Retry" onClick={(e) => e.stopPropagation()}>
+          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-4 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" aria-label="Confirm Retry" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-white font-semibold text-lg mb-2">Confirm Retry</h3>
             <p className="text-slate-300 text-sm mb-4">
               Retry {showConfirm.count} failed task{showConfirm.count !== 1 ? 's' : ''}?
@@ -2573,13 +2573,13 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowConfirm(null)}
-                className="px-4 py-2 text-sm text-slate-400 hover:text-white rounded-lg transition-colors"
+                className="px-3 py-1.5 text-sm text-slate-400 hover:text-white rounded-lg transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmAction}
-                className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
+                className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors"
               >
                 Retry All
               </button>

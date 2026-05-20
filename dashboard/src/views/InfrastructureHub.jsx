@@ -9,7 +9,7 @@ const TABS = [
   { id: 'models', label: 'Models' },
 ];
 
-const LOADING_FALLBACK = <div className="p-6 text-slate-400">Loading...</div>;
+const LOADING_FALLBACK = <div className="p-4 text-slate-400">Loading...</div>;
 
 export default function InfrastructureHub(props) {
   const [tab, setTab] = useState('hosts');

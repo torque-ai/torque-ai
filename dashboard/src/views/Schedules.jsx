@@ -478,20 +478,20 @@ export default function Schedules() {
 
   if (loading) {
     return (
-      <div className="p-6">
+      <div className="p-4">
         <LoadingSkeleton lines={5} />
       </div>
     );
   }
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4">
+      <div className="flex items-center justify-between mb-4">
         <h2 className="heading-lg text-white">Schedules</h2>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowBootstrapForm(!showBootstrapForm)}
-            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
+            className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
@@ -500,7 +500,7 @@ export default function Schedules() {
           </button>
           <button
             onClick={() => setShowForm(!showForm)}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -510,14 +510,14 @@ export default function Schedules() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <StatCard label="Total Schedules" value={totalCount} gradient="blue" />
         <StatCard label="Active" value={enabledCount} gradient="green" />
         <StatCard label="Disabled" value={totalCount - enabledCount} gradient="blue" />
       </div>
 
       {showBootstrapForm && (
-        <form onSubmit={handleBootstrap} className="glass-card p-6 mb-6 space-y-4">
+        <form onSubmit={handleBootstrap} className="glass-card p-4 mb-4 space-y-4">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h3 className="text-lg font-semibold text-white mb-1">Bootstrap Study</h3>
@@ -535,11 +535,11 @@ export default function Schedules() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label htmlFor="bootstrap-working-directory" className="block text-sm text-slate-400 mb-1">Working Directory</label>
-              <input id="bootstrap-working-directory" type="text" value={bootstrapForm.working_directory} onChange={(e) => setBootstrapForm({ ...bootstrapForm, working_directory: e.target.value })} placeholder="e.g. C:/Projects/MyRepo" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-cyan-500" />
+              <input id="bootstrap-working-directory" type="text" value={bootstrapForm.working_directory} onChange={(e) => setBootstrapForm({ ...bootstrapForm, working_directory: e.target.value })} placeholder="e.g. C:/Projects/MyRepo" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-cyan-500" />
             </div>
             <div>
               <label htmlFor="bootstrap-project" className="block text-sm text-slate-400 mb-1">Project (optional)</label>
-              <input id="bootstrap-project" type="text" value={bootstrapForm.project} onChange={(e) => setBootstrapForm({ ...bootstrapForm, project: e.target.value })} placeholder="e.g. torque-public" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-cyan-500" />
+              <input id="bootstrap-project" type="text" value={bootstrapForm.project} onChange={(e) => setBootstrapForm({ ...bootstrapForm, project: e.target.value })} placeholder="e.g. torque-public" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-cyan-500" />
             </div>
           </div>
 
@@ -570,23 +570,23 @@ export default function Schedules() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label htmlFor="bootstrap-name" className="block text-sm text-slate-400 mb-1">Schedule Name (optional)</label>
-                <input id="bootstrap-name" type="text" value={bootstrapForm.name} onChange={(e) => setBootstrapForm({ ...bootstrapForm, name: e.target.value })} placeholder="e.g. codebase-study:my-repo" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-cyan-500" />
+                <input id="bootstrap-name" type="text" value={bootstrapForm.name} onChange={(e) => setBootstrapForm({ ...bootstrapForm, name: e.target.value })} placeholder="e.g. codebase-study:my-repo" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-cyan-500" />
               </div>
               <div>
                 <label htmlFor="bootstrap-cron" className="block text-sm text-slate-400 mb-1">Cron Expression</label>
-                <input id="bootstrap-cron" type="text" value={bootstrapForm.cron_expression} onChange={(e) => setBootstrapForm({ ...bootstrapForm, cron_expression: e.target.value })} placeholder="*/15 * * * *" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-cyan-500" />
+                <input id="bootstrap-cron" type="text" value={bootstrapForm.cron_expression} onChange={(e) => setBootstrapForm({ ...bootstrapForm, cron_expression: e.target.value })} placeholder="*/15 * * * *" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-cyan-500" />
               </div>
               <div>
                 <label htmlFor="bootstrap-timezone" className="block text-sm text-slate-400 mb-1">Timezone</label>
-                <input id="bootstrap-timezone" type="text" value={bootstrapForm.timezone} onChange={(e) => setBootstrapForm({ ...bootstrapForm, timezone: e.target.value })} placeholder="e.g. America/Denver" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-cyan-500" />
+                <input id="bootstrap-timezone" type="text" value={bootstrapForm.timezone} onChange={(e) => setBootstrapForm({ ...bootstrapForm, timezone: e.target.value })} placeholder="e.g. America/Denver" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-cyan-500" />
               </div>
               <div>
                 <label htmlFor="bootstrap-batches" className="block text-sm text-slate-400 mb-1">Initial Max Batches</label>
-                <input id="bootstrap-batches" type="number" min="1" value={bootstrapForm.initial_max_batches} onChange={(e) => setBootstrapForm({ ...bootstrapForm, initial_max_batches: e.target.value })} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-cyan-500" />
+                <input id="bootstrap-batches" type="number" min="1" value={bootstrapForm.initial_max_batches} onChange={(e) => setBootstrapForm({ ...bootstrapForm, initial_max_batches: e.target.value })} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-cyan-500" />
               </div>
               <div>
                 <label htmlFor="bootstrap-threshold" className="block text-sm text-slate-400 mb-1">Proposal Threshold</label>
-                <select id="bootstrap-threshold" value={bootstrapForm.proposal_significance_level} onChange={(e) => setBootstrapForm({ ...bootstrapForm, proposal_significance_level: e.target.value })} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-cyan-500">
+                <select id="bootstrap-threshold" value={bootstrapForm.proposal_significance_level} onChange={(e) => setBootstrapForm({ ...bootstrapForm, proposal_significance_level: e.target.value })} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-cyan-500">
                   {Object.keys(DELTA_LEVEL_STYLES).map((level) => (
                     <option key={level} value={level}>{formatDeltaLevel(level)}</option>
                   ))}
@@ -594,19 +594,19 @@ export default function Schedules() {
               </div>
               <div>
                 <label htmlFor="bootstrap-proposal-limit" className="block text-sm text-slate-400 mb-1">Proposal Limit</label>
-                <input id="bootstrap-proposal-limit" type="number" min="1" value={bootstrapForm.proposal_limit} onChange={(e) => setBootstrapForm({ ...bootstrapForm, proposal_limit: e.target.value })} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-cyan-500" />
+                <input id="bootstrap-proposal-limit" type="number" min="1" value={bootstrapForm.proposal_limit} onChange={(e) => setBootstrapForm({ ...bootstrapForm, proposal_limit: e.target.value })} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-cyan-500" />
               </div>
             </div>
           )}
 
           <div className="flex items-center gap-3">
-            <button type="button" disabled={previewingBootstrap} onClick={handleBootstrapPreview} className="px-4 py-2 bg-slate-700/80 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors">
+            <button type="button" disabled={previewingBootstrap} onClick={handleBootstrapPreview} className="px-3 py-1.5 bg-slate-700/80 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors">
               {previewingBootstrap ? 'Previewing...' : 'Preview Plan'}
             </button>
-            <button type="submit" disabled={bootstrapping} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors">
+            <button type="submit" disabled={bootstrapping} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors">
               {bootstrapping ? 'Bootstrapping...' : 'Bootstrap Study'}
             </button>
-            <button type="button" onClick={() => setShowBootstrapForm(false)} className="px-4 py-2 text-slate-400 hover:text-white text-sm transition-colors">
+            <button type="button" onClick={() => setShowBootstrapForm(false)} className="px-3 py-1.5 text-slate-400 hover:text-white text-sm transition-colors">
               Cancel
             </button>
           </div>
@@ -614,7 +614,7 @@ export default function Schedules() {
       )}
 
       {lastBootstrapPreview && (
-        <div className="glass-card p-4 mb-6">
+        <div className="glass-card p-4 mb-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium mb-1">Bootstrap Preview</div>
@@ -649,7 +649,7 @@ export default function Schedules() {
       )}
 
       {lastBootstrapResult && (
-        <div className="glass-card p-4 mb-6">
+        <div className="glass-card p-4 mb-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-[10px] uppercase tracking-wider text-slate-500 font-medium mb-1">Latest Study Bootstrap</div>
@@ -684,18 +684,18 @@ export default function Schedules() {
       )}
 
       {showForm && (
-        <form onSubmit={handleCreate} className="glass-card p-6 mb-6 space-y-4">
+        <form onSubmit={handleCreate} className="glass-card p-4 mb-4 space-y-4">
           <h3 className="text-lg font-semibold text-white mb-2">New Scheduled Task</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label htmlFor="schedule-name" className="block text-sm text-slate-400 mb-1">Name</label>
-              <input id="schedule-name" type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Nightly test run" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+              <input id="schedule-name" type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Nightly test run" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
             </div>
             <div>
               <p className="block text-sm text-slate-400 mb-1">Type</p>
               <div className="flex rounded-lg overflow-hidden border border-slate-700/50">
-                <button type="button" onClick={() => setForm({ ...form, schedule_type: 'cron' })} className={`flex-1 px-4 py-2 text-sm transition-colors ${form.schedule_type === 'cron' ? 'bg-blue-600 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-white'}`}>Cron</button>
-                <button type="button" onClick={() => setForm({ ...form, schedule_type: 'once' })} className={`flex-1 px-4 py-2 text-sm transition-colors ${form.schedule_type === 'once' ? 'bg-blue-600 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-white'}`}>One-Time</button>
+                <button type="button" onClick={() => setForm({ ...form, schedule_type: 'cron' })} className={`flex-1 px-3 py-1.5 text-sm transition-colors ${form.schedule_type === 'cron' ? 'bg-blue-600 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-white'}`}>Cron</button>
+                <button type="button" onClick={() => setForm({ ...form, schedule_type: 'once' })} className={`flex-1 px-3 py-1.5 text-sm transition-colors ${form.schedule_type === 'once' ? 'bg-blue-600 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-white'}`}>One-Time</button>
               </div>
             </div>
             <div>
@@ -711,7 +711,7 @@ export default function Schedules() {
                   provider: e.target.value === 'task' ? prev.provider : '',
                   model: e.target.value === 'task' ? prev.model : '',
                 }))}
-                className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
               >
                 <option value="task">Task Prompt</option>
                 <option value="workflow">Existing Workflow</option>
@@ -723,56 +723,56 @@ export default function Schedules() {
             {form.schedule_type === 'cron' ? (
               <div>
                 <label htmlFor="schedule-cron-expression" className="block text-sm text-slate-400 mb-1">Cron Expression</label>
-                <input id="schedule-cron-expression" type="text" value={form.cron_expression} onChange={(e) => setForm({ ...form, cron_expression: e.target.value })} placeholder="0 0 * * * (every midnight)" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+                <input id="schedule-cron-expression" type="text" value={form.cron_expression} onChange={(e) => setForm({ ...form, cron_expression: e.target.value })} placeholder="0 0 * * * (every midnight)" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
               </div>
             ) : (
               <div>
                 <label htmlFor="schedule-run-at" className="block text-sm text-slate-400 mb-1">Run At</label>
-                <input id="schedule-run-at" type="datetime-local" value={form.run_at} onChange={(e) => setForm({ ...form, run_at: e.target.value })} min={new Date().toISOString().slice(0, 16)} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500 [color-scheme:dark]" />
+                <input id="schedule-run-at" type="datetime-local" value={form.run_at} onChange={(e) => setForm({ ...form, run_at: e.target.value })} min={new Date().toISOString().slice(0, 16)} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500 [color-scheme:dark]" />
               </div>
             )}
           </div>
           {form.execution_target === 'workflow' && (
             <div>
               <label htmlFor="schedule-workflow-id" className="block text-sm text-slate-400 mb-1">Workflow ID</label>
-              <input id="schedule-workflow-id" type="text" value={form.workflow_id} onChange={(e) => setForm({ ...form, workflow_id: e.target.value })} placeholder="e.g. b588fb4f-cece-44b4-8407-4cbaa18a524d" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+              <input id="schedule-workflow-id" type="text" value={form.workflow_id} onChange={(e) => setForm({ ...form, workflow_id: e.target.value })} placeholder="e.g. b588fb4f-cece-44b4-8407-4cbaa18a524d" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
             </div>
           )}
           {form.execution_target === 'workflow_source' && (
             <div>
               <label htmlFor="schedule-workflow-source-id" className="block text-sm text-slate-400 mb-1">Workflow Source ID</label>
-              <input id="schedule-workflow-source-id" type="text" value={form.workflow_source_id} onChange={(e) => setForm({ ...form, workflow_source_id: e.target.value })} placeholder="e.g. b588fb4f-cece-44b4-8407-4cbaa18a524d" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+              <input id="schedule-workflow-source-id" type="text" value={form.workflow_source_id} onChange={(e) => setForm({ ...form, workflow_source_id: e.target.value })} placeholder="e.g. b588fb4f-cece-44b4-8407-4cbaa18a524d" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
             </div>
           )}
           <div>
             <label htmlFor="schedule-task-description" className="block text-sm text-slate-400 mb-1">{form.execution_target === 'task' ? 'Task Description' : 'Run Label (optional)'}</label>
-            <textarea id="schedule-task-description" value={form.task_description} onChange={(e) => setForm({ ...form, task_description: e.target.value })} placeholder={form.execution_target === 'task' ? 'What should the task do?' : 'Optional label for the scheduled workflow run'} rows={3} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y" />
+            <textarea id="schedule-task-description" value={form.task_description} onChange={(e) => setForm({ ...form, task_description: e.target.value })} placeholder={form.execution_target === 'task' ? 'What should the task do?' : 'Optional label for the scheduled workflow run'} rows={3} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 resize-y" />
           </div>
           <div className={`grid grid-cols-1 ${form.execution_target === 'task' ? 'md:grid-cols-4' : 'md:grid-cols-2'} gap-4`}>
             {form.execution_target === 'task' && (
               <>
                 <div>
                   <label htmlFor="schedule-provider" className="block text-sm text-slate-400 mb-1">Provider (optional)</label>
-                  <select id="schedule-provider" value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"><option value="">Auto</option><option value="codex">Codex</option><option value="claude-cli">Claude CLI</option><option value="ollama">Ollama</option></select>
+                  <select id="schedule-provider" value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"><option value="">Auto</option><option value="codex">Codex</option><option value="claude-cli">Claude CLI</option><option value="ollama">Ollama</option></select>
                 </div>
                 <div>
                   <label htmlFor="schedule-model" className="block text-sm text-slate-400 mb-1">Model (optional)</label>
-                  <input id="schedule-model" type="text" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="e.g. qwen3:8b" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+                  <input id="schedule-model" type="text" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="e.g. qwen3:8b" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
                 </div>
               </>
             )}
             <div>
               <label htmlFor="schedule-working-directory" className="block text-sm text-slate-400 mb-1">Working Directory (optional)</label>
-              <input id="schedule-working-directory" type="text" value={form.working_directory} onChange={(e) => setForm({ ...form, working_directory: e.target.value })} placeholder="e.g. C:/Projects/MyApp" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+              <input id="schedule-working-directory" type="text" value={form.working_directory} onChange={(e) => setForm({ ...form, working_directory: e.target.value })} placeholder="e.g. C:/Projects/MyApp" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
             </div>
             <div>
               <label htmlFor="schedule-project" className="block text-sm text-slate-400 mb-1">Project (optional)</label>
-              <input id="schedule-project" type="text" value={form.project} onChange={(e) => setForm({ ...form, project: e.target.value })} placeholder="e.g. example-project-autodev" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
+              <input id="schedule-project" type="text" value={form.project} onChange={(e) => setForm({ ...form, project: e.target.value })} placeholder="e.g. example-project-autodev" className="w-full bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
             </div>
           </div>
           <div className="flex gap-3">
-            <button type="submit" disabled={submitting} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors">{submitting ? 'Creating...' : 'Create Schedule'}</button>
-            <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors">Cancel</button>
+            <button type="submit" disabled={submitting} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg disabled:opacity-50 transition-colors">{submitting ? 'Creating...' : 'Create Schedule'}</button>
+            <button type="button" onClick={() => setShowForm(false)} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-sm rounded-lg transition-colors">Cancel</button>
           </div>
         </form>
       )}
@@ -791,7 +791,7 @@ export default function Schedules() {
           </thead>
           <tbody>
             {sortedItems.length === 0 ? (
-              <tr><td colSpan={6} className="p-8 text-center text-slate-500">No scheduled tasks. Click "New Schedule" to create one.</td></tr>
+              <tr><td colSpan={6} className="p-6 text-center text-slate-500">No scheduled tasks. Click "New Schedule" to create one.</td></tr>
             ) : (
               sortedItems.map((schedule) => {
                 const isEnabled = schedule.enabled !== false && schedule.enabled !== 0;
@@ -890,12 +890,12 @@ export default function Schedules() {
 
       {showConfirm && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowConfirm(null)}>
-          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" aria-label="Delete Schedule" onClick={(e) => e.stopPropagation()}>
+          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-4 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" aria-label="Delete Schedule" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-white font-semibold text-lg mb-2">Delete Schedule</h3>
             <p className="text-slate-300 text-sm mb-4">Delete this schedule? This action is irreversible.</p>
             <div className="flex gap-3 justify-end">
-              <button onClick={() => setShowConfirm(null)} className="px-4 py-2 text-sm text-slate-400 hover:text-white rounded-lg transition-colors">Cancel</button>
-              <button onClick={confirmAction} className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors">Delete</button>
+              <button onClick={() => setShowConfirm(null)} className="px-3 py-1.5 text-sm text-slate-400 hover:text-white rounded-lg transition-colors">Cancel</button>
+              <button onClick={confirmAction} className="px-3 py-1.5 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors">Delete</button>
             </div>
           </div>
         </div>

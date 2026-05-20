@@ -556,8 +556,8 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
 
   if (loadError && tasks.length === 0) {
     return (
-      <div className="p-6">
-        <div className="flex-1 flex items-center justify-center p-12">
+      <div className="p-4">
+        <div className="flex-1 flex items-center justify-center p-8">
           <div className="text-center max-w-md">
             <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
               <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -570,7 +570,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
             </p>
             <button
               onClick={() => { setLoading(true); setLoadError(null); loadTasks(); }}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
             >
               Retry
             </button>
@@ -582,13 +582,13 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
 
   return (
     <ErrorBoundary>
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4">
+      <div className="flex items-center justify-between mb-4">
         <h2 className="heading-lg text-white">Task History</h2>
         <button
           onClick={() => exportCSV(tasks, toast.success)}
           disabled={tasks.length === 0}
-          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -598,20 +598,20 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3 mb-6">
+      <div className="flex flex-wrap gap-3 mb-4">
         <input
           type="text"
           placeholder="Search tasks..."
           aria-label="Search tasks"
           value={searchInput}
           onChange={(e) => handleSearchChange(e.target.value)}
-          className="flex-1 bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+          className="flex-1 bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
         />
         <select
           aria-label="Filter by status"
           value={filters.status}
           onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-          className="bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+          className="bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
         >
           <option value="">All Statuses</option>
           <option value="queued">Queued</option>
@@ -624,7 +624,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
           aria-label="Filter by provider"
           value={filters.provider}
           onChange={(e) => setFilters({ ...filters, provider: e.target.value })}
-          className="bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+          className="bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
         >
           <option value="">All Providers</option>
           <option value="codex">Codex</option>
@@ -641,7 +641,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
           aria-label="Filter by tag"
           value={filters.tag}
           onChange={(e) => setFilters({ ...filters, tag: e.target.value })}
-          className="bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+          className="bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
         >
           <option value="">All Tags</option>
           {uniqueTags.map((tag) => (
@@ -667,7 +667,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
 
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 mb-3 px-4 py-2.5 rounded-lg bg-blue-950/50 border border-blue-600/30">
+        <div className="flex items-center gap-3 mb-3 px-3 py-1.5.5 rounded-lg bg-blue-950/50 border border-blue-600/30">
           <span className="text-sm text-blue-300">{selectedIds.size} selected</span>
           <button
             onClick={handleBulkRetry}
@@ -734,7 +734,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
               </>
             ) : sortedTasks.length === 0 ? (
               <tr>
-                <td colSpan={10} className="p-8 text-center text-slate-500">
+                <td colSpan={10} className="p-6 text-center text-slate-500">
                   No tasks found
                 </td>
               </tr>
@@ -869,14 +869,14 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
           <button
             disabled={pagination.page <= 1}
             onClick={() => setPagination({ ...pagination, page: pagination.page - 1 })}
-            className="px-4 py-2 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
+            className="px-3 py-1.5 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
           >
             Previous
           </button>
           <button
             disabled={pagination.page >= pagination.totalPages}
             onClick={() => setPagination({ ...pagination, page: pagination.page + 1 })}
-            className="px-4 py-2 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
+            className="px-3 py-1.5 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
           >
             Next
           </button>
@@ -885,7 +885,7 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
 
       {showConfirm && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowConfirm(null)}>
-          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" aria-label={showConfirm.action === 'bulkRetry' ? 'Confirm Retry' : 'Confirm Cancel'} onClick={(e) => e.stopPropagation()}>
+          <div ref={confirmRef} className="bg-slate-800 border border-slate-700 rounded-lg p-4 max-w-md w-full mx-4 shadow-xl" role="dialog" aria-modal="true" aria-label={showConfirm.action === 'bulkRetry' ? 'Confirm Retry' : 'Confirm Cancel'} onClick={(e) => e.stopPropagation()}>
             <h3 className="text-white font-semibold text-lg mb-2">
               {showConfirm.action === 'bulkRetry' ? 'Confirm Retry' : 'Confirm Cancel'}
             </h3>
@@ -897,13 +897,13 @@ export default function History({ onOpenDrawer, relativeTimeTick = 0 }) {
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowConfirm(null)}
-                className="px-4 py-2 text-sm text-slate-400 hover:text-white rounded-lg transition-colors"
+                className="px-3 py-1.5 text-sm text-slate-400 hover:text-white rounded-lg transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmAction}
-                className={`px-4 py-2 text-sm text-white rounded-lg transition-colors ${
+                className={`px-3 py-1.5 text-sm text-white rounded-lg transition-colors ${
                   showConfirm.action === 'bulkCancel'
                     ? 'bg-red-600 hover:bg-red-500'
                     : 'bg-blue-600 hover:bg-blue-500'

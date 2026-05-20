@@ -98,7 +98,7 @@ function OllamaFallbackNotice({ state }) {
     : `Routing can use ${hostCount} Ollama hosts and will avoid unavailable hosts.`;
 
   return (
-    <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+    <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -207,7 +207,7 @@ function ProviderHealthCard({ data }) {
     : '—';
 
   return (
-    <div className={`rounded-xl border p-4 ${style.bg} ${style.border}`}>
+    <div className={`rounded-lg border p-4 ${style.bg} ${style.border}`}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span aria-hidden="true" className={`w-2.5 h-2.5 rounded-full ${healthStyle.dot}`} />
@@ -263,7 +263,7 @@ function ProviderHealthCard({ data }) {
 function ProviderHealthGrid({ providers }) {
   if (!providers || providers.length === 0) {
     return (
-      <div className="glass-card p-6 text-center">
+      <div className="glass-card p-4 text-center">
         <p className="text-slate-400">No provider health data available.</p>
       </div>
     );
@@ -345,7 +345,7 @@ function DecisionHistoryTable({ decisions }) {
 
   if (!decisions || decisions.length === 0) {
     return (
-      <div className="glass-card p-6 text-center">
+      <div className="glass-card p-4 text-center">
         <p className="text-slate-400">No routing decisions recorded yet.</p>
         <p className="text-slate-500 text-sm mt-1">
           Submit tasks via smart routing to see decision history here.
@@ -451,7 +451,7 @@ function DecisionHistoryTable({ decisions }) {
 function OperationsTable({ operations }) {
   if (!operations || operations.length === 0) {
     return (
-      <div className="glass-card p-6 text-center">
+      <div className="glass-card p-4 text-center">
         <p className="text-slate-400">No strategic operations recorded yet.</p>
         <p className="text-slate-500 text-sm mt-1">
           Use decompose, diagnose, or review to see operations here.
@@ -586,7 +586,7 @@ export default function Strategic() {
 
   if (loading) {
     return (
-      <div className="p-6">
+      <div className="p-4">
         <LoadingSkeleton lines={5} />
       </div>
     );
@@ -594,13 +594,13 @@ export default function Strategic() {
 
   if (error) {
     return (
-      <div className="p-6">
-        <div className="glass-card p-6 text-center">
+      <div className="p-4">
+        <div className="glass-card p-4 text-center">
           <p className="text-red-400 mb-2">Failed to load strategic brain status</p>
           <p className="text-slate-500 text-sm">{error}</p>
           <button
             onClick={loadData}
-            className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+            className="mt-4 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
           >
             Retry
           </button>
@@ -618,9 +618,9 @@ export default function Strategic() {
   const ollamaFallbackState = getOllamaFallbackState(providerHealth);
 
   return (
-    <div className="p-6">
+    <div className="p-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="heading-lg text-white">Strategy</h2>
           <p className="text-sm text-slate-400 mt-1">
@@ -636,13 +636,13 @@ export default function Strategic() {
       </div>
 
       {/* Top-Level Tab Bar */}
-      <div className="mb-6">
+      <div className="mb-4">
         <div className="flex items-center gap-1 border-b border-slate-700/50">
           {TOP_TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setTopTab(tab.id)}
-              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              className={`px-3 py-1.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
                 topTab === tab.id
                   ? 'border-blue-500 text-white'
                   : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -660,7 +660,7 @@ export default function Strategic() {
           <OllamaFallbackNotice state={ollamaFallbackState} />
 
           {/* Stat Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
             <StatCard label="Tasks (7d)" value={totalTasks7d} gradient="blue" />
             <StatCard
               label="Success Rate"
@@ -678,7 +678,7 @@ export default function Strategic() {
           </div>
 
           {/* Active Routing + Tasks by Provider */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div className="glass-card p-5">
               <h3 className="text-sm font-medium text-slate-400 mb-3">Active Routing</h3>
               <div className="space-y-2">
@@ -749,7 +749,7 @@ export default function Strategic() {
           </div>
 
           {/* Fallback Chain */}
-          <div className="mb-6">
+          <div className="mb-4">
             <FallbackChain
               chain={status?.fallback_chain || ['deepinfra', 'hyperbolic', 'ollama']}
               providerHealthMap={providerHealthMap}
@@ -759,7 +759,7 @@ export default function Strategic() {
 
           {/* Recent Routing Decisions */}
           {decisions.length > 0 && (
-            <div className="glass-card p-5 mb-6">
+            <div className="glass-card p-5 mb-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-lg font-semibold text-white">Recent Decisions</h3>
                 <button
@@ -793,7 +793,7 @@ export default function Strategic() {
           )}
 
           {/* Provider Health Cards */}
-          <div className="mb-6">
+          <div className="mb-4">
             <ProviderHealthGrid providers={providerHealth.map((p) => {
               const ps = providerStats.find((s) => s.provider === p.provider);
               return {
@@ -823,7 +823,7 @@ export default function Strategic() {
       {/* Lazy-loaded and only mounted on active tab — data fetching deferred until visible */}
       {topTab === 'config' && (
         <>
-          <div className="glass-card p-5 mb-6">
+          <div className="glass-card p-5 mb-4">
             <h3 className="text-sm font-medium text-slate-400 mb-3">Strategic Intelligence</h3>
             <div className="space-y-2">
               <div className="flex items-center justify-between">

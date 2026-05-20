@@ -34,7 +34,7 @@ function StatusBadge({ stale, indexed }) {
 
 function IndexStatusCard({ repoPath, status, loading, error, onReindex, reindexing }) {
   return (
-    <section className="rounded-xl border border-slate-700/50 bg-slate-900/40 p-4">
+    <section className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-4">
       <header className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-slate-200">Index Status</h2>
         <button
@@ -76,7 +76,7 @@ function IndexStatusCard({ repoPath, status, loading, error, onReindex, reindexi
 
 function TelemetryCard({ telemetry, loading, error }) {
   return (
-    <section className="rounded-xl border border-slate-700/50 bg-slate-900/40 p-4">
+    <section className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-4">
       <header className="mb-3">
         <h2 className="text-sm font-semibold text-slate-200">
           Tool Usage <span className="text-xs font-normal text-slate-400">last {telemetry?.since_hours ?? 24}h</span>
@@ -156,7 +156,7 @@ function SearchCard({ repoPath }) {
   }, [repoPath, pattern, kind]);
 
   return (
-    <section className="rounded-xl border border-slate-700/50 bg-slate-900/40 p-4">
+    <section className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-4">
       <header className="mb-3">
         <h2 className="text-sm font-semibold text-slate-200">Symbol Search</h2>
       </header>
@@ -283,10 +283,10 @@ export default function Codegraph() {
   const onRefreshTelemetry = useCallback(() => fetchTelemetry(), [fetchTelemetry]);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 space-y-4">
       <header className="flex items-baseline justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-100">Code Graph</h1>
+          <h1 className="text-xl font-semibold text-slate-100">Code Graph</h1>
           <p className="text-sm text-slate-400 mt-1">
             Symbol/reference index for any repo TORQUE has indexed. Enabled by default; set <code className="px-1 py-0.5 rounded bg-slate-800 text-slate-300">TORQUE_CODEGRAPH_ENABLED=0</code> to disable.
           </p>

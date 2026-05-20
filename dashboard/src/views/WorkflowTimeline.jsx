@@ -120,7 +120,7 @@ export default function WorkflowTimeline() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 space-y-4">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <button
@@ -131,7 +131,7 @@ export default function WorkflowTimeline() {
             <span aria-hidden="true">←</span>
             Back to Workflows
           </button>
-          <h1 className="text-2xl font-bold text-white">Workflow Timeline</h1>
+          <h1 className="text-xl font-bold text-white">Workflow Timeline</h1>
           <p className="mt-1 text-sm text-slate-400">
             Review workflow checkpoints and fork execution from any saved state.
           </p>
@@ -146,8 +146,8 @@ export default function WorkflowTimeline() {
         </button>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)]">
-        <section className="rounded-xl border border-slate-800 bg-slate-900/70 shadow-sm">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)]">
+        <section className="rounded-lg border border-slate-800 bg-slate-900/70 shadow-sm">
           <div className="border-b border-slate-800 px-5 py-4">
             <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">Checkpoints</h2>
             <p className="mt-1 text-sm text-slate-500">
@@ -161,7 +161,7 @@ export default function WorkflowTimeline() {
             {loading ? (
               <div className="space-y-3">
                 {[...Array(4)].map((_, index) => (
-                  <div key={index} className="animate-pulse rounded-lg border border-slate-800 bg-slate-950/60 px-4 py-3">
+                  <div key={index} className="animate-pulse rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2">
                     <div className="h-4 w-32 rounded bg-slate-800" />
                     <div className="mt-2 h-3 w-48 rounded bg-slate-800" />
                   </div>
@@ -183,7 +183,7 @@ export default function WorkflowTimeline() {
                           setSelected(checkpoint);
                           setForkResult(null);
                         }}
-                        className={`w-full rounded-xl border px-4 py-3 text-left transition-colors ${
+                        className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
                           isSelected
                             ? 'border-blue-500/50 bg-blue-500/10 text-white'
                             : 'border-slate-800 bg-slate-950/50 text-slate-200 hover:border-slate-700 hover:bg-slate-900'
@@ -217,7 +217,7 @@ export default function WorkflowTimeline() {
           </div>
         </section>
 
-        <section className="rounded-xl border border-slate-800 bg-slate-900/70 shadow-sm">
+        <section className="rounded-lg border border-slate-800 bg-slate-900/70 shadow-sm">
           <div className="border-b border-slate-800 px-5 py-4">
             <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">Fork From Checkpoint</h2>
             <p className="mt-1 text-sm text-slate-500">
@@ -274,7 +274,7 @@ export default function WorkflowTimeline() {
                     type="button"
                     onClick={handleFork}
                     disabled={forking}
-                    className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {forking ? 'Creating fork...' : 'Create fork'}
                   </button>
@@ -284,7 +284,7 @@ export default function WorkflowTimeline() {
                       setOverrides('');
                       setForkResult(null);
                     }}
-                    className="rounded-md border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-slate-200 transition-colors hover:bg-slate-700"
+                    className="rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 transition-colors hover:bg-slate-700"
                   >
                     Clear
                   </button>

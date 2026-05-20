@@ -869,7 +869,7 @@ export default function ProjectSettings({ project: projectProp = '' }) {
   }, [factoryProjectId, lanePolicy, performLanePolicySave, toast]);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 space-y-4">
       <div>
         <h1 className="heading-lg text-white">Project Settings</h1>
         <p className="mt-1 text-sm text-slate-400">
@@ -951,7 +951,7 @@ export default function ProjectSettings({ project: projectProp = '' }) {
       )}
 
       {activeProject && loading && (
-        <div className="glass-card p-6">
+        <div className="glass-card p-4">
           <LoadingSkeleton lines={6} />
         </div>
       )}
@@ -964,7 +964,7 @@ export default function ProjectSettings({ project: projectProp = '' }) {
             </div>
           ) : null}
 
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
             <div className="glass-card p-5 xl:col-span-2">
               <div className="flex items-center justify-between gap-4 mb-5">
                 <div>
@@ -977,7 +977,7 @@ export default function ProjectSettings({ project: projectProp = '' }) {
                   type="button"
                   onClick={handleConfigSave}
                   disabled={savingConfig}
-                  className="rounded-lg bg-indigo-600/90 px-4 py-2 text-sm text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-lg bg-indigo-600/90 px-3 py-1.5 text-sm text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {savingConfig ? 'Saving...' : 'Save Defaults'}
                 </button>
@@ -1031,7 +1031,7 @@ export default function ProjectSettings({ project: projectProp = '' }) {
                 </FormField>
 
                 <div className="flex items-end">
-                  <div className="rounded-lg border border-slate-700/60 bg-slate-800/60 px-4 py-3">
+                  <div className="rounded-lg border border-slate-700/60 bg-slate-800/60 px-3 py-2">
                     <ToggleSwitch
                       checked={form.autoFix}
                       onChange={(value) => setForm((prev) => ({ ...prev, autoFix: value }))}
@@ -1074,7 +1074,7 @@ export default function ProjectSettings({ project: projectProp = '' }) {
                 type="button"
                 onClick={handleRoutingSave}
                 disabled={savingRouting}
-                className="mt-4 w-full rounded-lg bg-cyan-600/90 px-4 py-2 text-sm text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-4 w-full rounded-lg bg-cyan-600/90 px-3 py-1.5 text-sm text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {savingRouting ? 'Saving...' : 'Save Routing Template'}
               </button>

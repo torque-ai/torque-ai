@@ -106,13 +106,13 @@ function HistorySkeletonRows() {
       <table className="min-w-full divide-y divide-slate-700 text-left text-sm">
         <thead className="text-xs uppercase tracking-wide text-slate-500">
           <tr>
-            <th className="px-4 py-3 font-medium">Status</th>
-            <th className="px-4 py-3 font-medium">Title</th>
-            <th className="px-4 py-3 font-medium">Priority</th>
-            <th className="px-4 py-3 font-medium">Source</th>
-            <th className="px-4 py-3 font-medium">Batch ID</th>
-            <th className="px-4 py-3 font-medium">Reject Reason</th>
-            <th className="px-4 py-3 font-medium">Resolved At</th>
+            <th className="px-3 py-2 font-medium">Status</th>
+            <th className="px-3 py-2 font-medium">Title</th>
+            <th className="px-3 py-2 font-medium">Priority</th>
+            <th className="px-3 py-2 font-medium">Source</th>
+            <th className="px-3 py-2 font-medium">Batch ID</th>
+            <th className="px-3 py-2 font-medium">Reject Reason</th>
+            <th className="px-3 py-2 font-medium">Resolved At</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-700/70">
@@ -320,7 +320,7 @@ export default function History() {
   }
 
   return (
-    <section className="rounded-2xl border border-slate-700 bg-slate-800 p-6">
+    <section className="rounded-lg border border-slate-700 bg-slate-800 p-4">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-3">
@@ -339,7 +339,7 @@ export default function History() {
           type="button"
           onClick={() => loadHistory()}
           disabled={loading}
-          className="inline-flex items-center justify-center rounded-lg border border-slate-600 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center justify-center rounded-lg border border-slate-600 bg-slate-900/70 px-3 py-1.5 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loading ? 'Refreshing...' : 'Refresh'}
         </button>
@@ -371,7 +371,7 @@ export default function History() {
       </div>
 
       {error && (
-        <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-5 py-4 text-sm text-rose-100">
+        <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-5 py-4 text-sm text-rose-100">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <p>{error}</p>
             <button
@@ -389,7 +389,7 @@ export default function History() {
       {loading && items.length === 0 ? (
         <HistorySkeletonRows />
       ) : !error && visibleItems.length === 0 ? (
-        <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
+        <div className="mt-6 rounded-lg border border-slate-700 bg-slate-900/40 px-5 py-10 text-center text-sm text-slate-400">
           {selectedStatus ? `No ${TERMINAL_STATUS_LABELS[selectedStatus].toLowerCase()} work items match this filter.` : 'No completed work items yet.'}
         </div>
       ) : visibleItems.length > 0 ? (
@@ -397,13 +397,13 @@ export default function History() {
           <table className="min-w-full divide-y divide-slate-700 text-left text-sm">
             <thead className="text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-3 font-medium">Status</th>
-                <th className="px-4 py-3 font-medium">Title</th>
-                <th className="px-4 py-3 font-medium">Priority</th>
-                <th className="px-4 py-3 font-medium">Source</th>
-                <th className="px-4 py-3 font-medium">Batch ID</th>
-                <th className="px-4 py-3 font-medium">Reject Reason</th>
-                <th className="px-4 py-3 font-medium">Resolved At</th>
+                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium">Title</th>
+                <th className="px-3 py-2 font-medium">Priority</th>
+                <th className="px-3 py-2 font-medium">Source</th>
+                <th className="px-3 py-2 font-medium">Batch ID</th>
+                <th className="px-3 py-2 font-medium">Reject Reason</th>
+                <th className="px-3 py-2 font-medium">Resolved At</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700/70">
@@ -486,7 +486,7 @@ export default function History() {
                     {isExpanded && isExpandable && (
                       <tr>
                         <td colSpan={7} className="px-4 pb-4 pt-0">
-                          <div className="rounded-xl border border-slate-700/70 bg-slate-900/60 p-4">
+                          <div className="rounded-lg border border-slate-700/70 bg-slate-900/60 p-4">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                               <div>
                                 <p className="text-xs uppercase tracking-wide text-slate-500">Batch Decisions</p>
@@ -499,7 +499,7 @@ export default function History() {
                                 <LoadingSkeleton lines={3} height={16} />
                               </div>
                             ) : expandedBatchState?.error ? (
-                              <div className="mt-4 rounded-xl border border-rose-500/20 bg-rose-500/5 px-4 py-3 text-sm text-rose-100">
+                              <div className="mt-4 rounded-lg border border-rose-500/20 bg-rose-500/5 px-3 py-2 text-sm text-rose-100">
                                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                   <p>{expandedBatchState.error}</p>
                                   <button
@@ -522,7 +522,7 @@ export default function History() {
                                   const decisionStyle = DECISION_STAGE_BADGE_STYLES[decisionStage] || BADGE_FALLBACK_STYLE;
 
                                   return (
-                                    <li key={decisionKey} className="rounded-xl border border-slate-700/70 bg-slate-950/40 p-3">
+                                    <li key={decisionKey} className="rounded-lg border border-slate-700/70 bg-slate-950/40 p-3">
                                       <div className="flex flex-wrap items-center gap-3">
                                         <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium ${decisionStyle}`}>
                                           {formatLabel(decisionStage || 'unknown')}
@@ -537,7 +537,7 @@ export default function History() {
                                 })}
                               </ul>
                             ) : (
-                              <div className="mt-4 rounded-xl border border-slate-700/70 bg-slate-950/40 px-4 py-6 text-sm text-slate-400">
+                              <div className="mt-4 rounded-lg border border-slate-700/70 bg-slate-950/40 px-4 py-6 text-sm text-slate-400">
                                 No batch decisions recorded yet.
                               </div>
                             )}

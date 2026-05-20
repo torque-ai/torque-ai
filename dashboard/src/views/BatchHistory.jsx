@@ -46,7 +46,7 @@ function SummaryCard({ label, value, subtext, color }) {
   return (
     <div className="glass-card p-4">
       <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${color || 'text-white'}`}>{value}</p>
+      <p className={`text-xl font-bold ${color || 'text-white'}`}>{value}</p>
       {subtext && <p className="text-xs text-slate-400 mt-1">{subtext}</p>}
     </div>
   );
@@ -103,13 +103,13 @@ function TaskBreakdownRow({ task, onOpenDrawer, now }) {
       <td className="px-6 py-2">
         <span className={`font-mono text-sm ${statusInfo.color}`}>{statusInfo.icon}</span>
       </td>
-      <td className="px-4 py-2 text-sm text-slate-300">
+      <td className="px-3 py-1.5 text-sm text-slate-300">
         {task.node_id || task.description?.substring(0, 40) || task.task_description?.substring(0, 40) || task.id}
       </td>
-      <td className="px-4 py-2">
+      <td className="px-3 py-1.5">
         <StatusBadge status={task.status} />
       </td>
-      <td className="px-4 py-2">
+      <td className="px-3 py-1.5">
         {task.provider ? (
           <span className={`px-2 py-1 rounded text-[11px] ${
             task.provider === 'claude-cli' ? 'bg-purple-600/30 text-purple-300'
@@ -120,14 +120,14 @@ function TaskBreakdownRow({ task, onOpenDrawer, now }) {
           </span>
         ) : <span className="text-slate-600">-</span>}
       </td>
-      <td className="px-4 py-2">
+      <td className="px-3 py-1.5">
         {getRelevantModel(task.provider, task.model) ? (
           <span className="px-2 py-1 rounded text-[11px] bg-indigo-600/30 text-indigo-300">
             {getRelevantModel(task.provider, task.model)}
           </span>
         ) : <span className="text-slate-600">-</span>}
       </td>
-      <td className="px-4 py-2 text-sm font-mono text-slate-300">
+      <td className="px-3 py-1.5 text-sm font-mono text-slate-300">
         {duration != null ? formatDuration(duration) : '-'}
       </td>
     </tr>
@@ -173,7 +173,7 @@ function ExpandedWorkflow({ workflowId, onOpenDrawer, now }) {
   return (
     <tr>
       <td colSpan={7} className="p-0">
-        <div className="bg-slate-800/40 border-t border-b border-slate-700/30 px-4 py-3">
+        <div className="bg-slate-800/40 border-t border-b border-slate-700/30 px-3 py-2">
           <div className="flex items-center gap-3 mb-3">
             <h4 className="text-sm font-medium text-white">Task Breakdown</h4>
             {detail.cost && detail.cost.total_cost_usd > 0 && (
@@ -276,9 +276,9 @@ function Charts({ workflows, getWorkflowMeta }) {
   if (!workflows.length) return null;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
       {/* Completion Rate Trend */}
-      <div className="glass-card p-6">
+      <div className="glass-card p-4">
         <h3 className="text-lg font-semibold text-white mb-4">Completion Rate Trend</h3>
         {completionRateData.length > 1 ? (
           <div role="img" aria-label="Completion rate trend over time">
@@ -297,7 +297,7 @@ function Charts({ workflows, getWorkflowMeta }) {
       </div>
 
       {/* Duration Distribution */}
-      <div className="glass-card p-6">
+      <div className="glass-card p-4">
         <h3 className="text-lg font-semibold text-white mb-4">Duration Distribution</h3>
         {durationDistData.some(d => d.count > 0) ? (
           <div role="img" aria-label="Task duration distribution">
@@ -315,7 +315,7 @@ function Charts({ workflows, getWorkflowMeta }) {
       </div>
 
       {/* Throughput Over Time */}
-      <div className="glass-card p-6">
+      <div className="glass-card p-4">
         <h3 className="text-lg font-semibold text-white mb-4">Throughput Over Time</h3>
         {throughputData.length > 1 ? (
           <div role="img" aria-label="Task throughput over time">
@@ -485,8 +485,8 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
 
   if (loadError && workflows.length === 0) {
     return (
-      <div className="p-6">
-        <div className="flex-1 flex items-center justify-center p-12">
+      <div className="p-4">
+        <div className="flex-1 flex items-center justify-center p-8">
           <div className="text-center max-w-md">
             <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
               <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -499,7 +499,7 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
             </p>
             <button
               onClick={() => { setLoading(true); setLoadError(null); loadWorkflows(); }}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-lg transition-colors"
             >
               Retry
             </button>
@@ -511,15 +511,15 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
 
   return (
     <ErrorBoundary>
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4">
+      <div className="flex items-center justify-between mb-4">
         <h2 className="heading-lg text-white">Batches</h2>
         <div className="flex items-center gap-3">
           <select
             aria-label="Filter batches by status"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="bg-slate-800/60 border border-slate-700/50 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            className="bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
           >
             <option value="">All Statuses</option>
             <option value="completed">Completed</option>
@@ -542,7 +542,7 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
         <SummaryCard
           label="Total Workflows"
           value={summaryStats.total}
@@ -590,7 +590,7 @@ export default function BatchHistory({ onOpenDrawer, workflowTick, tasksTick, re
               </>
             ) : sortedWorkflows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-slate-500">
+                <td colSpan={6} className="p-6 text-center text-slate-500">
                   {statusFilter ? `No ${statusFilter} workflows found` : 'No workflows found'}
                 </td>
               </tr>

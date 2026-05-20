@@ -133,8 +133,8 @@ export default function Overview() {
   const visibleActivity = recentActivity.slice(0, 5);
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-2xl border border-slate-700 bg-slate-800 p-6">
+    <div className="space-y-4">
+      <section className="rounded-lg border border-slate-700 bg-slate-800 p-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 className="text-lg font-semibold text-white">Active Loop Summary</h3>
@@ -152,7 +152,7 @@ export default function Overview() {
             return (
               <div
                 key={project.id}
-                className={`rounded-xl border p-4 ${
+                className={`rounded-lg border p-4 ${
                   project.id === selectedProject.id
                     ? 'border-blue-500/40 bg-blue-500/5'
                     : 'border-slate-700/70 bg-slate-900/40'
@@ -200,7 +200,7 @@ export default function Overview() {
             <LoadingSkeleton lines={3} height={16} />
           </div>
         ) : visibleActivity.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-slate-700/70 bg-slate-900/40 px-4 py-6 text-sm text-slate-400">
+          <div className="mt-4 rounded-lg border border-slate-700/70 bg-slate-900/40 px-4 py-6 text-sm text-slate-400">
             No activity yet
           </div>
         ) : (
@@ -258,7 +258,7 @@ export default function Overview() {
         </div>
 
         {cycleHistoryError && (
-          <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
             {cycleHistoryError}
           </div>
         )}
@@ -268,7 +268,7 @@ export default function Overview() {
             <LoadingSkeleton lines={4} height={16} />
           </div>
         ) : cycleHistory.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-slate-700/70 bg-slate-900/40 px-4 py-6 text-sm text-slate-400">
+          <div className="mt-4 rounded-lg border border-slate-700/70 bg-slate-900/40 px-4 py-6 text-sm text-slate-400">
             No recent factory cycles yet
           </div>
         ) : (

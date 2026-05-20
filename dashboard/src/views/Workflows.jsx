@@ -177,7 +177,7 @@ function DAGTaskRow({ task, depth = 0, onOpenDrawer, now }) {
         }
       }}
     >
-      <td className="px-4 py-2" style={{ paddingLeft: `${16 + depth * 24}px` }}>
+      <td className="px-3 py-1.5" style={{ paddingLeft: `${16 + depth * 24}px` }}>
         <div className="flex items-center gap-2">
           {depth > 0 && (
             <span className="text-slate-600 text-xs font-mono">{'|--'}</span>
@@ -198,10 +198,10 @@ function DAGTaskRow({ task, depth = 0, onOpenDrawer, now }) {
           </div>
         )}
       </td>
-      <td className="px-4 py-2">
+      <td className="px-3 py-1.5">
         <StatusBadge status={task.status} />
       </td>
-      <td className="px-4 py-2">
+      <td className="px-3 py-1.5">
         {task.provider ? (
           <span className={`px-2 py-1 rounded text-[11px] ${
             task.provider === 'claude-cli' ? 'bg-purple-600/30 text-purple-300'
@@ -212,14 +212,14 @@ function DAGTaskRow({ task, depth = 0, onOpenDrawer, now }) {
           </span>
         ) : <span className="text-slate-600">-</span>}
       </td>
-      <td className="px-4 py-2">
+      <td className="px-3 py-1.5">
         {getRelevantModel(task.provider, task.model) ? (
           <span className="px-2 py-1 rounded text-[11px] bg-indigo-600/30 text-indigo-300">
             {getRelevantModel(task.provider, task.model)}
           </span>
         ) : <span className="text-slate-600">-</span>}
       </td>
-      <td className="px-4 py-2 text-sm font-mono text-slate-300">
+      <td className="px-3 py-1.5 text-sm font-mono text-slate-300">
         {duration != null ? formatDuration(duration) : '-'}
       </td>
     </tr>
@@ -305,7 +305,7 @@ function ExpandedWorkflowDAG({ workflowId, onOpenDrawer, onOpenTimeline, now }) 
   return (
     <tr>
       <td colSpan={7} className="p-0">
-        <div className="bg-slate-800/40 border-t border-b border-slate-700/30 px-4 py-3">
+        <div className="bg-slate-800/40 border-t border-b border-slate-700/30 px-3 py-2">
           <div className="flex items-center gap-3 mb-3">
             <h4 className="text-sm font-medium text-white">Task DAG</h4>
             <span className="text-xs text-slate-500">
@@ -538,10 +538,10 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
   }, [workflows]);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-white">Workflows</h1>
+        <h1 className="text-xl font-bold text-white">Workflows</h1>
         <button
           onClick={loadWorkflows}
           className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm rounded-lg transition-colors"
@@ -592,12 +592,12 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="text-slate-400 text-left border-b border-slate-700">
-              <th scope="col" className="px-4 py-3 w-8"></th>
-              <th scope="col" className="px-4 py-3">Name</th>
-              <th scope="col" className="px-4 py-3">Status</th>
-              <th scope="col" className="px-4 py-3">Progress</th>
-              <th scope="col" className="px-4 py-3">Duration</th>
-              <th scope="col" className="px-4 py-3">Created</th>
+              <th scope="col" className="px-3 py-2 w-8"></th>
+              <th scope="col" className="px-3 py-2">Name</th>
+              <th scope="col" className="px-3 py-2">Status</th>
+              <th scope="col" className="px-3 py-2">Progress</th>
+              <th scope="col" className="px-3 py-2">Duration</th>
+              <th scope="col" className="px-3 py-2">Created</th>
             </tr>
           </thead>
           <tbody>
@@ -605,18 +605,18 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
               <>
                 {[...Array(5)].map((_, i) => (
                   <tr key={i} className="border-b border-slate-700/30 animate-pulse">
-                    <td className="px-4 py-3 w-8"><div className="w-4 h-4 bg-slate-700 rounded" /></td>
-                    <td className="px-4 py-3"><div className="h-4 w-48 bg-slate-700 rounded" /></td>
-                    <td className="px-4 py-3"><div className="w-16 h-5 bg-slate-700 rounded-full" /></td>
-                    <td className="px-4 py-3"><div className="w-12 h-4 bg-slate-700 rounded" /></td>
-                    <td className="px-4 py-3"><div className="w-14 h-4 bg-slate-700 rounded" /></td>
-                    <td className="px-4 py-3"><div className="w-20 h-4 bg-slate-700 rounded" /></td>
+                    <td className="px-3 py-2 w-8"><div className="w-4 h-4 bg-slate-700 rounded" /></td>
+                    <td className="px-3 py-2"><div className="h-4 w-48 bg-slate-700 rounded" /></td>
+                    <td className="px-3 py-2"><div className="w-16 h-5 bg-slate-700 rounded-full" /></td>
+                    <td className="px-3 py-2"><div className="w-12 h-4 bg-slate-700 rounded" /></td>
+                    <td className="px-3 py-2"><div className="w-14 h-4 bg-slate-700 rounded" /></td>
+                    <td className="px-3 py-2"><div className="w-20 h-4 bg-slate-700 rounded" /></td>
                   </tr>
                 ))}
               </>
             ) : sortedWorkflows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-12 text-center">
+                <td colSpan={7} className="p-8 text-center">
                   {statusFilter !== 'all' ? (
                     <span className="text-slate-500">{`No ${statusFilter} workflows found`}</span>
                   ) : (
@@ -679,7 +679,7 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
                         isExpanded ? 'bg-slate-700/20' : ''
                       }`}
                     >
-                      <td className="px-4 py-3 w-8">
+                      <td className="px-3 py-2 w-8">
                         <svg
                           className={`w-4 h-4 text-slate-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
                           fill="none" stroke="currentColor" viewBox="0 0 24 24"
@@ -687,7 +687,7 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2">
                         <p className="text-white font-medium">{wf.name || wf.id}</p>
                         {wf.description && (
                           <p className="text-xs text-slate-500 mt-0.5 truncate max-w-xs">{wf.description}</p>
@@ -704,10 +704,10 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
                           Timeline + Fork
                         </button>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2">
                         <StatusBadge status={wf.status} />
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2">
                         {meta.totalTasks > 0 ? (
                           <div className="flex items-center gap-2">
                             <div className="flex-1 max-w-[80px] h-1.5 bg-slate-700 rounded-full overflow-hidden">
@@ -732,10 +732,10 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
                           <span className="text-slate-600">-</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 font-mono text-slate-300">
+                      <td className="px-3 py-2 font-mono text-slate-300">
                         {meta.durationSecs != null ? formatDuration(meta.durationSecs) : '-'}
                       </td>
-                      <td className="px-4 py-3 text-slate-400" title={wf.created_at}>
+                      <td className="px-3 py-2 text-slate-400" title={wf.created_at}>
                         {wf.created_at
                           ? formatDistanceToNow(new Date(wf.created_at), { addSuffix: true })
                           : '-'}
@@ -766,14 +766,14 @@ export default function Workflows({ onOpenDrawer, relativeTimeTick = 0 }) {
           <button
             disabled={page <= 1}
             onClick={() => setPage(p => p - 1)}
-            className="px-4 py-2 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
+            className="px-3 py-1.5 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
           >
             Previous
           </button>
           <button
             disabled={page >= totalPages}
             onClick={() => setPage(p => p + 1)}
-            className="px-4 py-2 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
+            className="px-3 py-1.5 bg-slate-800 text-white text-sm rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-700 transition-colors"
           >
             Next
           </button>

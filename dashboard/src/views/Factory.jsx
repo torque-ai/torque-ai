@@ -45,7 +45,7 @@ function FactoryIdleDiagnosisBanner({ diagnosis, loading, onRefresh }) {
     <div
       role="status"
       aria-label="Factory idle diagnosis"
-      className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm text-amber-100"
+      className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm text-amber-100"
     >
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
@@ -153,7 +153,7 @@ function FactoryAutomationReadinessBanner({
     <div
       role="status"
       aria-label="Factory automation readiness"
-      className={`rounded-2xl border px-5 py-4 text-sm ${
+      className={`rounded-lg border px-5 py-4 text-sm ${
         isReady
           ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
           : 'border-sky-500/30 bg-sky-500/10 text-sky-100'
@@ -370,9 +370,9 @@ export default function Factory() {
   }, [automationApplyMode, automationReadiness, loadProjects, refreshSelectedProject, selectedProjectId, toast]);
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-4 p-4">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-semibold text-white">Software Factory</h1>
+        <h1 className="text-xl font-semibold text-white">Software Factory</h1>
         {totalProjects > 0 && (
           <span className="text-sm text-slate-400">
             {totalProjects} project{totalProjects === 1 ? '' : 's'}
@@ -423,11 +423,11 @@ export default function Factory() {
       </div>
 
       {loading ? (
-        <div className="rounded-2xl border border-slate-700 bg-slate-800 p-6">
+        <div className="rounded-lg border border-slate-700 bg-slate-800 p-4">
           <LoadingSkeleton lines={6} height={18} />
         </div>
       ) : totalProjects === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-800/70 px-8 py-12 text-center">
+        <div className="rounded-lg border border-dashed border-slate-700 bg-slate-800/70 px-8 py-12 text-center">
           <h2 className="text-xl font-semibold text-white">{projectsError ? 'Unable to load factory projects' : 'No factory projects yet'}</h2>
           <p className="mx-auto mt-2 max-w-2xl text-sm text-slate-400">
             {projectsError || 'No registered projects are available for the factory dashboard yet.'}
@@ -435,7 +435,7 @@ export default function Factory() {
           <button
             type="button"
             onClick={() => loadProjects()}
-            className="mt-6 inline-flex items-center justify-center rounded-lg border border-slate-600 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white"
+            className="mt-6 inline-flex items-center justify-center rounded-lg border border-slate-600 bg-slate-900/70 px-3 py-1.5 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white"
           >
             Refresh
           </button>
@@ -443,7 +443,7 @@ export default function Factory() {
       ) : (
         <>
           {projectsError && (
-            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm text-amber-100">
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-5 py-4 text-sm text-amber-100">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <p>Factory data may be stale: {projectsError}</p>
                 <button
@@ -472,8 +472,8 @@ export default function Factory() {
             applyMode={automationApplyMode}
           />
 
-          <div className="grid gap-6 md:grid-cols-[minmax(220px,260px)_minmax(0,1fr)]">
-            <div className="space-y-3 rounded-2xl border border-slate-700 bg-slate-800/40 p-2">
+          <div className="grid gap-4 md:grid-cols-[minmax(220px,260px)_minmax(0,1fr)]">
+            <div className="space-y-3 rounded-lg border border-slate-700 bg-slate-800/40 p-2">
               {projectGroups.map((group) => (
                 <div key={group.id} className="space-y-1">
                   <p className="px-2 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
@@ -512,7 +512,7 @@ export default function Factory() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-2">
+          <div className="rounded-lg border border-slate-700 bg-slate-800/70 p-2">
             <nav className="flex flex-wrap gap-2" aria-label="Factory sections">
               {FACTORY_TABS.map((tab) => (
                 <NavLink
@@ -520,7 +520,7 @@ export default function Factory() {
                   to={tab.to}
                   end={tab.end}
                   className={({ isActive }) => (
-                    `rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                    `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                       isActive
                         ? 'bg-blue-500/15 text-blue-100'
                         : 'text-slate-400 hover:bg-slate-900/60 hover:text-white'
