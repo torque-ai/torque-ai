@@ -392,7 +392,6 @@ describe('CommandCenter', () => {
 
     const log = await screen.findByRole('list', { name: 'Running Log' });
     expect(within(log).getByText('Failed')).toBeInTheDocument();
-    expect(within(log).getByText('alpha')).toBeInTheDocument();
     expect(within(log).getByText('Failed deploy verification task')).toBeInTheDocument();
     expect(within(log).getByText(/Q:42/)).toBeInTheDocument();
     expect(within(log).getByText(/exit 1/)).toBeInTheDocument();
@@ -414,7 +413,6 @@ describe('CommandCenter', () => {
     renderWithProviders(<CommandCenter onOpenDrawer={onOpenDrawer} />, { route: '/' });
 
     const log = await screen.findByRole('list', { name: 'Running Log' });
-    expect(within(log).getByText('factory-architect')).toBeInTheDocument();
     expect(within(log).getByText('Architect cycle for DLPhone')).toBeInTheDocument();
     expect(within(log).getByText('to DLPhone')).toBeInTheDocument();
     expect(within(log).queryByText(/You are the Architect/)).toBeNull();
@@ -435,7 +433,6 @@ describe('CommandCenter', () => {
     renderWithProviders(<CommandCenter />, { route: '/' });
 
     const log = await screen.findByRole('list', { name: 'Running Log' });
-    expect(within(log).getByText('StateTrace')).toBeInTheDocument();
     expect(within(log).getByText('Task 2: Add focused Pester coverage for the new-user startup decision')).toBeInTheDocument();
     expect(within(log).getByText('batch factory-659')).toBeInTheDocument();
     expect(within(log).queryByText(/Plan: Run and document/)).toBeNull();
@@ -461,11 +458,10 @@ describe('CommandCenter', () => {
     renderWithProviders(<CommandCenter onOpenDrawer={onOpenDrawer} />, { route: '/' });
 
     const log = await screen.findByRole('list', { name: 'Running Log' });
-    expect(within(log).getByText('alpha')).toBeInTheDocument();
     expect(within(log).getByText('Alpha running task')).toBeInTheDocument();
     expect(within(log).queryByText('Beta running task')).toBeNull();
 
-    fireEvent.click(within(log).getByRole('button', { name: /alpha task: Alpha running task/ }));
+    fireEvent.click(within(log).getByRole('button', { name: /Alpha running task/ }));
     expect(onOpenDrawer).toHaveBeenCalledWith('task-run-1');
   });
 
@@ -496,9 +492,70 @@ describe('CommandCenter', () => {
     const log = await screen.findByRole('list', { name: 'Running Log' });
     const logPanel = log.closest('section');
     expect(logPanel).not.toBeNull();
-    expect(within(logPanel).getAllByText('alpha').length).toBeGreaterThanOrEqual(2);
-    expect(within(log).getByText('alpha')).toBeInTheDocument();
+    expect(within(logPanel).getByText('alpha')).toBeInTheDocument();
     expect(within(log).getByText('Queued test task')).toBeInTheDocument();
+  });
+
+  it('updates the running log when the selected factory loop project changes', async () => {
+    setStorageValue('torque-command-center-view', 'log');
+    setStorageValue('torque-command-center-project', 'DLPhone');
+    factoryApi.projects.mockResolvedValue([
+      {
+        id: 'factory-dlphone',
+        name: 'DLPhone',
+        path: 'C:\\Users\\<os-user>\\Projects\\DLPhone',
+        status: 'running',
+        trust_level: 'guided',
+        loop_state: 'EXECUTE',
+        loop_paused_at_stage: null,
+        loop_last_action_at: '2026-04-13T12:10:00Z',
+      },
+      {
+        id: 'factory-netsim',
+        name: 'NetSim',
+        path: 'C:\\Users\\<os-user>\\Projects\\NetSim',
+        status: 'running',
+        trust_level: 'guided',
+        loop_state: 'EXECUTE',
+        loop_paused_at_stage: null,
+        loop_last_action_at: '2026-04-13T12:00:00Z',
+      },
+    ]);
+    factoryApi.loopStatus.mockResolvedValue({
+      loop_state: 'EXECUTE',
+      loop_paused_at_stage: null,
+      loop_last_action_at: '2026-04-13T12:10:05Z',
+    });
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'running') {
+        return Promise.resolve({
+          tasks: [
+            { ...runningTask, id: 'task-dlphone-1', task_description: 'DLPhone running task', project: 'DLPhone' },
+            { ...runningTask, id: 'task-netsim-1', task_description: 'NetSim running task', project: 'NetSim' },
+          ],
+        });
+      }
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<CommandCenter />, { route: '/' });
+
+    await waitFor(() => {
+      const log = screen.getByRole('list', { name: 'Running Log' });
+      expect(within(log).getByText('DLPhone running task')).toBeInTheDocument();
+      expect(within(log).queryByText('NetSim running task')).toBeNull();
+    });
+
+    fireEvent.change(screen.getByLabelText('Factory project'), { target: { value: 'factory-netsim' } });
+
+    await waitFor(() => {
+      const log = screen.getByRole('list', { name: 'Running Log' });
+      const logPanel = log.closest('section');
+      expect(logPanel).not.toBeNull();
+      expect(within(logPanel).getByText('NetSim')).toBeInTheDocument();
+      expect(within(log).getByText('NetSim running task')).toBeInTheDocument();
+      expect(within(log).queryByText('DLPhone running task')).toBeNull();
+    });
   });
 
   it('renders the factory loop bar when factory projects exist', async () => {

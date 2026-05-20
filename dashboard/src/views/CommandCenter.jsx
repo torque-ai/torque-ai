@@ -1342,28 +1342,26 @@ const RunningLog = memo(function RunningLog({ tasks, selectedProject, onOpenDraw
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <ul role="list" aria-label="Running Log" className="min-w-[1100px] divide-y divide-slate-700/70">
+          <ul role="list" aria-label="Running Log" className="min-w-[920px] divide-y divide-slate-700/70">
             {logTasks.map((task) => {
               const model = getRelevantModel(task.provider, task.model);
               const providerLabel = `${task.provider || 'provider'}${model ? ` · ${model}` : ''}`;
               const signal = getTaskSignal(task);
               const context = getTaskLogContext(task);
               const displayDescription = getTaskDisplayDescription(task);
-              const projectLabel = task.project || selectedProject || 'No project';
               return (
                 <li key={task.id} role="listitem">
                   <button
                     type="button"
                     onClick={() => onOpenDrawer?.(task.id)}
-                    className="grid w-full grid-cols-[78px_118px_132px_minmax(280px,1fr)_146px_130px_112px] items-center gap-3 px-4 py-2 text-left text-xs transition-colors hover:bg-slate-700/40 focus:bg-slate-700/40"
+                    className="grid w-full grid-cols-[78px_118px_minmax(300px,1fr)_146px_130px_112px] items-center gap-3 px-4 py-2 text-left text-xs transition-colors hover:bg-slate-700/40 focus:bg-slate-700/40"
                     title={displayDescription}
-                    aria-label={`Open ${getStatusLabel(task.status)} ${projectLabel} task: ${displayDescription}`}
+                    aria-label={`Open ${getStatusLabel(task.status)} task: ${displayDescription}`}
                   >
                     <span className="font-mono text-slate-500">{formatActivityTimestamp(task)}</span>
                     <span className={`min-w-0 truncate rounded-full border px-2 py-1 text-[11px] font-medium ${getStatusBadgeClass(task.status)}`}>
                       {getStatusLabel(task.status)}
                     </span>
-                    <span className="min-w-0 truncate text-slate-300">{projectLabel}</span>
                     <span className="min-w-0 truncate text-slate-100">
                       {displayDescription}
                     </span>
@@ -1538,12 +1536,12 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
   }, [searchQuery, selectedProject, viewMode, setSearchParams]);
 
   useEffect(() => {
-    if (viewMode !== 'log' || selectedProject) return;
+    if (viewMode !== 'log') return;
     const defaultProject = chooseDefaultProjectName(
       factoryLoopControl.projects,
       factoryLoopControl.selectedProject
     );
-    if (defaultProject) {
+    if (defaultProject && selectedProject !== defaultProject) {
       setSelectedProject(defaultProject);
     }
   }, [factoryLoopControl.projects, factoryLoopControl.selectedProject, selectedProject, viewMode]);
