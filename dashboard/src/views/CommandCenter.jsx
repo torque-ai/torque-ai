@@ -204,6 +204,15 @@ const FACTORY_KIND_LABELS = {
   scout: 'scout',
 };
 
+const FACTORY_KIND_DESCRIPTIONS = {
+  architect_cycle: 'Architect cycle',
+  architect_json: 'Architect cycle',
+  architect_backlog: 'Architect backlog',
+  plan_generation: 'Plan generation',
+  verify_review: 'Verify review',
+  scout: 'Scout',
+};
+
 function formatElapsed(startedAt, now = Date.now()) {
   if (!startedAt) return null;
   const secs = Math.floor((now - new Date(startedAt).getTime()) / 1000);
@@ -229,6 +238,18 @@ function normalizeStuckTasks(stuckData) {
   };
 }
 
+function getTaskMetadata(task) {
+  if (!task?.metadata) return {};
+  if (typeof task.metadata === 'object' && !Array.isArray(task.metadata)) return task.metadata;
+  if (typeof task.metadata !== 'string') return {};
+  try {
+    const parsed = JSON.parse(task.metadata);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function getTaskTagValue(task, prefix) {
   const tags = Array.isArray(task?.tags) ? task.tags : [];
   const matchingTag = tags.find((tag) => typeof tag === 'string' && tag.startsWith(`${prefix}=`));
@@ -236,6 +257,11 @@ function getTaskTagValue(task, prefix) {
 }
 
 function getFactoryTaskKind(task) {
+  const metadata = getTaskMetadata(task);
+  if (typeof metadata.kind === 'string' && FACTORY_KIND_LABELS[metadata.kind]) {
+    return metadata.kind;
+  }
+
   const tags = Array.isArray(task?.tags) ? task.tags : [];
   for (const tag of tags) {
     if (typeof tag !== 'string' || !tag.startsWith('factory:')) continue;
@@ -245,6 +271,76 @@ function getFactoryTaskKind(task) {
     if (label) return label;
   }
   return null;
+}
+
+function getFactoryTargetProject(task) {
+  const metadata = getTaskMetadata(task);
+  return getTaskTagValue(task, 'factory:target_project')
+    || metadata.target_project
+    || metadata.targetProject
+    || null;
+}
+
+function cleanTaskText(value) {
+  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+}
+
+function shortenTaskText(value, maxLength = 96) {
+  const clean = cleanTaskText(value);
+  if (clean.length <= maxLength) return clean;
+  return `${clean.slice(0, maxLength - 1).trim()}...`;
+}
+
+function extractPlanTaskTitle(text) {
+  const clean = cleanTaskText(text);
+  if (!clean) return null;
+  const match = clean.match(/(?:^|\s)(?:###\s*)?(?:Plan\s+)?Task\s+(\d+)[:.-]\s+(.+?)(?=\s+(?:###\s*)?(?:Plan\s+)?Task\s+\d+[:.-]|\s+---\s+|$)/i);
+  if (!match) return null;
+  return {
+    number: match[1],
+    title: shortenTaskText(match[2], 82),
+  };
+}
+
+function getTaskDisplayDescription(task) {
+  const metadata = getTaskMetadata(task);
+  const directTaskDescription = cleanTaskText(task?.task_description || '');
+  const rawDescription = cleanTaskText(task?.task_description || task?.description || '');
+  const factoryKind = getFactoryTaskKind(task);
+  const targetProject = getFactoryTargetProject(task);
+  const planTaskTitle = cleanTaskText(metadata.plan_task_title || metadata.planTaskTitle || '');
+  const planTaskNumber = getTaskTagValue(task, 'factory:plan_task_number')
+    || metadata.plan_task_number
+    || metadata.planTaskNumber
+    || null;
+  const isGeneratedArchitectPrompt = rawDescription.startsWith('You are the Architect for a software factory');
+  const isGeneratedPlanWrapper = /^Plan:\s/i.test(rawDescription)
+    && /\b(?:Plan\s+)?Task\s+\d+[:.-]/i.test(rawDescription);
+
+  if (planTaskTitle) {
+    const prefix = planTaskNumber ? `Task ${planTaskNumber}: ` : '';
+    return shortenTaskText(`${prefix}${planTaskTitle}`, 96);
+  }
+
+  const extractedPlanTask = extractPlanTaskTitle(rawDescription);
+  if (extractedPlanTask && (!directTaskDescription || isGeneratedPlanWrapper)) {
+    return shortenTaskText(`Task ${extractedPlanTask.number}: ${extractedPlanTask.title}`, 96);
+  }
+
+  if (directTaskDescription && !isGeneratedArchitectPrompt) {
+    return shortenTaskText(directTaskDescription, 96);
+  }
+
+  if (factoryKind) {
+    const label = FACTORY_KIND_DESCRIPTIONS[factoryKind] || factoryKind.replace(/_/g, ' ');
+    return targetProject ? `${label} for ${targetProject}` : label;
+  }
+
+  if (isGeneratedArchitectPrompt) {
+    return targetProject ? `Architect cycle for ${targetProject}` : 'Factory architect cycle';
+  }
+
+  return shortenTaskText(rawDescription || 'No description', 96);
 }
 
 function getTaskActivityTarget(task) {
@@ -441,12 +537,10 @@ function getLatestTask(tasks) {
 
 function getTaskLogContext(task) {
   const context = [];
-  const factoryKind = getFactoryTaskKind(task);
-  const targetProject = getTaskTagValue(task, 'factory:target_project');
+  const targetProject = getFactoryTargetProject(task);
   const batchId = getTaskTagValue(task, 'factory:batch_id');
   const testTag = Array.isArray(task.tags) && task.tags.find(t => t.startsWith('tests:'));
 
-  if (factoryKind) context.push(factoryKind);
   if (targetProject && targetProject !== task.project) context.push(`to ${targetProject}`);
   if (batchId) context.push(`batch ${batchId}`);
   if (task.quality_score != null) context.push(`Q:${Math.round(task.quality_score)}`);
@@ -633,6 +727,7 @@ const TaskCard = memo(function TaskCard({
     ? hostActivity?.hosts?.[task.ollama_host_id] : null;
   const gpu = hostAct?.gpuMetrics || null;
   const batchId = getTaskTagValue(task, 'factory:batch_id');
+  const displayDescription = getTaskDisplayDescription(task);
   // Factory-internal tasks (architect/plan-gen/verify-review) are billed
   // under synthetic projects like "factory-architect" and "factory-plan",
   // which hides which downstream project (example-project, torque-public, etc.)
@@ -681,7 +776,7 @@ const TaskCard = memo(function TaskCard({
         </button>
         <code className="text-[10px] text-slate-500 font-mono select-all shrink-0 pt-0.5">{shortId}</code>
         <p className={`text-white flex-1 leading-snug ${compact ? 'text-xs line-clamp-1' : 'text-sm line-clamp-2'}`}>
-          {task.task_description}
+          {displayDescription}
         </p>
       </div>
       <div className="flex items-center justify-between gap-2">
@@ -1091,6 +1186,7 @@ const BoardColumn = memo(function BoardColumn({
 
 const NeedsAttentionCard = memo(function NeedsAttentionCard({ task, reason, onOpenDrawer }) {
   const shortId = task.id?.substring(0, 8) || 'unknown';
+  const displayDescription = getTaskDisplayDescription(task);
   return (
     <div
       tabIndex={0}
@@ -1109,7 +1205,7 @@ const NeedsAttentionCard = memo(function NeedsAttentionCard({ task, reason, onOp
         <span className="text-[10px] text-amber-300">{reason}</span>
       </div>
       <p className="text-xs text-white/80 line-clamp-1 mt-1">
-        {task.task_description?.substring(0, 60)}...
+        {displayDescription}
       </p>
     </div>
   );
@@ -1117,6 +1213,7 @@ const NeedsAttentionCard = memo(function NeedsAttentionCard({ task, reason, onOp
 
 const FocusTaskRow = memo(function FocusTaskRow({ task, reason, onOpenDrawer }) {
   const shortId = task.id?.substring(0, 8) || 'unknown';
+  const displayDescription = getTaskDisplayDescription(task);
   const provider = getRelevantModel(task.provider, task.model)
     ? `${task.provider || 'provider'} · ${getRelevantModel(task.provider, task.model)}`
     : task.provider || 'provider';
@@ -1127,14 +1224,14 @@ const FocusTaskRow = memo(function FocusTaskRow({ task, reason, onOpenDrawer }) 
       type="button"
       onClick={() => onOpenDrawer?.(task.id)}
       className="grid w-full grid-cols-[92px_minmax(0,1fr)_116px] items-center gap-3 border-t border-slate-700/60 px-0 py-2 text-left text-xs transition-colors first:border-t-0 hover:bg-slate-800/70 focus:bg-slate-800/70"
-      aria-label={`Open task ${shortId}: ${task.task_description || reason}`}
-      title={task.task_description || shortId}
+      aria-label={`Open task ${shortId}: ${displayDescription || reason}`}
+      title={displayDescription || shortId}
     >
       <span className={`min-w-0 truncate rounded-full border px-2 py-1 text-[11px] font-medium ${getStatusBadgeClass(task.status)}`}>
         {reason}
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-slate-100">{task.task_description || 'No description'}</span>
+        <span className="block truncate text-slate-100">{displayDescription}</span>
         <span className="mt-0.5 block truncate text-[11px] text-slate-500">
           <code className="font-mono">{shortId}</code>
           {context.length > 0 && <> · {context.join(' · ')}</>}
@@ -1247,27 +1344,26 @@ const RunningLog = memo(function RunningLog({ tasks, selectedProject, onOpenDraw
         <div className="overflow-x-auto">
           <ul role="list" aria-label="Running Log" className="min-w-[920px] divide-y divide-slate-700/70">
             {logTasks.map((task) => {
-              const shortId = task.id?.substring(0, 8) || 'unknown';
               const model = getRelevantModel(task.provider, task.model);
               const providerLabel = `${task.provider || 'provider'}${model ? ` · ${model}` : ''}`;
               const signal = getTaskSignal(task);
               const context = getTaskLogContext(task);
+              const displayDescription = getTaskDisplayDescription(task);
               return (
                 <li key={task.id} role="listitem">
                   <button
                     type="button"
                     onClick={() => onOpenDrawer?.(task.id)}
-                    className="grid w-full grid-cols-[78px_118px_82px_minmax(260px,1fr)_136px_130px_112px] items-center gap-3 px-4 py-2 text-left text-xs transition-colors hover:bg-slate-700/40 focus:bg-slate-700/40"
-                    title={task.task_description || shortId}
-                    aria-label={`Open ${getStatusLabel(task.status)} task ${shortId}: ${task.task_description || 'No description'}`}
+                    className="grid w-full grid-cols-[78px_118px_minmax(300px,1fr)_146px_130px_112px] items-center gap-3 px-4 py-2 text-left text-xs transition-colors hover:bg-slate-700/40 focus:bg-slate-700/40"
+                    title={displayDescription}
+                    aria-label={`Open ${getStatusLabel(task.status)} task: ${displayDescription}`}
                   >
                     <span className="font-mono text-slate-500">{formatActivityTimestamp(task)}</span>
                     <span className={`min-w-0 truncate rounded-full border px-2 py-1 text-[11px] font-medium ${getStatusBadgeClass(task.status)}`}>
                       {getStatusLabel(task.status)}
                     </span>
-                    <code className="font-mono text-slate-500">{shortId}</code>
                     <span className="min-w-0 truncate text-slate-100">
-                      {task.task_description || 'No description'}
+                      {displayDescription}
                     </span>
                     <span className="min-w-0 truncate text-slate-500">
                       {context.length > 0 ? context.join(' · ') : 'No extra signal'}
@@ -1829,6 +1925,8 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
 
     return projectFiltered.filter((t) =>
       (t.task_description || '').toLowerCase().includes(searchQuery) ||
+      (t.description || '').toLowerCase().includes(searchQuery) ||
+      getTaskDisplayDescription(t).toLowerCase().includes(searchQuery) ||
       (t.id || '').toLowerCase().includes(searchQuery) ||
       (t.provider || '').toLowerCase().includes(searchQuery) ||
       (t.model || '').toLowerCase().includes(searchQuery) ||
@@ -2032,7 +2130,7 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
               <div key={task.id} className="flex items-center justify-between gap-3 bg-amber-950/30 rounded-md px-3 py-2">
                 <div className="flex items-center gap-3 min-w-0">
                   <code className="text-xs text-amber-200 font-mono shrink-0">{task.id?.substring(0, 8)}</code>
-                  <span className="text-sm text-amber-200 truncate">{task.task_description?.substring(0, 60)}{task.task_description?.length > 60 ? '...' : ''}</span>
+                  <span className="text-sm text-amber-200 truncate">{getTaskDisplayDescription(task)}</span>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <span className="text-xs text-amber-200 font-mono">Running {formatStuckDuration(task.runningSeconds)}</span>

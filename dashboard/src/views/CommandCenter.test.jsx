@@ -106,6 +106,28 @@ const failedTask = {
   quality_score: 42,
   tags: ['tests:fail:2'],
 };
+const factoryArchitectTask = {
+  id: 'factory-arch-1',
+  status: 'completed',
+  description: 'You are the Architect for a software factory. Read the context below and return ONLY valid JSON output matching the specified format.',
+  project: 'factory-architect',
+  provider: 'codex',
+  created_at: '2026-01-15T09:00:00Z',
+  started_at: '2026-01-15T09:01:00Z',
+  completed_at: '2026-01-15T09:02:00Z',
+  tags: ['factory:internal', 'factory:architect_cycle', 'factory:target_project=DLPhone'],
+  metadata: { kind: 'architect_cycle', target_project: 'DLPhone' },
+};
+const factoryPlanTask = {
+  id: 'factory-plan-task-2',
+  status: 'queued',
+  description: 'Plan: Run and document the new-user first-run path Plan Task 2: Add focused Pester coverage for the new-user startup decision',
+  project: 'StateTrace',
+  provider: 'ollama',
+  created_at: '2026-01-15T09:05:00Z',
+  tags: ['factory:batch_id=factory-659', 'factory:plan_task_number=2'],
+  metadata: { plan_task_title: 'Add focused Pester coverage for the new-user startup decision', plan_task_number: 2 },
+};
 const mockOverview = {
   today: { total: 15, completed: 12, failed: 3, successRate: 80 },
   yesterday: { total: 10 },
@@ -377,6 +399,46 @@ describe('CommandCenter', () => {
 
     fireEvent.click(within(log).getByRole('button', { name: /Failed deploy verification task/ }));
     expect(onOpenDrawer).toHaveBeenCalledWith('task-fail-1');
+  });
+
+  it('renders short informative descriptions for factory-generated running log rows', async () => {
+    setStorageValue('torque-command-center-view', 'log');
+    setStorageValue('torque-command-center-project', 'factory-architect');
+    const onOpenDrawer = vi.fn();
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'completed') return Promise.resolve({ tasks: [factoryArchitectTask], total: 1 });
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<CommandCenter onOpenDrawer={onOpenDrawer} />, { route: '/' });
+
+    const log = await screen.findByRole('list', { name: 'Running Log' });
+    expect(within(log).getByText('Architect cycle for DLPhone')).toBeInTheDocument();
+    expect(within(log).getByText('to DLPhone')).toBeInTheDocument();
+    expect(within(log).queryByText(/You are the Architect/)).toBeNull();
+    expect(log).not.toHaveTextContent('factory-arch-1');
+    expect(log).not.toHaveTextContent('factory-a');
+
+    fireEvent.click(within(log).getByRole('button', { name: /Architect cycle for DLPhone/ }));
+    expect(onOpenDrawer).toHaveBeenCalledWith('factory-arch-1');
+  });
+
+  it('uses factory plan task titles instead of raw generated prompts', async () => {
+    setStorageValue('torque-command-center-view', 'log');
+    setStorageValue('torque-command-center-project', 'StateTrace');
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'queued') return Promise.resolve({ tasks: [factoryPlanTask], total: 1 });
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<CommandCenter />, { route: '/' });
+
+    const log = await screen.findByRole('list', { name: 'Running Log' });
+    expect(within(log).getByText('Task 2: Add focused Pester coverage for the new-user startup decision')).toBeInTheDocument();
+    expect(within(log).getByText('batch factory-659')).toBeInTheDocument();
+    expect(within(log).queryByText(/Plan: Run and document/)).toBeNull();
+    expect(log).not.toHaveTextContent('factory-plan-task-2');
+    expect(log).not.toHaveTextContent('factory-p');
   });
 
   it('renders a concise project-scoped running log with clickable rows', async () => {
