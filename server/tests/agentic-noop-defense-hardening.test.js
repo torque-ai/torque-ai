@@ -12,7 +12,19 @@
  */
 import { describe, it, expect } from 'vitest';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const execution = require('../providers/execution');
+
+function withTempProject(run) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-agentic-prompt-'));
+  try {
+    return run(dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 describe('shouldEscalateNoOpAgenticResult — factory-batch structural check', () => {
   // The "Capture observable failure reasons" task description is the
@@ -106,4 +118,42 @@ describe('inspectHardFailAgenticStopReason — no_edits_after_nudge wording', ()
     expect(failure.message).toContain('no_edits_after_nudge');
     expect(failure.message).toContain('read-only');
   });
+});
+
+describe('buildAgenticTaskPrompt — factory plan generation context', () => {
+  it('does not pre-stuff referenced file contents for factory plan-generation tasks', () => withTempProject((dir) => {
+    fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'docs', 'old-plan.md'),
+      'Historical guidance: dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release\n',
+      'utf8',
+    );
+
+    const prompt = execution.buildAgenticTaskPrompt({
+      id: 'plan-gen-1',
+      task_description: 'Generate a plan using `docs/old-plan.md` as scope.',
+      metadata: JSON.stringify({ factory_internal: true, kind: 'plan_generation' }),
+      tags: JSON.stringify(['factory:internal', 'factory:plan_generation']),
+    }, dir, 200000);
+
+    expect(prompt).toContain('Generate a plan using `docs/old-plan.md` as scope.');
+    expect(prompt).not.toContain('[PRE-LOADED FILES');
+    expect(prompt).not.toContain('dotnet test simtests/SimCore.DotNet.Tests.csproj');
+  }));
+
+  it('still pre-stuffs referenced file contents for ordinary agentic tasks', () => withTempProject((dir) => {
+    fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'docs', 'note.md'), 'Visible note content\n', 'utf8');
+
+    const prompt = execution.buildAgenticTaskPrompt({
+      id: 'task-1',
+      task_description: 'Update `docs/note.md`.',
+      metadata: JSON.stringify({}),
+      tags: JSON.stringify([]),
+    }, dir, 200000);
+
+    expect(prompt).toContain('[PRE-LOADED FILES');
+    expect(prompt).toContain('--- FILE: docs/note.md ---');
+    expect(prompt).toContain('Visible note content');
+  }));
 });

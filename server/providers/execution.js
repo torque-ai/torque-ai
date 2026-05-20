@@ -942,7 +942,21 @@ function buildAgenticTaskPrompt(task, workingDir, budgetChars, agenticPolicy = n
   if (agenticPolicy?.readOnly) {
     taskDescription += '\n\nRead-only completion rule: inspect with read tools only, do not create or modify files, and finish by reporting observed facts from the tools. Do not ask what should be created.';
   }
+  if (shouldSkipPreStuffFileContents(task)) {
+    return taskDescription;
+  }
   return preStuffFileContents(taskDescription, workingDir, budgetChars);
+}
+
+function shouldSkipPreStuffFileContents(task) {
+  const metadata = normalizeTaskMetadata(task);
+  const kind = String(metadata.kind || '').trim().toLowerCase();
+  if (kind === 'plan_generation' && metadata.factory_internal === true) {
+    return true;
+  }
+
+  const tags = normalizeTaskTags(task?.tags);
+  return tags.includes('factory:internal') && tags.includes('factory:plan_generation');
 }
 
 function shouldRequireToolEvidence(provider, task, workingDir) {
@@ -2799,7 +2813,7 @@ async function runAgenticPipeline({
   }
 
   // Pre-stuff referenced files
-  const enrichedPromptInline = preStuffFileContents(task.task_description, workingDir);
+  const enrichedPromptInline = buildAgenticTaskPrompt(task, workingDir, undefined, agenticPolicy);
 
   // Run agentic loop
   // For prompt-injected tools: pass empty tools array (tools are in the system prompt)
@@ -3168,7 +3182,7 @@ async function executeOllamaTaskWithAgentic(task) {
 
     // Pre-stuff referenced files into the prompt so the model doesn't
     // burn iterations calling read_file for files already mentioned in the task.
-    const enrichedTaskPrompt = preStuffFileContents(task.task_description, workingDir, contextBudget * 3);
+    const enrichedTaskPrompt = buildAgenticTaskPrompt(task, workingDir, contextBudget * 3, agenticPolicy);
 
     // Spawn worker thread for the agentic loop
     logger.debug(`[WORKER-DEBUG] Spawning worker for Ollama task ${taskId}, model=${resolvedModel}, host=${ollamaHost}`);
@@ -4572,6 +4586,7 @@ module.exports = {
   shouldEscalateNoOpAgenticResult,
   shouldFallbackLocalAgenticCompletionFailure,
   inspectHardFailAgenticStopReason,
+  buildAgenticTaskPrompt,
   HARD_FAIL_AGENTIC_STOP_REASONS,
   LOCAL_AGENTIC_COMPLETION_FALLBACK_STOP_REASONS,
 };
