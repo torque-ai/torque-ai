@@ -138,6 +138,9 @@ function ensureAgenticDeps() {
   if (!r.tryOllamaCloudFallback) {
     r.tryOllamaCloudFallback = (...args) => require('../execution/fallback-retry').tryOllamaCloudFallback(...args);
   }
+  if (!r.tryLocalFirstFallback) {
+    r.tryLocalFirstFallback = (...args) => require('../execution/fallback-retry').tryLocalFirstFallback(...args);
+  }
   if (!r.getFreeQuotaTracker) {
     r.getFreeQuotaTracker = (...args) => require('../tasks/free-quota-tracker-singleton').getFreeQuotaTracker(...args);
   }
@@ -169,6 +172,7 @@ function init(deps = {}) {
   if (deps.apiAbortControllers) _agenticDeps.apiAbortControllers = deps.apiAbortControllers;
   if (deps.safeUpdateTaskStatus) _agenticDeps.safeUpdateTaskStatus = deps.safeUpdateTaskStatus;
   if (deps.tryOllamaCloudFallback) _agenticDeps.tryOllamaCloudFallback = deps.tryOllamaCloudFallback;
+  if (deps.tryLocalFirstFallback) _agenticDeps.tryLocalFirstFallback = deps.tryLocalFirstFallback;
   if (deps.processQueue) _agenticDeps.processQueue = deps.processQueue;
   if (deps.handleWorkflowTermination) _agenticDeps.handleWorkflowTermination = deps.handleWorkflowTermination;
   if (deps.getFreeQuotaTracker) _agenticDeps.getFreeQuotaTracker = deps.getFreeQuotaTracker;
@@ -771,7 +775,13 @@ function shouldFallbackLocalAgenticCompletionFailure(task, result, completionFai
 }
 
 function tryLocalAgenticCompletionFallback(taskId, task, result, failureMessage) {
-  if (!_agenticDeps || typeof _agenticDeps.tryOllamaCloudFallback !== 'function') {
+  if (
+    !_agenticDeps
+    || (
+      typeof _agenticDeps.tryLocalFirstFallback !== 'function'
+      && typeof _agenticDeps.tryOllamaCloudFallback !== 'function'
+    )
+  ) {
     return false;
   }
 
@@ -783,7 +793,21 @@ function tryLocalAgenticCompletionFallback(taskId, task, result, failureMessage)
   const reason = failureMessage
     ? `Local Ollama agentic completion failed: ${failureMessage}`
     : 'Local Ollama agentic completion failed without making progress';
-  return Boolean(_agenticDeps.tryOllamaCloudFallback(taskId, fallbackTask, reason));
+  if (typeof _agenticDeps.tryLocalFirstFallback === 'function') {
+    try {
+      if (_agenticDeps.tryLocalFirstFallback(taskId, fallbackTask, reason)) {
+        return true;
+      }
+    } catch (err) {
+      logger.info(`[Agentic] Local-first fallback failed for ${taskId}: ${err.message}`);
+    }
+  }
+  try {
+    return Boolean(_agenticDeps.tryOllamaCloudFallback(taskId, fallbackTask, reason));
+  } catch (err) {
+    logger.info(`[Agentic] Cloud fallback failed for ${taskId}: ${err.message}`);
+    return false;
+  }
 }
 
 function buildIncompleteAgenticFailure(task, workingDir, agenticPolicy, result, maxIterations, provider, model) {
@@ -3256,7 +3280,7 @@ async function executeOllamaTaskWithAgentic(task) {
         shouldFallbackLocalAgenticCompletionFailure(currentTask, result, completionFailure)
         && tryLocalAgenticCompletionFallback(taskId, currentTask, result, failureMessage)
       ) {
-        logger.info(`[Agentic] Ollama task ${taskId} requeued via cloud fallback after local completion review failure: ${failureMessage}`);
+        logger.info(`[Agentic] Ollama task ${taskId} requeued via local-first fallback after local completion review failure: ${failureMessage}`);
         return;
       }
 

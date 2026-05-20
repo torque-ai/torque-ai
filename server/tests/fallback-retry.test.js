@@ -244,6 +244,46 @@ describe('fallback-retry module', () => {
       expect(processQueueCalls).toBe(1);
     });
 
+    it('skips configured codex fallback while codex is exhausted', () => {
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('codex_exhausted', '1');
+      configCore.setConfig('claude_cli_enabled', '1');
+
+      withDbMethods({
+        getProvider: vi.fn(() => null),
+      }, () => {
+        const task = createTask({ provider: 'ollama', retry_count: 1 });
+        const ok = mod.tryOllamaCloudFallback(task.id, task, 'local no-edit');
+
+        expect(ok).toBe(true);
+        const updated = taskCore.getTask(task.id);
+        expect(updated.status).toBe('queued');
+        expect(updated.provider).toBe('claude-cli');
+        expect(updated.error_output).toContain('Falling back to claude-cli');
+      });
+    });
+
+    it('does not requeue to codex when codex is the only exhausted fallback', () => {
+      configCore.setConfig('ollama_fallback_provider', 'codex');
+      configCore.setConfig('codex_enabled', '1');
+      configCore.setConfig('codex_exhausted', '1');
+      configCore.setConfig('claude_cli_enabled', '0');
+
+      withDbMethods({
+        getProvider: vi.fn(() => null),
+      }, () => {
+        const task = createTask({ provider: 'ollama', retry_count: 1 });
+        const ok = mod.tryOllamaCloudFallback(task.id, task, 'local no-edit');
+
+        expect(ok).toBe(false);
+        const updated = taskCore.getTask(task.id);
+        expect(updated.status).toBe('running');
+        expect(updated.provider).toBe('ollama');
+        expect(processQueueCalls).toBe(0);
+      });
+    });
+
     it('preserves routing-chain metadata when cloud fallback requeues a task', () => {
       configCore.setConfig('ollama_fallback_provider', 'codex');
       configCore.setConfig('codex_enabled', '1');

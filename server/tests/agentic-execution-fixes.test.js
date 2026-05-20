@@ -2112,7 +2112,7 @@ describe('providers/execution agentic fixes', () => {
     );
   });
 
-  it('requeues local Ollama no-edit completion failures through cloud fallback instead of terminal failure', async () => {
+  it('requeues local Ollama no-edit completion failures through local-first fallback instead of terminal failure', async () => {
     const { mod } = loadSubject();
     const host = { id: 'host-1', url: 'http://ollama-host:11434' };
     const task = {
@@ -2136,6 +2136,7 @@ describe('providers/execution agentic fixes', () => {
       getTask: vi.fn(() => ({ ...task })),
       addStreamChunk: vi.fn(),
     };
+    const localFirstFallback = vi.fn(() => true);
     const cloudFallback = vi.fn(() => true);
     const deps = {
       db,
@@ -2144,6 +2145,7 @@ describe('providers/execution agentic fixes', () => {
         notifyTaskOutput: vi.fn(),
       },
       safeUpdateTaskStatus: vi.fn(),
+      tryLocalFirstFallback: localFirstFallback,
       tryOllamaCloudFallback: cloudFallback,
       processQueue: vi.fn(),
       handleWorkflowTermination: vi.fn(),
@@ -2167,7 +2169,7 @@ describe('providers/execution agentic fixes', () => {
 
     await mod.executeOllamaTask(task);
 
-    expect(cloudFallback).toHaveBeenCalledWith(
+    expect(localFirstFallback).toHaveBeenCalledWith(
       task.id,
       expect.objectContaining({
         provider: 'ollama',
@@ -2176,6 +2178,7 @@ describe('providers/execution agentic fixes', () => {
       }),
       expect.stringContaining('Local Ollama agentic completion failed'),
     );
+    expect(cloudFallback).not.toHaveBeenCalled();
     expect(deps.safeUpdateTaskStatus).not.toHaveBeenCalledWith(
       task.id,
       'failed',

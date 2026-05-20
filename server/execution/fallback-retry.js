@@ -276,7 +276,7 @@ function tryOllamaCloudFallback(taskId, task, errorMsg, extraFields = {}) {
   // require a provider_config entry (the old code also skipped getProvider for them).
   const candidates = fullChain.filter(p => {
     try {
-      if (p === 'codex') return serverConfig.isOptIn('codex_enabled');
+      if (_isCodexFamilyProvider(p)) return _isCodexFallbackAvailable(p);
       if (p === 'claude-cli') return serverConfig.getBool('claude_cli_enabled');
       const pConfig = db.getProvider(p);
       if (!pConfig || !pConfig.enabled) return false;
@@ -352,6 +352,23 @@ function _isSyntheticLocalModelTestTask(task) {
 }
 
 const LOCAL_FIRST_FALLBACK_PROVIDERS = new Set(['ollama']);
+const CODEX_FAMILY_FALLBACK_PROVIDERS = new Set(['codex', 'codex-spark']);
+
+function _isCodexFamilyProvider(provider) {
+  return CODEX_FAMILY_FALLBACK_PROVIDERS.has(String(provider || '').trim().toLowerCase());
+}
+
+function _isCodexFallbackAvailable(provider) {
+  if (serverConfig.isOptIn('codex_exhausted')) return false;
+  if (provider === 'codex') return serverConfig.isOptIn('codex_enabled');
+
+  try {
+    const pConfig = db.getProvider(provider);
+    return !!(pConfig && pConfig.enabled);
+  } catch {
+    return false;
+  }
+}
 
 function _isLocalFirstProvider(provider) {
   return LOCAL_FIRST_FALLBACK_PROVIDERS.has(provider);
