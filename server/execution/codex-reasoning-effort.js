@@ -16,11 +16,10 @@
  *   - 'simple'  → reasoning_effort=low.  Short, mostly-imperative shell
  *     execute / one-line-lookup tasks. The model doesn't need deep reasoning;
  *     it needs to actually run the command and report.
- *   - 'normal'  → reasoning_effort=high. Factory-internal tasks (architect,
- *     plan-quality review, scout) that need strong reasoning to produce
- *     structured output but where the user's xhigh default reliably blows
- *     past the timeout. `high` keeps strong reasoning while leaving room for
- *     output emission.
+ *   - 'normal'  → reasoning_effort=high. Factory-internal scouts that need
+ *     broader repository reasoning but where the user's xhigh default reliably
+ *     blows past the timeout. `high` keeps strong reasoning while leaving room
+ *     for output emission.
  *   - 'complex' → no override (returns null). Genuine hard-reasoning work
  *     where the user's global xhigh is the right call.
  *
@@ -36,11 +35,15 @@ const TIER_TO_EFFORT = Object.freeze({
   complex: null,
 });
 
-// Factory-internal task kinds that produce template-driven structured-output
-// (verdict + critique JSON, deterministic rewrite scaffolding) where extra
-// reasoning yields no quality benefit but eats the timeout. Source:
-// d0ea3eed "fix(factory): keep replan rewrites from timing out".
+// Factory-internal task kinds that produce template-driven structured output
+// (architect backlog JSON, plan Markdown, verdict + critique JSON,
+// deterministic rewrite scaffolding) where extra reasoning yields no quality
+// benefit but eats the timeout and rate-limit budget. Sources:
+// d0ea3eed "fix(factory): keep replan rewrites from timing out";
+// live 2026-05-20 NetSim architect_cycle banner-only failures at high effort.
 const LOW_REASONING_FACTORY_KINDS = new Set([
+  'architect_cycle',
+  'plan_generation',
   'plan_quality_review',
   'replan_rewrite',
   'verify_review',

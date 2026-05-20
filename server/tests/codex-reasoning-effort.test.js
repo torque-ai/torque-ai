@@ -79,10 +79,10 @@ describe('classifyReasoningEffort', () => {
   });
 
   describe('factory_internal (normal tier → high)', () => {
-    it('factory_internal=true returns high', () => {
+    it('generic factory_internal=true returns high', () => {
       const result = classifyReasoningEffort({
-        task_description: 'You are the Architect for a software factory...',
-        metadata: { factory_internal: true, kind: 'architect_cycle' },
+        task_description: 'You are a codebase analyst for a software factory...',
+        metadata: { factory_internal: true, kind: 'scout' },
       });
       expect(result.tier).toBe('normal');
       expect(result.reasoning_effort).toBe('high');
@@ -99,6 +99,26 @@ describe('classifyReasoningEffort', () => {
   });
 
   describe('factory_internal kind-specific low (simple tier → low)', () => {
+    it('architect_cycle returns low', () => {
+      const result = classifyReasoningEffort({
+        task_description: 'You are the Architect for a software factory...',
+        metadata: { factory_internal: true, kind: 'architect_cycle' },
+      });
+      expect(result.tier).toBe('simple');
+      expect(result.reasoning_effort).toBe('low');
+      expect(result.reason).toContain('architect_cycle');
+    });
+
+    it('plan_generation returns low', () => {
+      const result = classifyReasoningEffort({
+        task_description: 'Return Markdown only for this factory work item.',
+        metadata: { factory_internal: true, kind: 'plan_generation' },
+      });
+      expect(result.tier).toBe('simple');
+      expect(result.reasoning_effort).toBe('low');
+      expect(result.reason).toContain('plan_generation');
+    });
+
     it('plan_quality_review returns low', () => {
       const result = classifyReasoningEffort({
         task_description: 'You are a quality reviewer...',
@@ -127,8 +147,8 @@ describe('classifyReasoningEffort', () => {
 
     it('factory_internal with non-low kind still returns high', () => {
       const result = classifyReasoningEffort({
-        task_description: 'You are the Architect...',
-        metadata: { factory_internal: true, kind: 'architect_cycle' },
+        task_description: 'You are a codebase analyst...',
+        metadata: { factory_internal: true, kind: 'scout' },
       });
       expect(result.tier).toBe('normal');
       expect(result.reasoning_effort).toBe('high');

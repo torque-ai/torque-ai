@@ -246,7 +246,7 @@ describe('execute-cli.js', () => {
       expect(result.usedEditFormat).toBeNull();
     });
 
-    it('forces reasoning_effort=high for factory-internal tasks', () => {
+    it('uses low reasoning_effort for architect factory-internal tasks', () => {
       const task = {
         id: randomUUID(),
         provider: 'codex',
@@ -256,7 +256,22 @@ describe('execute-cli.js', () => {
       const result = mod.buildCodexCommand(task, '', null);
       const idx = result.finalArgs.indexOf('-c');
       expect(idx).toBeGreaterThanOrEqual(0);
-      expect(result.finalArgs[idx + 1]).toBe('model_reasoning_effort=high');
+      expect(result.finalArgs[idx + 1]).toBe('model_reasoning_effort=low');
+      expect(result.finalArgs).not.toContain('model_reasoning_effort=high');
+    });
+
+    it('uses low reasoning_effort for plan generation factory-internal tasks', () => {
+      const task = {
+        id: randomUUID(),
+        provider: 'codex',
+        task_description: 'Return Markdown only for this factory work item.',
+        metadata: { factory_internal: true, kind: 'plan_generation' },
+      };
+      const result = mod.buildCodexCommand(task, '', null);
+      const idx = result.finalArgs.indexOf('-c');
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(result.finalArgs[idx + 1]).toBe('model_reasoning_effort=low');
+      expect(result.finalArgs).not.toContain('model_reasoning_effort=high');
     });
 
     it('uses low reasoning_effort for short structured factory repair tasks', () => {

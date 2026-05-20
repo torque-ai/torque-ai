@@ -485,14 +485,26 @@ describe('execution/command-builders', () => {
         expect(args[args.length - 1]).toBe('-');
       });
 
-      it('forces reasoning_effort=high for factory_internal tasks', async () => {
+      it('uses low reasoning_effort for architect factory_internal tasks', async () => {
         initModule();
         const task = {
           task_description: 'test',
           metadata: { factory_internal: true, kind: 'architect_cycle' },
         };
         const result = await commandBuilders.buildCodexCommand(task, null, '', null);
-        expect(result.finalArgs).toContain('model_reasoning_effort=high');
+        expect(result.finalArgs).toContain('model_reasoning_effort=low');
+        expect(result.finalArgs).not.toContain('model_reasoning_effort=high');
+      });
+
+      it('uses low reasoning_effort for plan generation factory_internal tasks', async () => {
+        initModule();
+        const task = {
+          task_description: 'Return Markdown only for this factory work item.',
+          metadata: { factory_internal: true, kind: 'plan_generation' },
+        };
+        const result = await commandBuilders.buildCodexCommand(task, null, '', null);
+        expect(result.finalArgs).toContain('model_reasoning_effort=low');
+        expect(result.finalArgs).not.toContain('model_reasoning_effort=high');
       });
 
       it('uses low reasoning_effort for short structured factory repair tasks', async () => {
