@@ -621,6 +621,7 @@ describe('runLlmSemanticCheck', () => {
   const submitPath = require.resolve('../factory/internal-task-submit');
   const awaitPath = require.resolve('../handlers/workflow/await');
   const taskCorePath = require.resolve('../db/task-core');
+  const taskManagerPath = require.resolve('../task-manager');
   const gatePath = require.resolve('../factory/plan-quality-gate');
   const savedCache = new Map();
 
@@ -663,6 +664,7 @@ describe('runLlmSemanticCheck', () => {
   });
 
   it('returns null when the awaited task does not complete', async () => {
+    const cancelMock = vi.fn().mockReturnValue(true);
     installMock(submitPath, {
       submitFactoryInternalTask: vi.fn().mockResolvedValue({ task_id: 'tid-1' }),
     });
@@ -672,6 +674,9 @@ describe('runLlmSemanticCheck', () => {
     installMock(taskCorePath, {
       getTask: vi.fn().mockReturnValue({ status: 'running', output: null }),
     });
+    installMock(taskManagerPath, {
+      cancelTask: cancelMock,
+    });
     const { runLlmSemanticCheck } = require('../factory/plan-quality-gate');
     const result = await runLlmSemanticCheck({
       plan: '## Task 1: Example\n\nSome body.',
@@ -679,6 +684,14 @@ describe('runLlmSemanticCheck', () => {
       project: { id: 'p', path: '/tmp/p' },
     });
     expect(result).toBeNull();
+    expect(cancelMock).toHaveBeenCalledWith(
+      'tid-1',
+      expect.stringContaining('fail-open non-completion'),
+      expect.objectContaining({
+        cancel_reason: 'plan_quality_review_fail_open',
+        terminal_status: 'cancelled',
+      }),
+    );
   });
 
   it('reuses an active queued semantic review task instead of submitting a duplicate', async () => {
@@ -686,6 +699,7 @@ describe('runLlmSemanticCheck', () => {
     const hash = require('crypto').createHash('sha256').update(plan).digest('hex').slice(0, 16);
     const submitMock = vi.fn();
     const awaitMock = vi.fn().mockResolvedValue({ status: 'timeout' });
+    const cancelMock = vi.fn().mockReturnValue(true);
     installMock(submitPath, {
       submitFactoryInternalTask: submitMock,
     });
@@ -705,6 +719,9 @@ describe('runLlmSemanticCheck', () => {
       }]),
       getTask: vi.fn().mockReturnValue({ status: 'queued', output: null }),
     });
+    installMock(taskManagerPath, {
+      cancelTask: cancelMock,
+    });
     const { runLlmSemanticCheck } = require('../factory/plan-quality-gate');
     const result = await runLlmSemanticCheck({
       plan,
@@ -714,6 +731,14 @@ describe('runLlmSemanticCheck', () => {
 
     expect(result).toBeNull();
     expect(submitMock).not.toHaveBeenCalled();
+    expect(cancelMock).toHaveBeenCalledWith(
+      'existing-review',
+      expect.stringContaining('fail-open non-completion'),
+      expect.objectContaining({
+        cancel_reason: 'plan_quality_review_fail_open',
+        terminal_status: 'cancelled',
+      }),
+    );
     expect(awaitMock).toHaveBeenCalledWith({
       task_id: 'existing-review',
       timeout_minutes: 5,

@@ -16,6 +16,7 @@ const MAX_REPLAN_ATTEMPTS = 1;
 // quickly so factory progress is not held by a silent provider.
 const LLM_TIMEOUT_MS = 5 * 60_000;
 const ACTIVE_LLM_SEMANTIC_CHECK_STATUSES = new Set(['pending', 'pending_approval', 'queued', 'running', 'waiting']);
+const LLM_SEMANTIC_FAIL_OPEN_CANCEL_REASON = 'plan_quality_review_fail_open';
 
 const RULES = {
   plan_has_task_heading: {
@@ -753,10 +754,22 @@ async function runLlmSemanticCheck({ plan, workItem, project, timeoutMs = LLM_TI
       await handleAwaitTask({ task_id: taskId, timeout_minutes: Math.max(1, Math.floor(timeoutMs / 60_000)), heartbeat_minutes: 0 });
     }
   } catch (_e) {
+    cancelActiveLlmSemanticCheckTask(
+      taskCore,
+      taskId,
+      'Cancelling semantic plan review after fail-open await timeout/error.',
+    );
     return null;
   }
   const task = taskCore.getTask(taskId);
-  if (!task || task.status !== 'completed') return null;
+  if (!task || task.status !== 'completed') {
+    cancelActiveLlmSemanticCheckTask(
+      taskCore,
+      taskId,
+      'Cancelling semantic plan review after fail-open non-completion.',
+    );
+    return null;
+  }
 
   const raw = (task.output || '').trim();
   if (!raw) return null;
@@ -828,6 +841,49 @@ function findExistingLlmSemanticCheckTask(taskCore, { project, workItem, planHas
   return matching.find((candidate) => ACTIVE_LLM_SEMANTIC_CHECK_STATUSES.has(String(candidate.status || '').toLowerCase()))
     || matching.find((candidate) => String(candidate.status || '').toLowerCase() === 'completed')
     || null;
+}
+
+function cancelActiveLlmSemanticCheckTask(taskCore, taskId, reason) {
+  if (!taskId || !taskCore || typeof taskCore.getTask !== 'function') {
+    return false;
+  }
+
+  let task = null;
+  try {
+    task = taskCore.getTask(taskId) || null;
+  } catch (_err) {
+    task = null;
+  }
+
+  const status = String(task?.status || '').toLowerCase();
+  if (!ACTIVE_LLM_SEMANTIC_CHECK_STATUSES.has(status)) {
+    return false;
+  }
+
+  try {
+    const taskManager = require('../task-manager');
+    if (taskManager && typeof taskManager.cancelTask === 'function') {
+      return Boolean(taskManager.cancelTask(taskId, reason, {
+        cancel_reason: LLM_SEMANTIC_FAIL_OPEN_CANCEL_REASON,
+        terminal_status: 'cancelled',
+      }));
+    }
+  } catch (_err) {
+    // Fall back to a direct status update below when task-manager is unavailable.
+  }
+
+  if (typeof taskCore.updateTaskStatus !== 'function') {
+    return false;
+  }
+
+  const priorError = typeof task?.error_output === 'string' && task.error_output
+    ? `${task.error_output}\n`
+    : '';
+  taskCore.updateTaskStatus(taskId, 'cancelled', {
+    cancel_reason: LLM_SEMANTIC_FAIL_OPEN_CANCEL_REASON,
+    error_output: `${priorError}[factory] ${reason}`,
+  });
+  return true;
 }
 
 function buildLlmPrompt({ plan, workItem, project }) {
