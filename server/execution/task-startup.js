@@ -495,8 +495,8 @@ function init(deps) {
   buildCodexCommand = resolveCommandBuilder('buildCodexCommand', deps.buildCodexCommand, deps.commandBuilders);
   buildFileContext = deps.buildFileContext;
   resolveFileReferences = deps.resolveFileReferences;
-  executeOllamaTask = deps.executeOllamaTask;
-  executeApiProvider = deps.executeApiProvider;
+  executeOllamaTask = resolveProviderExecutionFunction('executeOllamaTask', deps.executeOllamaTask);
+  executeApiProvider = resolveProviderExecutionFunction('executeApiProvider', deps.executeApiProvider);
   evaluateTaskPreExecutePolicy = deps.evaluateTaskPreExecutePolicy;
   getPolicyBlockReason = deps.getPolicyBlockReason;
   cancelTask = deps.cancelTask;
@@ -504,6 +504,18 @@ function init(deps) {
   sanitizeTaskOutput = deps.sanitizeTaskOutput;
   detectOutputCompletion = deps.detectOutputCompletion;
   QUEUE_LOCK_HOLDER_ID = deps.QUEUE_LOCK_HOLDER_ID;
+}
+
+function resolveProviderExecutionFunction(name, current) {
+  if (typeof current === 'function') return current;
+  try {
+    const execution = require('../providers/execution');
+    const candidate = execution?.[name];
+    if (typeof candidate === 'function') return candidate;
+  } catch {
+    // Fall through; the caller decides whether the dependency is mandatory.
+  }
+  return null;
 }
 
 function getCommandBuildersService(explicitService) {
@@ -1905,9 +1917,14 @@ function prepareApiProviderExecution({
 }) {
   const instance = getProviderInstance(provider);
   if (instance) {
+    const apiExecutor = resolveProviderExecutionFunction('executeApiProvider', executeApiProvider);
+    if (typeof apiExecutor !== 'function') {
+      throw new Error('API provider executor is unavailable');
+    }
+    executeApiProvider = apiExecutor;
     return {
       completed: true,
-      value: executeApiProvider(executionTask, instance),
+      value: apiExecutor(executionTask, instance),
     };
   }
 
@@ -2008,8 +2025,13 @@ function releaseDirectProviderLocksAfterCompletion(resultOrPromise, startupResou
 
 function executeStartupCommand(taskId, task, provider, startupCommand, startupResources) {
   if (startupCommand.mode === 'ollama') {
+    const ollamaExecutor = resolveProviderExecutionFunction('executeOllamaTask', executeOllamaTask);
+    if (typeof ollamaExecutor !== 'function') {
+      throw new Error('Ollama executor is unavailable');
+    }
+    executeOllamaTask = ollamaExecutor;
     return releaseDirectProviderLocksAfterCompletion(
-      executeOllamaTask(startupCommand.executionTask),
+      ollamaExecutor(startupCommand.executionTask),
       startupResources,
     );
   }
@@ -2594,11 +2616,15 @@ function createTaskStartup(localDeps = {}) {
     catch { /* fall through */ }
   }
   // providers/execution exports.
-  if (resolved.executeOllamaTask === undefined || resolved.executeApiProvider === undefined) {
+  if (typeof resolved.executeOllamaTask !== 'function' || typeof resolved.executeApiProvider !== 'function') {
     try {
       const exec = require('../providers/execution');
-      if (resolved.executeOllamaTask === undefined) resolved.executeOllamaTask = exec.executeOllamaTask;
-      if (resolved.executeApiProvider === undefined) resolved.executeApiProvider = exec.executeApiProvider;
+      if (typeof resolved.executeOllamaTask !== 'function' && typeof exec.executeOllamaTask === 'function') {
+        resolved.executeOllamaTask = exec.executeOllamaTask;
+      }
+      if (typeof resolved.executeApiProvider !== 'function' && typeof exec.executeApiProvider === 'function') {
+        resolved.executeApiProvider = exec.executeApiProvider;
+      }
     } catch { /* fall through */ }
   }
   // policy-engine hooks.
@@ -2664,8 +2690,8 @@ function createTaskStartup(localDeps = {}) {
     if (typeof resolved.buildCodexCommand === 'function') buildCodexCommand = resolved.buildCodexCommand;
     if (resolved.buildFileContext !== undefined) buildFileContext = resolved.buildFileContext;
     if (resolved.resolveFileReferences !== undefined) resolveFileReferences = resolved.resolveFileReferences;
-    if (resolved.executeOllamaTask !== undefined) executeOllamaTask = resolved.executeOllamaTask;
-    if (resolved.executeApiProvider !== undefined) executeApiProvider = resolved.executeApiProvider;
+    if (typeof resolved.executeOllamaTask === 'function') executeOllamaTask = resolved.executeOllamaTask;
+    if (typeof resolved.executeApiProvider === 'function') executeApiProvider = resolved.executeApiProvider;
     if (resolved.evaluateTaskPreExecutePolicy !== undefined) evaluateTaskPreExecutePolicy = resolved.evaluateTaskPreExecutePolicy;
     if (resolved.getPolicyBlockReason !== undefined) getPolicyBlockReason = resolved.getPolicyBlockReason;
     if (resolved.cancelTask !== undefined) cancelTask = resolved.cancelTask;

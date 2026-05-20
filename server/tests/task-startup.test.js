@@ -221,6 +221,9 @@ function loadTaskStartup(options = {}) {
     isApiProvider: vi.fn(() => false),
     getProviderInstance: vi.fn(() => null),
   });
+  if (options.executionProviderFallback) {
+    installCjsModuleMock('../providers/execution', options.executionProviderFallback);
+  }
 
   const mockSpawnAndTrackProcess = options.depOverrides?.spawnAndTrackProcess
     || vi.fn(() => ({ queued: false, started: true }));
@@ -2868,6 +2871,36 @@ describe('task-startup', () => {
       expect(startup.FILE_LOCK_REQUEUE_DELAY_MS).toBe(10000);
       expect(typeof startup.setSkipGitInCloseHandler).toBe('function');
       expect(typeof startup.getSkipGitInCloseHandler).toBe('function');
+    });
+
+    it('repairs malformed provider executor dependencies before starting ollama tasks', async () => {
+      const task = createTask({ id: 'ollama-repair', provider: 'ollama' });
+      const fallbackOllama = vi.fn(() => ({ queued: false, started: true, provider: 'ollama' }));
+      const fallbackApi = vi.fn();
+      const ctx = loadTaskStartup({
+        task,
+        depOverrides: {
+          executeOllamaTask: null,
+          executeApiProvider: null,
+        },
+        executionProviderFallback: {
+          executeOllamaTask: fallbackOllama,
+          executeApiProvider: fallbackApi,
+        },
+      });
+      const { deps } = createDeps({
+        task,
+        depOverrides: {
+          executeOllamaTask: { stale: true },
+          executeApiProvider: { stale: true },
+        },
+      });
+
+      const startup = ctx.module.createTaskStartup(deps);
+      const result = await startup.startTask(task.id);
+
+      expect(result).toMatchObject({ queued: false, started: true, provider: 'ollama' });
+      expect(fallbackOllama).toHaveBeenCalledTimes(1);
     });
 
     it('generates unique QUEUE_LOCK_HOLDER_ID when no taskManager is provided', () => {
