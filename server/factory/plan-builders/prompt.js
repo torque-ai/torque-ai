@@ -104,8 +104,7 @@ function escapePromptRedactionRegExp(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function redactProjectVerifyCommandFromPromptText(value, projectVerifyCommand, projectPath = null) {
-  if (typeof value !== 'string') return value;
+function collectVerifyCommandRedactionCandidates(projectVerifyCommand, projectPath = null) {
   const commands = [
     projectVerifyCommand,
     sanitizePlanPromptText(projectVerifyCommand, projectPath),
@@ -113,8 +112,32 @@ function redactProjectVerifyCommandFromPromptText(value, projectVerifyCommand, p
     .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
     .filter(Boolean);
 
+  const candidates = new Set();
+  for (const command of commands) {
+    candidates.add(command);
+    candidates.add(`torque-remote ${command}`);
+
+    const dotnetMatch = command.match(/\bdotnet\s+(?:test|build)\s+(?:"([^"]+)"|'([^']+)'|`([^`]+)`|([^\s&|;]+))/i);
+    if (dotnetMatch) {
+      const target = dotnetMatch[1] || dotnetMatch[2] || dotnetMatch[3] || dotnetMatch[4];
+      const verbMatch = dotnetMatch[0].match(/\bdotnet\s+(test|build)\b/i);
+      const verb = verbMatch ? verbMatch[1].toLowerCase() : null;
+      if (target && verb) {
+        const prefix = `dotnet ${verb} ${target}`;
+        candidates.add(prefix);
+        candidates.add(`torque-remote ${prefix}`);
+      }
+    }
+  }
+  return [...candidates]
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+}
+
+function redactProjectVerifyCommandFromPromptText(value, projectVerifyCommand, projectPath = null) {
+  if (typeof value !== 'string') return value;
   let redacted = value;
-  for (const command of [...new Set(commands)]) {
+  for (const command of collectVerifyCommandRedactionCandidates(projectVerifyCommand, projectPath)) {
     redacted = redacted.replace(
       new RegExp(escapePromptRedactionRegExp(command), 'gi'),
       'the configured project verify command',

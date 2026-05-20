@@ -862,6 +862,9 @@ function formatFeedbackViolationDetail(violation) {
   if (violation?.rule === 'task_avoids_local_heavy_validation') {
     return 'Remove heavyweight local validation commands from this task. Use a lightweight targeted check and leave full-suite project verification to the orchestrator verify step.';
   }
+  if (violation?.rule === 'task_avoids_disabled_remote_validation') {
+    return 'Remove remote-verification wrapper commands from this task because project remote verification is disabled. Use lightweight local task checks or leave heavyweight validation to the orchestrator verify step.';
+  }
   return violation?.detail || '';
 }
 

@@ -233,6 +233,19 @@ Read \`server/tests/ollama-tools-coverage.test.js\`, then edit \`server/tests/TO
     expect(feedback).not.toContain(verifyCommand);
   });
 
+  it('does not echo disabled remote validation commands back into replan feedback', () => {
+    const remoteCommand = 'torque-remote dotnet test simtests/SimCore.DotNet.Tests.csproj';
+    const feedback = planQualityGate.buildFeedbackPrompt([{
+      rule: 'task_avoids_disabled_remote_validation',
+      taskNumber: 2,
+      detail: `Task 2 uses torque-remote while project remote verification is disabled: ${remoteCommand}.`,
+    }], [], null);
+
+    expect(feedback).toContain('Remove remote-verification wrapper commands');
+    expect(feedback).toContain('project remote verification is disabled');
+    expect(feedback).not.toContain(remoteCommand);
+  });
+
   it('allows heavyweight validation when it is routed through torque-remote', () => {
     const plan = `## Task 1: Record evidence\n\nUpdate docs/status/evidence.md with the touched files, then run torque-remote dotnet build example-project.sln and torque-remote dotnet test example-project.sln --no-build before committing.`;
     const { hardFails } = runDeterministicRules(plan);
