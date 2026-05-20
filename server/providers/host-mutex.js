@@ -61,6 +61,13 @@ function cleanupEntry(entry) {
   entry.timeoutHandle = null;
 }
 
+function cleanupHolderAbort(entry) {
+  if (entry.holderAbortHandler && entry.signal) {
+    entry.signal.removeEventListener('abort', entry.holderAbortHandler);
+  }
+  entry.holderAbortHandler = null;
+}
+
 function pruneState(hostId, state) {
   if (!state.holder && state.queue.length === 0) {
     _hostLocks.delete(hostId);
@@ -100,6 +107,7 @@ function drainHostQueue(hostId) {
     const release = () => {
       if (released) return;
       released = true;
+      cleanupHolderAbort(entry);
 
       const current = _hostLocks.get(hostId);
       if (!current || current.holder !== entry) return;
@@ -112,6 +120,17 @@ function drainHostQueue(hostId) {
       }
       setImmediate(() => drainHostQueue(hostId));
     };
+
+    if (entry.signal) {
+      entry.holderAbortHandler = () => {
+        logger.info(`[HostMutex] Releasing lock for host ${hostId}${entry.taskId ? ` task=${entry.taskId}` : ''} after abort`);
+        release();
+      };
+      entry.signal.addEventListener('abort', entry.holderAbortHandler, { once: true });
+      if (entry.signal.aborted) {
+        entry.holderAbortHandler();
+      }
+    }
 
     const waitedMs = Math.max(0, entry.acquiredAt - entry.enqueuedAt);
     logger.info(`[HostMutex] Acquired lock for host ${hostId}${entry.taskId ? ` task=${entry.taskId}` : ''} after ${waitedMs}ms`);
@@ -221,7 +240,10 @@ function _resetHostLocksForTests() {
       entry.cancelled = true;
       entry.settled = true;
     }
-    if (state.holder) cleanupEntry(state.holder);
+    if (state.holder) {
+      cleanupEntry(state.holder);
+      cleanupHolderAbort(state.holder);
+    }
   }
   _hostLocks.clear();
   _nextLockEntryId = 1;

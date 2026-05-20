@@ -132,6 +132,37 @@ describe('host-mutex', () => {
     });
   });
 
+  it('releases an acquired lock when the holder signal aborts', async () => {
+    const controller = new AbortController();
+    const release1 = await acquireHostLock('abort-held-host', {
+      taskId: 'holder',
+      signal: controller.signal,
+    });
+    const order = [];
+
+    const second = acquireHostLock('abort-held-host', { taskId: 'second' }).then(release2 => {
+      order.push('second');
+      release2();
+    });
+
+    await new Promise(resolve => setImmediate(resolve));
+    expect(getHostLockSnapshot('abort-held-host')).toEqual(expect.objectContaining({
+      holder: expect.objectContaining({ taskId: 'holder' }),
+      queueLength: 1,
+    }));
+
+    controller.abort();
+    await second;
+
+    expect(order).toEqual(['second']);
+    release1();
+    expect(getHostLockSnapshot('abort-held-host')).toEqual({
+      holder: null,
+      queueLength: 0,
+      waiters: [],
+    });
+  });
+
   it('rejects immediately when the signal is already aborted', async () => {
     const controller = new AbortController();
     controller.abort();
