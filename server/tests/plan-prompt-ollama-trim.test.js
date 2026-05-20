@@ -145,13 +145,14 @@ describe('Phase G: ollama-friendly architect prompt', () => {
     }, {
       ...workItem,
       description: `Implement the focused change. Do not rely on ${verifyCommand} inside the plan.`,
-    });
+    }, `Prior feedback: remove ${verifyCommand} from task validation.`);
 
     expect(out).toContain('Remote validation is disabled for this project');
     expect(out).toContain('Do not write `torque-remote` commands');
     expect(out).toContain('runs the configured project verify command locally');
     expect(out).toContain('Verification: run the configured project verify command locally');
     expect(out).toContain('Do not rely on the configured project verify command inside the plan.');
+    expect(out).toContain('Prior feedback: remove the configured project verify command from task validation.');
     expect(out).not.toContain(verifyCommand);
     expect(out).not.toContain('prefix it with `torque-remote`');
     expect(out).not.toContain('`torque-remote dotnet test tests/MyApp.Tests/MyApp.Tests.csproj`');
