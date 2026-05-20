@@ -93,7 +93,7 @@ function buildTaskValidationDetail(task, workItem, project, planFilePaths = []) 
     return value;
   };
 
-  const explicit = sanitizeValidation(buildWorkItemValidationDetail(workItem));
+  const explicit = String(buildWorkItemValidationDetail(workItem) || '').trim();
   if (explicit) return explicit;
 
   const paths = getTaskSpecificityFilePaths(task, workItem, planFilePaths);
