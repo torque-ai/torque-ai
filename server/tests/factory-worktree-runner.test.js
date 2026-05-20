@@ -601,6 +601,44 @@ describe('createWorktreeRunner.verify', () => {
     expect(runLocalVerify).not.toHaveBeenCalled();
   });
 
+  it('runs local verify first when the owning project disables remote tests', async () => {
+    const worktreePath = path.join('repo', '.worktrees', 'feat-local');
+    const normalizePath = (value) => String(value || '').replace(/\\/g, '/');
+    const runRemoteVerify = vi.fn();
+    const runLocalVerify = vi.fn(() => ({ exitCode: 0, stdout: 'local ok', stderr: '' }));
+    const getProjectDefaults = vi.fn((cwd) => {
+      const normalized = normalizePath(cwd);
+      if (normalized.endsWith('/repo/.worktrees/feat-local')) return {};
+      if (normalized.endsWith('/repo')) return { prefer_remote_tests: 0 };
+      return null;
+    });
+    const runner = createWorktreeRunner({
+      worktreeManager: makeWorktreeManagerMock(),
+      runRemoteVerify,
+      runLocalVerify,
+      getProjectDefaults,
+      countCommitsAhead: nonEmptyCountCommitsAhead,
+    });
+
+    const result = await runner.verify({
+      worktreePath,
+      branch: 'feat/local',
+      verifyCommand: 'npm test',
+    });
+
+    expect(result.passed).toBe(true);
+    expect(runRemoteVerify).not.toHaveBeenCalled();
+    expect(runLocalVerify).toHaveBeenCalledWith(expect.objectContaining({
+      branch: 'feat/local',
+      command: 'npm test',
+      cwd: worktreePath,
+      fallbackReason: 'prefer_remote_tests=false',
+    }));
+    const defaultsLookups = getProjectDefaults.mock.calls.map(([cwd]) => normalizePath(cwd));
+    expect(defaultsLookups.some((cwd) => cwd.endsWith('repo/.worktrees/feat-local'))).toBe(true);
+    expect(defaultsLookups.some((cwd) => cwd.endsWith('/repo') || cwd === 'repo')).toBe(true);
+  });
+
   it('requires branch', async () => {
     const runner = createWorktreeRunner({
       worktreeManager: makeWorktreeManagerMock(),

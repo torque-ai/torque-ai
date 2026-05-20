@@ -48,6 +48,65 @@ function parsePositiveInteger(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function isTruthyConfig(value) {
+  if (value === true || value === 1) return true;
+  if (typeof value !== 'string') return false;
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
+function isFalseyConfig(value) {
+  if (value === false || value === 0) return true;
+  if (typeof value !== 'string') return false;
+  return ['0', 'false', 'no', 'off'].includes(value.trim().toLowerCase());
+}
+
+function inferProjectRootFromWorktree(cwd) {
+  if (!cwd) return null;
+  const parts = path.resolve(cwd).split(/[\\/]+/);
+  const worktreesIndex = parts.lastIndexOf('.worktrees');
+  if (worktreesIndex <= 0) return null;
+  return parts.slice(0, worktreesIndex).join(path.sep);
+}
+
+function defaultGetProjectDefaultsForVerify(cwd) {
+  let getProjectDefaults;
+  try {
+    ({ getProjectDefaults } = require('../db/project-config-core'));
+  } catch {
+    return null;
+  }
+  if (typeof getProjectDefaults !== 'function') return null;
+  return getProjectDefaults(cwd);
+}
+
+function resolveVerifyRoutingPreference(cwd, getProjectDefaults = defaultGetProjectDefaultsForVerify) {
+  if (typeof getProjectDefaults !== 'function') return { mode: 'remote', reason: 'no_project_defaults_resolver' };
+  const candidates = [cwd, inferProjectRootFromWorktree(cwd)]
+    .filter(Boolean)
+    .filter((candidate, index, all) => all.indexOf(candidate) === index);
+  let firstDefaults = null;
+  let selectedDefaults = null;
+  for (const candidate of candidates) {
+    try {
+      const defaults = getProjectDefaults(candidate);
+      if (defaults && typeof defaults === 'object') {
+        if (Object.prototype.hasOwnProperty.call(defaults, 'prefer_remote_tests')) {
+          selectedDefaults = defaults;
+          break;
+        }
+        if (!firstDefaults) firstDefaults = defaults;
+      }
+    } catch {
+      // Try the next candidate. Worktree paths often are not registered projects.
+    }
+  }
+  const defaults = selectedDefaults || firstDefaults;
+  if (!defaults || typeof defaults !== 'object') return { mode: 'remote', reason: 'project_defaults_unavailable' };
+  if (isFalseyConfig(defaults.prefer_remote_tests)) return { mode: 'local', reason: 'prefer_remote_tests=false' };
+  if (isTruthyConfig(defaults.prefer_remote_tests)) return { mode: 'remote', reason: 'prefer_remote_tests=true' };
+  return { mode: 'remote', reason: 'prefer_remote_tests_unset' };
+}
+
 function delay(ms) {
   if (!Number.isFinite(ms) || ms <= 0) return Promise.resolve();
   return new Promise((resolve) => {
@@ -704,6 +763,7 @@ function createWorktreeRunner({
   runLocalVerify = defaultRunLocalVerify,
   countCommitsAhead = defaultCountCommitsAhead,
   listChangedFiles = defaultListChangedFiles,
+  getProjectDefaults = defaultGetProjectDefaultsForVerify,
   withMainCoordinationLock = null,
   logger,
 } = {}) {
@@ -816,25 +876,51 @@ function createWorktreeRunner({
     }
     prepareWorktreeVerifyDependencies(cwd, logger);
 
-    let out = await Promise.resolve(runRemoteVerify({ branch, command, cwd, logger }));
-    if (out && out.exitCode !== 0 && shouldFallbackToLocalVerify(out)) {
-      const fallbackSummary = summarizeVerifyFailure(out);
+    const routingPreference = resolveVerifyRoutingPreference(cwd, getProjectDefaults);
+    let out;
+    if (routingPreference.mode === 'local') {
+      if (logger) {
+        logger.info('factory worktree verify: running local verify by project preference', {
+          branch,
+          command,
+          cwd,
+          reason: routingPreference.reason,
+        });
+      }
       const localResult = await Promise.resolve(runLocalVerify({
         branch,
         command,
         cwd,
         logger,
-        fallbackReason: fallbackSummary,
+        fallbackReason: routingPreference.reason,
       }));
       out = {
         exitCode: localResult.exitCode,
         stdout: localResult.stdout || '',
-        stderr: [
-          `[fallback-local-verify] ${fallbackSummary}`,
-          localResult.stderr || '',
-        ].filter(Boolean).join('\n'),
+        stderr: localResult.stderr || '',
         error: localResult.error ? localResult.error : null,
       };
+    } else {
+      out = await Promise.resolve(runRemoteVerify({ branch, command, cwd, logger }));
+      if (out && out.exitCode !== 0 && shouldFallbackToLocalVerify(out)) {
+        const fallbackSummary = summarizeVerifyFailure(out);
+        const localResult = await Promise.resolve(runLocalVerify({
+          branch,
+          command,
+          cwd,
+          logger,
+          fallbackReason: fallbackSummary,
+        }));
+        out = {
+          exitCode: localResult.exitCode,
+          stdout: localResult.stdout || '',
+          stderr: [
+            `[fallback-local-verify] ${fallbackSummary}`,
+            localResult.stderr || '',
+          ].filter(Boolean).join('\n'),
+          error: localResult.error ? localResult.error : null,
+        };
+      }
     }
     const durationMs = Date.now() - start;
     const passed = out && typeof out === 'object' ? out.exitCode === 0 : false;
