@@ -13,6 +13,8 @@ const MODULE_PATHS = [
   '../orchestrator/prompt-templates',
   '../handlers/error-codes',
   '../handlers/shared',
+  '../db/factory/health',
+  '../factory/provider-lane-policy',
   'uuid',
 ];
 
@@ -226,6 +228,44 @@ describe('handleSubmitScout', () => {
     });
     const lastCall = mockTaskCore.createTask.mock.calls.at(-1)[0];
     expect(lastCall.tags).toContain('factory:target_project=example-project');
+  });
+
+  it('stamps project provider-lane policy onto starvation scout metadata', () => {
+    installCjsModuleMock('../db/factory/health', {
+      getProject: (id) => (id === 'project-1'
+        ? {
+            id,
+            name: 'NetSim',
+            config_json: JSON.stringify({
+              provider_lane_policy: {
+                expected_provider: 'codex',
+                allowed_providers: ['codex'],
+                allowed_fallback_providers: ['codex'],
+                enforce_handoffs: true,
+              },
+            }),
+          }
+        : null),
+    });
+    const fresh = require(HANDLER_MODULE);
+
+    fresh.handleSubmitScout({
+      scope: 'Factory starvation recovery scout.',
+      working_directory: '/proj',
+      provider: 'codex',
+      reason: 'factory_starvation_recovery',
+      project_id: 'project-1',
+    });
+
+    const lastCall = mockTaskCore.createTask.mock.calls.at(-1)[0];
+    const metadata = JSON.parse(lastCall.metadata);
+    expect(metadata.kind).toBe('scout');
+    expect(metadata.provider_lane_policy).toMatchObject({
+      expected_provider: 'codex',
+      allowed_providers: ['codex'],
+      allowed_fallback_providers: ['codex'],
+      enforce_handoffs: true,
+    });
   });
 
   it('omits factory:target_project tag when factoryHealth has no record', () => {

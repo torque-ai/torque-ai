@@ -7,6 +7,7 @@ const { validateDiffusionPlan, MAX_RECURSIVE_DEPTH } = require('../diffusion/pla
 const { buildWorkflowTasks } = require('../diffusion/planner');
 const { buildPrompt } = require('../orchestrator/prompt-templates');
 const { isPathTraversalSafe } = require('./shared');
+const { buildProviderLaneTaskMetadata } = require('../factory/provider-lane-policy');
 const logger = require('../logger').child({ component: 'diffusion-handlers' });
 
 // Lazy-load to avoid circular deps
@@ -234,6 +235,7 @@ function handleSubmitScout(args) {
   const taskId = uuidv4();
   const timeout = Math.min(timeout_minutes || DEFAULT_SCOUT_TIMEOUT, 60);
   const tags = ['factory:scout'];
+  let providerLaneMetadata = {};
   if (reason) {
     tags.push(`factory:reason=${reason}`);
   }
@@ -244,13 +246,15 @@ function handleSubmitScout(args) {
     // for architect/plan-gen. Without this, scout tasks (especially
     // starvation_recovery scouts) showed up with no project label because
     // task.project is null AND no target_project tag is set.
+    let project = null;
     try {
       const factoryHealth = require('../db/factory/health');
-      const project = factoryHealth.getProject(project_id);
+      project = factoryHealth.getProject(project_id);
       if (project?.name) {
         tags.push(`factory:target_project=${project.name}`);
       }
     } catch (_e) { void _e; }
+    providerLaneMetadata = buildProviderLaneTaskMetadata(project || {}, 'scout');
   }
   if (reason === STARVATION_RECOVERY_REASON) {
     tags.push('factory:starvation_recovery');
@@ -266,12 +270,14 @@ function handleSubmitScout(args) {
     tags,
     metadata: JSON.stringify({
       mode: 'scout',
+      kind: 'scout',
       diffusion: true,
       reason: reason || null,
       project_id: project_id || null,
       project_path: project_path || working_directory,
       scope: scope.trim(),
       file_patterns: file_patterns || null,
+      ...(providerLaneMetadata || {}),
     }),
   });
 
