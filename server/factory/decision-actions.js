@@ -277,6 +277,11 @@ const DECISION_ACTIONS = {
     rule_id: 'plan_generation_unusable_output',
     outcome: ['work_item_id', 'provider'],
   },
+  stale_plan_generation_task_ignored_for_materialized_plan: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['work_item_id', 'generation_task_id', 'task_status', 'plan_path'],
+  },
   source_plan_file_missing_superseded: {
     stage: 'EXECUTE',
     classifier: 'benign',

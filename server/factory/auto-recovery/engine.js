@@ -215,6 +215,7 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   'plan_generation_worktree_created', // plan generation created isolated artifact worktree
   'plan_generation_provider_fallback_submitted', // transient plan-generation provider error fell back to another provider
   'plan_generation_provider_unavailable_deferred', // no enabled healthy provider; wait without recovery churn
+  'stale_plan_generation_task_ignored_for_materialized_plan', // stale terminal plan task cleared while reusing materialized generated plan
 
   // ── EXECUTE ──────────────────────────────────────────────────────────────────
   'worktree_created',        // EXECUTE created an isolated worktree

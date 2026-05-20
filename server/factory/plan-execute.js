@@ -1050,6 +1050,62 @@ function createPlanExecuteStage(deps = {}) {
     };
     let planGenerationOrigin = nextOrigin;
     let generationTaskId = getStoredPlanGenerationTaskId(targetItem);
+    const taskCore = require('../db/task-core');
+
+    if (generationTaskId && fs.existsSync(planPath)) {
+      const existingGenerationTask = getPlanGenerationTask(taskCore, generationTaskId);
+      const existingStatus = normalizeOptionalString(existingGenerationTask?.status);
+      const staleTerminalGeneration = !existingGenerationTask
+        || ['failed', 'cancelled', 'rejected'].includes(existingStatus);
+      if (staleTerminalGeneration) {
+        planGenerationOrigin = clearPlanGenerationWaitFields(nextOrigin);
+        delete planGenerationOrigin.plan_generator_provider;
+        try {
+          targetItem = factoryIntake.updateWorkItem(targetItem.id, {
+            origin_json: planGenerationOrigin,
+            status: targetItem.status || 'planned',
+          });
+          rememberSelectedWorkItem(instance.id, targetItem);
+        } catch (clearErr) {
+          logger.warn('EXECUTE stage: failed to clear stale terminal plan-generation task before materialized plan reuse', {
+            project_id: project.id,
+            work_item_id: targetItem.id,
+            generation_task_id: generationTaskId,
+            task_status: existingStatus || null,
+            plan_path: planPath,
+            err: clearErr.message,
+          });
+        }
+        logger.warn('EXECUTE stage: ignoring stale terminal plan-generation task because a materialized plan exists', {
+          project_id: project.id,
+          work_item_id: targetItem.id,
+          generation_task_id: generationTaskId,
+          task_status: existingStatus || null,
+          plan_path: planPath,
+        });
+        safeLogDecision({
+          project_id: project.id,
+          stage: LOOP_STATES.EXECUTE,
+          action: 'stale_plan_generation_task_ignored_for_materialized_plan',
+          reasoning: 'A materialized generated plan exists; clearing a stale terminal plan-generation task reference before reuse.',
+          inputs: {
+            ...getWorkItemDecisionContext(targetItem),
+            stale_generation_task_id: generationTaskId,
+            stale_generation_task_status: existingStatus || null,
+            plan_path: planPath,
+          },
+          outcome: {
+            work_item_id: targetItem.id,
+            generation_task_id: generationTaskId,
+            task_status: existingStatus || null,
+            plan_path: planPath,
+          },
+          confidence: 1,
+          batch_id: getDecisionBatchId(project, targetItem, null, instance),
+        });
+        generationTaskId = null;
+      }
+    }
 
     if (!fs.existsSync(planPath)) {
       const preExistingRecoveredPlan = recoverTerminalPlanGenerationMarkdown({
@@ -1072,7 +1128,7 @@ function createPlanExecuteStage(deps = {}) {
 
     if (!generationTaskId && fs.existsSync(planPath)) {
       const updatedWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
-        origin_json: clearPlanGenerationWaitFields(nextOrigin),
+        origin_json: clearPlanGenerationWaitFields(planGenerationOrigin),
         status: 'executing',
       });
       rememberSelectedWorkItem(instance.id, updatedWorkItem);
@@ -1264,7 +1320,6 @@ function createPlanExecuteStage(deps = {}) {
 
     const { submitFactoryInternalTask } = require('./internal-task-submit');
     const { handleAwaitTask } = require('../handlers/workflow/await');
-    const taskCore = require('../db/task-core');
     // Phase X2 (2026-05-01): if this work item came back from needs_replan
     // (or was previously rejected by the plan-quality gate in any prior batch),
     // its origin_json carries last_plan_description_quality_rejection. Convert
@@ -1512,7 +1567,7 @@ function createPlanExecuteStage(deps = {}) {
       cleanupRecoveredSideWrittenPlan(recoveredPlan, planPath);
 
       let updatedWorkItem = factoryIntake.updateWorkItem(targetItem.id, {
-        origin_json: clearPlanGenerationWaitFields(nextOrigin),
+        origin_json: clearPlanGenerationWaitFields(planGenerationOrigin),
         status: 'executing',
       });
       if (generationProvider) {
