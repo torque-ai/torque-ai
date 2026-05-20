@@ -1328,6 +1328,7 @@ function evaluateClaimedStartupPolicy({
 const HEAVY_VALIDATION_GUARD_EXEMPT_KINDS = new Set([
   'architect_cycle',
   'plan_generation',
+  'plan_quality_review',
   'verify_review',
 ]);
 
@@ -1354,8 +1355,8 @@ function evaluateFactoryWorktreeHeavyValidationGuard(task, provider) {
     return null;
   }
 
-  // Structured-output tasks (verify_review / plan_generation /
-  // architect_cycle / diffusion compute) carry the verify command as
+  // Structured-output tasks (verify_review / plan_quality_review /
+  // plan_generation / architect_cycle / diffusion compute) carry the verify command as
   // prompt context, not as an instruction. Don't block them — they
   // produce JSON verdicts/plans, not shell side effects.
   if (isHeavyValidationGuardExempt(task)) {

@@ -1544,6 +1544,24 @@ describe('task-startup', () => {
       expect(result).toBeNull();
     });
 
+    it('returns null for exempt plan_quality_review kind', () => {
+      const ctx = loadTaskStartup();
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        {
+          working_directory: 'C:/repo/.worktrees/feat-x/',
+          task_description: [
+            'Review this generated plan.',
+            'Verification: dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter FullyQualifiedName~RelayProtocolValidationTests',
+          ].join('\n'),
+          metadata: { kind: 'plan_quality_review' },
+        },
+        'codex',
+      );
+
+      expect(result).toBeNull();
+    });
+
     it('returns null for exempt diffusion compute role', () => {
       const ctx = loadTaskStartup();
 
