@@ -1235,7 +1235,7 @@ function handleListTasks(args) {
     limit: safeLimit(args.limit, 20),
     // Opt-in column projection — this handler only reads 9 summary fields. Without
     // projection, `SELECT *` pulls multi-MB error_output/output/context blobs off
-    // disk (~35 MB total for the Kanban fan-out on a 3.7 GB tasks.db) just to
+    // disk (~35 MB total for the dashboard board fan-out on a 3.7 GB tasks.db) just to
     // throw them away during serialization.
     columns: [
       'id', 'status', 'provider', 'model', 'priority',

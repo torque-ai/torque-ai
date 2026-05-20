@@ -600,6 +600,7 @@ describe('api/v2-task-handlers.handleListTasks', () => {
         page: '2',
         limit: '25',
         provider: 'codex',
+        project: 'torque-public',
         search: 'lint',
         tags: 'ui, perf',
         from: '2026-03-01T00:00:00.000Z',
@@ -618,6 +619,7 @@ describe('api/v2-task-handlers.handleListTasks', () => {
 
     expect(mockDb.listTasks).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'codex',
+      project: 'torque-public',
       search: 'lint',
       tags: ['ui', 'perf'],
       from_date: '2026-03-01T00:00:00.000Z',
@@ -629,6 +631,7 @@ describe('api/v2-task-handlers.handleListTasks', () => {
     }));
     expect(mockDb.countTasks).toHaveBeenCalledWith({
       provider: 'codex',
+      project: 'torque-public',
       search: 'lint',
       tags: ['ui', 'perf'],
       from_date: '2026-03-01T00:00:00.000Z',
@@ -724,6 +727,24 @@ describe('api/v2-task-handlers.handleKanbanSummary', () => {
     }
     // Exactly one listTasks call per bucket — the whole point of the endpoint.
     expect(mockDb.listTasks).toHaveBeenCalledTimes(7);
+  });
+
+  it('passes project filters through every summary bucket', async () => {
+    mockDb.listTasks.mockReturnValue([]);
+    mockDb.countTasks.mockReturnValue(0);
+
+    await handlers.handleKanbanSummary(
+      createReq({ query: { project: 'torque-public' } }),
+      createRes()
+    );
+
+    expect(mockDb.listTasks).toHaveBeenCalledTimes(7);
+    for (const call of mockDb.listTasks.mock.calls) {
+      expect(call[0]).toEqual(expect.objectContaining({ project: 'torque-public' }));
+    }
+    for (const call of mockDb.countTasks.mock.calls) {
+      expect(call[0]).toEqual(expect.objectContaining({ project: 'torque-public' }));
+    }
   });
 
   it('returns empty bucket when listTasks throws for one status', async () => {

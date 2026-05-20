@@ -94,13 +94,13 @@ Additional providers can be configured through Claude — ask it to run `configu
 - **Multi-Host** — Distribute work across LAN Ollama instances with auto-discovery and load balancing
 - **Cost Tracking** — Per-provider usage tracking, budget alerts, and automatic routing downgrades
 - **Policy Engine** — Rule-based governance with shadow enforcement and architecture boundaries
-- **Web Dashboard** — Real-time Kanban board, provider health, workflow visualization at `http://localhost:3456`
+- **Web Dashboard** — Command Center triage, provider health, workflow visualization at `http://localhost:3456`
 
 ## Dashboard
 
 The web dashboard at `http://localhost:3456` provides:
 
-- **Kanban** — Real-time task flow (queued, running, completed)
+- **Command Center** — Operator triage, task board, and project-scoped running log
 - **Providers** — Health, success rates, performance comparison
 - **Budget** — Usage tracking, monthly trends, budget alerts
 - **Workflows** — DAG visualization, dependency tracking

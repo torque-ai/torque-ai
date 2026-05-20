@@ -352,7 +352,7 @@ TORQUE uses a debounced push system for dashboard updates:
 
 | View | Shows |
 |------|-------|
-| **Kanban** | Real-time task flow (queued → running → completed) |
+| **Command Center** | Operator triage, task board, and project-scoped running log |
 | **History** | Task history with search and filters |
 | **Providers** | Provider cards grouped by category, stats, enable/disable |
 | **Hosts** | Ollama host management, health, models |

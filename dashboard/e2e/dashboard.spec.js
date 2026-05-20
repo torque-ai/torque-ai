@@ -174,7 +174,7 @@ async function interceptApi(page) {
     });
   });
 
-  // -- V2: Batched Kanban summary --
+  // -- V2: Batched Command Center summary --
   await page.route('**/api/v2/tasks/kanban-summary', (route) => {
     route.fulfill({
       status: 200,
@@ -538,8 +538,8 @@ test('sidebar navigation updates the URL', async ({ page }) => {
   await page.locator('nav a', { hasText: 'Operations' }).click();
   await expect(page).toHaveURL(/\/operations/);
 
-  // Click "Kanban" to go back home
-  await page.locator('nav a', { hasText: 'Kanban' }).click();
+  // Click "Command Center" to go back home
+  await page.locator('nav a', { hasText: 'Command Center' }).click();
   await expect(page).toHaveURL(/\/$/);
 });
 
@@ -687,9 +687,9 @@ test('cancel button appears for running/queued tasks in drawer', async ({ page }
 });
 
 // ---------------------------------------------------------------------------
-// 9. Kanban view renders stat cards with numbers
+// 9. Command Center view renders stat cards with numbers
 // ---------------------------------------------------------------------------
-test('kanban view renders stat cards', async ({ page }) => {
+test('command center view renders stat cards', async ({ page }) => {
   await page.goto('/');
 
   // Wait for the overview data to load.
@@ -702,7 +702,7 @@ test('kanban view renders stat cards', async ({ page }) => {
   const todayCard = page.locator('.stat-gradient-blue', { hasText: 'Today' });
   await expect(todayCard.getByText('23', { exact: true })).toBeVisible({ timeout: 5000 });
 
-  // Check "Running" stat card appears (also used in Kanban column headers,
+  // Check "Running" stat card appears (also used in board column headers,
   // so use .first() to avoid ambiguity)
   await expect(page.locator('text=Running').first()).toBeVisible();
 

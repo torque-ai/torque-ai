@@ -93,7 +93,7 @@ function handleStatsOverview(req, res) {
     }
   } catch (e) { /* mcp-sse not loaded */ }
 
-  // Total counts by status (for kanban column badges)
+  // Total counts by status (for board column badges)
   const completedCount = taskCore.countTasks({ status: 'completed' });
   const failedCount = taskCore.countTasks({ status: 'failed' });
   const cancelledCount = taskCore.countTasks({ status: 'cancelled' });

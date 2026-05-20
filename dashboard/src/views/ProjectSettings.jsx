@@ -58,7 +58,7 @@ function MultiSelectDropdown({ label, options, selected, onChange, disabled }) {
   const selectedSet = new Set(selected);
 
   // Close on click outside — mirrors the pattern from Layout.jsx,
-  // HealthBar.jsx, SessionSwitcher.jsx, and Kanban.jsx so multiple lane
+  // HealthBar.jsx, SessionSwitcher.jsx, and CommandCenter.jsx so multiple lane
   // policy dropdowns don't stack open and overlap.
   useEffect(() => {
     if (!open) return;

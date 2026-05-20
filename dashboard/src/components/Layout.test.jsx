@@ -10,7 +10,7 @@ function renderLayout(props = {}, route = '/') {
       <ToastProvider>
         <Routes>
           <Route element={<Layout {...defaultProps} {...props} />}>
-            <Route index element={<div>Kanban Content</div>} />
+            <Route index element={<div>Command Center Content</div>} />
             <Route path="history" element={<div>History Content</div>} />
             <Route path="providers" element={<div>Providers Content</div>} />
             <Route path="settings" element={<div>Project Settings Content</div>} />
@@ -58,8 +58,8 @@ describe('Layout', () => {
   it('renders navigation items', () => {
     renderLayout();
     // Some items appear in both sidebar nav and breadcrumb — use getAllByText
-    const kanbanLinks = screen.getAllByText('Kanban');
-    expect(kanbanLinks.length).toBeGreaterThanOrEqual(1);
+    const commandCenterLinks = screen.getAllByText('Command Center');
+    expect(commandCenterLinks.length).toBeGreaterThanOrEqual(1);
     const historyLinks = screen.getAllByText('History');
     expect(historyLinks.length).toBeGreaterThanOrEqual(1);
     const providersLinks = screen.getAllByText('Providers');
@@ -77,7 +77,7 @@ describe('Layout', () => {
 
   it('renders child route content', () => {
     renderLayout({}, '/');
-    expect(screen.getByText('Kanban Content')).toBeInTheDocument();
+    expect(screen.getByText('Command Center Content')).toBeInTheDocument();
   });
 
   it('shows connected status', () => {
