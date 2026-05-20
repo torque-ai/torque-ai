@@ -192,17 +192,25 @@ function findNestedWorktreeSetup(text) {
   return null;
 }
 
+function stripValidationOnlyChangeLanguage(text) {
+  return String(text || '')
+    .replace(/\bvalidate\s+targeted\s+change\b/gi, '')
+    .replace(/\btargeted\s+change\b/gi, '')
+    .replace(/\bno\s+unexpected\s+changes?\b/gi, '')
+    .replace(/\bunexpected\s+changes?\b/gi, '');
+}
+
 function hasRepositoryChangeIntent(task) {
   const title = String(task?.title || '').trim();
   const body = String(task?.body || '').trim();
-  const combined = `${title}\n${body}`;
+  const combined = stripValidationOnlyChangeLanguage(`${title}\n${body}`);
   if (!REPOSITORY_CHANGE_INTENT_RE.test(combined)) {
     return false;
   }
   if (!READ_ONLY_TASK_TITLE_RE.test(title)) {
     return true;
   }
-  return REPOSITORY_CHANGE_INTENT_RE.test(body);
+  return REPOSITORY_CHANGE_INTENT_RE.test(stripValidationOnlyChangeLanguage(body));
 }
 
 function findConfigFileTestTargets(text) {
@@ -291,6 +299,24 @@ function extractCreateTargetFilePaths(text) {
   return uniqueNormalizedPaths(matches);
 }
 
+function createdTargetCoversMissingEditTarget(missingTarget, createdTargets) {
+  if (!missingTarget || !(createdTargets instanceof Set) || createdTargets.size === 0) {
+    return false;
+  }
+  const normalizedMissing = normalizePlanPathCandidate(missingTarget);
+  if (!normalizedMissing) return false;
+  const missingSuffix = `/${normalizedMissing.replace(/\\/g, '/')}`.toLowerCase();
+  for (const createdTarget of createdTargets) {
+    const normalizedCreated = normalizePlanPathCandidate(createdTarget);
+    if (!normalizedCreated) continue;
+    const createdValue = normalizedCreated.replace(/\\/g, '/').toLowerCase();
+    if (createdValue === missingSuffix.slice(1) || createdValue.endsWith(missingSuffix)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function extractValidationCommandSnippets(text) {
   const value = String(text || '');
   const snippets = [];
@@ -355,6 +381,9 @@ function findMissingEditTargets(task, repoPath, options = {}) {
     : new Set();
   const missing = targets.filter((target) => {
     if (createdTargets.has(target)) {
+      return false;
+    }
+    if (createdTargetCoversMissingEditTarget(target, createdTargets)) {
       return false;
     }
     const absolute = path.resolve(repoRoot, target);
@@ -424,6 +453,46 @@ function isUnsupportedWorktreeSetupCritique(text) {
 function isDarkTrustProject(project) {
   const trustLevel = String(project?.trust_level || project?.trustLevel || '').toLowerCase();
   return trustLevel === 'dark';
+}
+
+function isAutonomousPlanExecutionProject(project) {
+  const trustLevel = String(project?.trust_level || project?.trustLevel || '').toLowerCase();
+  return trustLevel === 'dark' || trustLevel === 'autonomous';
+}
+
+function normalizedPathSetFromText(text, repoPath = null) {
+  return new Set(extractPlanDescriptionFilePaths(String(text || ''))
+    .map((file) => normalizePlanProjectRelativePath(file, repoPath))
+    .filter(Boolean)
+    .map((file) => file.replace(/\\/g, '/').toLowerCase()));
+}
+
+function hasConcreteRequiredPathOmission({ critique, plan, workItem, project }) {
+  const repoPath = project && typeof project.path === 'string' ? project.path : null;
+  const critiquePaths = normalizedPathSetFromText(critique, repoPath);
+  if (critiquePaths.size === 0) return false;
+
+  const workItemText = [
+    workItem?.title,
+    workItem?.description,
+  ].filter(Boolean).join('\n');
+  const workItemPaths = normalizedPathSetFromText(workItemText, repoPath);
+  if (workItemPaths.size === 0) return false;
+
+  const planPaths = normalizedPathSetFromText(plan, repoPath);
+  for (const file of critiquePaths) {
+    if (workItemPaths.has(file) && !planPaths.has(file)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function shouldTreatLlmNoGoAsAdvisory({ critique, plan, workItem, project }) {
+  if (!isAutonomousPlanExecutionProject(project)) {
+    return false;
+  }
+  return !hasConcreteRequiredPathOmission({ critique, plan, workItem, project });
 }
 
 function parseTasks(planMarkdown) {
@@ -945,6 +1014,18 @@ async function evaluatePlan({ plan, workItem, project, projectConfig }) {
     if (isUnsupportedWorktreeSetupCritique(cleanCritique)) {
       return { passed: true, hardFails: [], warnings, llmCritique: null, feedbackPrompt: null };
     }
+    if (shouldTreatLlmNoGoAsAdvisory({
+      critique: cleanCritique,
+      plan: activePlan,
+      workItem,
+      project,
+    })) {
+      const advisoryWarnings = warnings.concat([{
+        rule: 'llm_semantic_advisory',
+        detail: cleanCritique,
+      }]);
+      return { passed: true, hardFails: [], warnings: advisoryWarnings, llmCritique: cleanCritique, feedbackPrompt: null };
+    }
     const feedbackPrompt = buildFeedbackPrompt([], warnings, cleanCritique);
     return { passed: false, hardFails: [], warnings, llmCritique: cleanCritique, feedbackPrompt };
   }
@@ -973,6 +1054,7 @@ module.exports = {
   buildFeedbackPrompt,
   isUnsupportedWorktreeSetupCritique,
   isDarkTrustProject,
+  isAutonomousPlanExecutionProject,
   augmentPlanMarkdown,
   evaluatePlan,
 };

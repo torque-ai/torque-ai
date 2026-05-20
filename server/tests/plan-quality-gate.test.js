@@ -333,6 +333,30 @@ Create \`server/perf/run.js\` and update \`server/perf/run.js\` in the same task
     expect(hardFails.find(f => f.rule === 'task_edit_targets_exist')).toBeUndefined();
   }));
 
+  it('rejects read-only inspection plans even when they include validate targeted change checklist text', () => {
+    const plan = `## Task 1: Examine validate-configs.py script implementation
+
+- [ ] **Step 1: Read validate-configs.py script**
+
+    Read \`scripts/ci/validate-configs.py\` to understand the current config parity validation implementation.
+
+- [ ] **Step 2: Validate targeted change**
+
+    Run \`git diff --check\` and ensure no unexpected changes are present.`;
+    const { hardFails } = runDeterministicRules(plan);
+
+    expect(hardFails.some(f => f.rule === 'task_requires_repository_change')).toBe(true);
+  });
+
+  it('allows shorthand edit targets when the same task explicitly creates the full path', () => withTempRepo((repoPath) => {
+    const plan = `## Task 1: Implement protocol registration in protocols/index.ts
+
+Create \`src/engine/protocols/index.ts\` to register connected routes, static routes, OSPF, and VLAN behavior. Acceptance criteria: run npx tsc --noEmit and ensure \`src/engine/protocols/index.ts\` compiles.`;
+    const { hardFails } = runDeterministicRules(plan, { repoPath });
+
+    expect(hardFails.find(f => f.rule === 'task_edit_targets_exist')).toBeUndefined();
+  }));
+
   it('normalizes leaked internal worktree prefixes before checking edit targets', () => withTempRepo((repoPath) => {
     writeFixtureFiles(repoPath, [
       'server/tests/provider-investigation-fixes.test.js',
@@ -922,7 +946,7 @@ describe('evaluatePlan orchestration', () => {
     llmSpy.mockRestore();
   }));
 
-  it('deterministic pass + LLM no-go in dark trust: blocks with critique feedback', () => withEvaluatePlanRepo(async (repoPath) => {
+  it('deterministic pass + LLM no-go in dark trust: keeps progressing with advisory warning', () => withEvaluatePlanRepo(async (repoPath) => {
     const llmSpy = vi.spyOn(planQualityGate, 'runLlmSemanticCheck').mockResolvedValue('[no-go] Plan rewrites the wrong subsystem.');
     const plan = '## Task 1: Edit src/foo.ts\n\nIn src/foo.ts rename handleX to handleY and run npx vitest tests/foo.test.ts. Body is long enough for rule 4.\n\n## Task 2: Edit src/bar.ts\n\nIn src/bar.ts call handleY via the new export and run npx vitest tests/bar.test.ts. Body is long enough for rule 4.';
     const result = await planQualityGate.evaluatePlan({
@@ -930,9 +954,10 @@ describe('evaluatePlan orchestration', () => {
       workItem: { id: 1, title: 'w', description: 'd' },
       project: { id: 'p', path: repoPath, trust_level: 'dark' },
     });
-    expect(result.passed).toBe(false);
-    expect(result.feedbackPrompt).toContain('wrong subsystem');
+    expect(result.passed).toBe(true);
+    expect(result.feedbackPrompt).toBeNull();
     expect(result.llmCritique).toContain('wrong subsystem');
+    expect(result.warnings.some(w => w.rule === 'llm_semantic_advisory')).toBe(true);
     llmSpy.mockRestore();
   }));
 
