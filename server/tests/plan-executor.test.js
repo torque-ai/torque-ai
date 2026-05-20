@@ -311,6 +311,11 @@ Run \`${verifyCommand}\` and expect the targeted NetcodeProtocolTests cases to p
     await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
 
     expect(submitMock).toHaveBeenCalledTimes(1);
+    expect(submitMock.mock.calls[0][0].task_metadata).toEqual(
+      expect.objectContaining({
+        factory_explicit_verify_command: verifyCommand,
+      }),
+    );
   });
 
   it('submits when the same heavy command is wrapped in torque-remote', async () => {

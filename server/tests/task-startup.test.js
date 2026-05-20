@@ -1591,6 +1591,51 @@ describe('task-startup', () => {
       expect(result).toBeNull();
     });
 
+    it('allows the explicit factory verify command recorded in task metadata', () => {
+      const ctx = loadTaskStartup();
+      const verifyCommand = 'dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter "FullyQualifiedName~NetcodeProtocolTests"';
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        {
+          working_directory: 'C:/repo/.worktrees/feat-x/',
+          task_description: [
+            'Edit `simtests/NetcodeProtocolTests.cs` and add malformed-read coverage.',
+            `Run \`${verifyCommand}\` and expect the targeted NetcodeProtocolTests cases to pass.`,
+          ].join('\n'),
+          metadata: {
+            factory_explicit_verify_command: verifyCommand,
+          },
+        },
+        'codex',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('still blocks additional heavyweight validation beyond the explicit factory verify command', () => {
+      const ctx = loadTaskStartup();
+      const verifyCommand = 'dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter "FullyQualifiedName~NetcodeProtocolTests"';
+
+      const result = ctx.module.evaluateFactoryWorktreeHeavyValidationGuard(
+        {
+          working_directory: 'C:/repo/.worktrees/feat-x/',
+          task_description: [
+            `Run \`${verifyCommand}\` and expect the targeted NetcodeProtocolTests cases to pass.`,
+            'Also run `dotnet build DLPhone.sln` before finishing.',
+          ].join('\n'),
+          metadata: {
+            factory_explicit_verify_command: verifyCommand,
+          },
+        },
+        'codex',
+      );
+
+      expect(result).toMatchObject({
+        blocked: true,
+        detected_command: expect.stringContaining('dotnet build DLPhone.sln'),
+      });
+    });
+
     it('parses string metadata for kind-based exemptions', () => {
       const ctx = loadTaskStartup();
 

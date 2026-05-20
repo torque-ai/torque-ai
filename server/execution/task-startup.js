@@ -20,7 +20,10 @@ const { createTaskTranscriptLog } = require('../transcripts/transcript-log');
 const { validateTranscript } = require('../transcripts/transcript-validator');
 const { PreflightError, isPreflightError } = require('./preflight-error');
 const { isRestartBarrierActive } = require('./restart-barrier');
-const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
+const {
+  findFirstUnroutedCommand,
+  findHeavyLocalValidationCommand,
+} = require('../utils/heavy-validation-guard');
 const taskLogRetention = require('../utils/task-log-retention');
 const {
   isFactoryProjectWorkEnabled,
@@ -1332,16 +1335,56 @@ const HEAVY_VALIDATION_GUARD_EXEMPT_KINDS = new Set([
   'verify_review',
 ]);
 
-function isHeavyValidationGuardExempt(task) {
+function parseHeavyValidationGuardMetadata(task) {
   let metadata = task?.metadata;
   if (typeof metadata === 'string') {
     try { metadata = JSON.parse(metadata); } catch { metadata = {}; }
   }
+  return metadata && typeof metadata === 'object' ? metadata : {};
+}
+
+function isHeavyValidationGuardExempt(task) {
+  const metadata = parseHeavyValidationGuardMetadata(task);
   if (!metadata || typeof metadata !== 'object') return false;
   const kind = String(metadata.kind || '').trim().toLowerCase();
   if (HEAVY_VALIDATION_GUARD_EXEMPT_KINDS.has(kind)) return true;
   if (metadata.diffusion_role === 'compute') return true;
   return false;
+}
+
+function getAllowedFactoryLocalValidationCommands(task) {
+  const metadata = parseHeavyValidationGuardMetadata(task);
+  const commands = [];
+  const append = (value) => {
+    if (typeof value !== 'string') return;
+    const command = value.trim();
+    if (command) commands.push(command);
+  };
+
+  append(metadata.factory_explicit_verify_command);
+  append(metadata.explicit_verify_command);
+
+  for (const field of [
+    metadata.factory_explicit_verify_commands,
+    metadata.factory_allowed_local_validation_commands,
+  ]) {
+    if (Array.isArray(field)) {
+      for (const value of field) append(value);
+    }
+  }
+
+  return commands;
+}
+
+function removeAllowedFactoryLocalValidationLines(text, allowedCommands) {
+  if (allowedCommands.length === 0) {
+    return String(text || '');
+  }
+
+  return String(text || '')
+    .split(/\r?\n/)
+    .filter(line => !findFirstUnroutedCommand(line, allowedCommands))
+    .join('\n');
 }
 
 function evaluateFactoryWorktreeHeavyValidationGuard(task, provider) {
@@ -1363,7 +1406,12 @@ function evaluateFactoryWorktreeHeavyValidationGuard(task, provider) {
     return null;
   }
 
-  const detectedCommand = findHeavyLocalValidationCommand(task?.task_description || '', {
+  const allowedCommands = getAllowedFactoryLocalValidationCommands(task);
+  const guardSource = removeAllowedFactoryLocalValidationLines(
+    task?.task_description || '',
+    allowedCommands,
+  );
+  const detectedCommand = findHeavyLocalValidationCommand(guardSource, {
     ignoreDiagnosticFencedBlocks: true,
   });
   if (!detectedCommand) {

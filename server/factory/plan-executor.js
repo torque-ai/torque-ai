@@ -739,6 +739,7 @@ function createPlanExecutor({ submit, awaitTask, findReusableTask = null, projec
           plan_task_number: task.task_number,
           plan_task_title: task.task_title,
           file_paths,
+          factory_explicit_verify_command: explicit_verify_command || null,
           factory_execution_timeout_minutes: executionTimeoutPolicy.timeout_minutes,
         },
         initial_status: mode === 'pending_approval' ? 'pending_approval' : undefined,
