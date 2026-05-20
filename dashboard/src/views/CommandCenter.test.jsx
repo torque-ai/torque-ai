@@ -466,7 +466,7 @@ describe('CommandCenter', () => {
 
     const log = await screen.findByRole('list', { name: 'Running Log' });
     expect(within(log).getByText('Task 2: Add focused Pester coverage for the new-user startup decision')).toBeInTheDocument();
-    expect(within(log).getByText('batch factory-659')).toBeInTheDocument();
+    expect(within(log).queryByText('batch factory-659')).toBeNull();
     expect(within(log).queryByText(/Plan: Run and document/)).toBeNull();
     expect(log).not.toHaveTextContent('factory-plan-task-2');
   });
@@ -490,6 +490,7 @@ describe('CommandCenter', () => {
     renderWithProviders(<CommandCenter onOpenDrawer={onOpenDrawer} />, { route: '/' });
 
     const log = await screen.findByRole('list', { name: 'Running Log' });
+    expect(screen.queryByLabelText('Filter by project')).toBeNull();
     expect(within(log).getByText('Alpha running task')).toBeInTheDocument();
     expect(within(log).queryByText('Beta running task')).toBeNull();
 

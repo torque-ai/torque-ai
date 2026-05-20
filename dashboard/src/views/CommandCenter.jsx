@@ -543,15 +543,12 @@ function getLatestTask(tasks) {
 function getTaskLogContext(task) {
   const context = [];
   const targetProject = getFactoryTargetProject(task);
-  const batchId = getTaskTagValue(task, 'factory:batch_id');
   const testTag = Array.isArray(task.tags) && task.tags.find(t => t.startsWith('tests:'));
 
   if (targetProject && targetProject !== task.project) context.push(`to ${targetProject}`);
-  if (batchId) context.push(`batch ${batchId}`);
   if (task.quality_score != null) context.push(`Q:${Math.round(task.quality_score)}`);
   if (testTag) context.push(testTag.replace(':', ' '));
   if (task.status === 'failed' && task.exit_code != null) context.push(`exit ${task.exit_code}`);
-  if (task.status === 'cancelled' && task.cancel_reason) context.push(task.cancel_reason.replace(/_/g, '-'));
 
   return context.slice(0, 3);
 }
@@ -2403,12 +2400,14 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
               </button>
             )}
           </div>
-          <ProjectSelector
-            aria-label="Filter by project"
-            value={selectedProject}
-            onChange={(project) => setSelectedProject(project || '')}
-            className="w-48"
-          />
+          {viewMode === 'board' && (
+            <ProjectSelector
+              aria-label="Filter by project"
+              value={selectedProject}
+              onChange={(project) => setSelectedProject(project || '')}
+              className="w-48"
+            />
+          )}
           {viewMode === 'board' && (
             <>
               <button
