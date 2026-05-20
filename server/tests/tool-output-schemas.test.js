@@ -102,6 +102,8 @@ describe('tool-output-schemas', () => {
         // Factory
         'list_factory_projects', 'factory_status', 'factory_automation_plan',
         'resume_project', 'apply_factory_automation_plan', 'arm_factory_tick',
+        'list_recovery_strategies', 'get_recovery_history',
+        'clear_auto_recovery', 'trigger_auto_recovery',
         // Phase 2
         ...PHASE2_PROVIDER_COST_MONITORING_TOOLS,
         // Phase 3
@@ -145,6 +147,7 @@ describe('tool-output-schemas', () => {
       const resumeProjectSchema = getOutputSchema('resume_project');
       const applyPlanSchema = getOutputSchema('apply_factory_automation_plan');
       const armTickSchema = getOutputSchema('arm_factory_tick');
+      const triggerRecoverySchema = getOutputSchema('trigger_auto_recovery');
       const factoryDefs = require('../tool-defs/factory-defs');
       const listFactoryProjectsDef = factoryDefs.find((def) => def.name === 'list_factory_projects');
       const resumeProjectDef = factoryDefs.find((def) => def.name === 'resume_project');
@@ -348,6 +351,16 @@ describe('tool-output-schemas', () => {
         'automation_readiness',
       ]));
       expect(armTickSchema.properties.automation_readiness).toBeDefined();
+      expect(getOutputSchema('list_recovery_strategies').properties.rules.items.required)
+        .toContain('name');
+      expect(getOutputSchema('get_recovery_history').properties.decisions.items.properties.outcome)
+        .toBeDefined();
+      expect(getOutputSchema('clear_auto_recovery').required).toEqual(expect.arrayContaining([
+        'cleared',
+        'project_id',
+      ]));
+      expect(triggerRecoverySchema.required).toContain('attempted');
+      expect(triggerRecoverySchema.additionalProperties).toBe(true);
     });
   });
 

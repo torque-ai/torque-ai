@@ -4,6 +4,16 @@ const {
   listRecoveryStrategies, getRecoveryHistory, clearAutoRecovery, triggerAutoRecovery,
 } = require('../handlers/auto-recovery-handlers');
 const { routeMap } = require('../tools');
+const { validateSchemaNode } = require('../mcp/tool-registry');
+const { getOutputSchema } = require('../tool-output-schemas');
+
+function expectStructuredDataConformsToOutputSchema(name, structuredData) {
+  const schema = getOutputSchema(name);
+  expect(schema).toBeDefined();
+  const errors = validateSchemaNode(schema, structuredData, '$')
+    .map((error) => `${error.path}: ${error.message}`);
+  expect(errors).toEqual([]);
+}
 
 function seedDb() {
   const db = new Database(':memory:');
@@ -43,6 +53,7 @@ describe('auto-recovery MCP handlers', () => {
       },
     };
     const res = listRecoveryStrategies({ engine });
+    expectStructuredDataConformsToOutputSchema('list_recovery_strategies', res);
     expect(res.rules).toHaveLength(1);
     expect(res.strategies).toHaveLength(1);
   });
@@ -53,6 +64,7 @@ describe('auto-recovery MCP handlers', () => {
     db.prepare(`INSERT INTO factory_decisions (project_id, stage, actor, action, created_at)
                 VALUES ('p1', 'verify', 'verifier', 'worktree_verify_failed', '2026-04-21T11:00:00Z')`).run();
     const res = getRecoveryHistory({ db, project_id: 'p1' });
+    expectStructuredDataConformsToOutputSchema('get_recovery_history', res);
     expect(res.decisions).toHaveLength(1);
     expect(res.decisions[0].action).toBe('auto_recovery_classified');
   });
@@ -64,6 +76,7 @@ describe('auto-recovery MCP handlers', () => {
     const p = db.prepare('SELECT * FROM factory_projects WHERE id=?').get('p1');
     expect(p.auto_recovery_attempts).toBe(0);
     expect(p.auto_recovery_exhausted).toBe(0);
+    expectStructuredDataConformsToOutputSchema('clear_auto_recovery', res);
     expect(res.cleared).toBe(true);
     const logged = db.prepare(`SELECT * FROM factory_decisions WHERE action=?`)
                      .get('auto_recovery_operator_cleared');
@@ -76,6 +89,7 @@ describe('auto-recovery MCP handlers', () => {
     let called = false;
     const engine = { recoverOne: async () => { called = true; return { attempted: true, strategy: 'retry' }; } };
     const res = await triggerAutoRecovery({ db, engine, project_id: 'p1' });
+    expectStructuredDataConformsToOutputSchema('trigger_auto_recovery', res);
     expect(called).toBe(true);
     expect(res.attempted).toBe(true);
   });

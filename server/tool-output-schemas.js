@@ -502,6 +502,60 @@ const FACTORY_AUTOMATION_PLAN_OUTPUT_SCHEMA = {
   ],
 };
 
+const AUTO_RECOVERY_RULE_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    category: { type: 'string' },
+    priority: { type: 'number' },
+    confidence: { type: ['number', 'null'] },
+    suggested_strategies: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['name'],
+  additionalProperties: true,
+};
+
+const AUTO_RECOVERY_STRATEGY_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    applicable_categories: { type: 'array', items: { type: 'string' } },
+    max_attempts_per_project: { type: ['number', 'null'] },
+  },
+  required: ['name'],
+  additionalProperties: true,
+};
+
+const AUTO_RECOVERY_DECISION_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: { type: 'number' },
+    project_id: { type: 'string' },
+    stage: { type: ['string', 'null'] },
+    actor: { type: ['string', 'null'] },
+    action: { type: 'string' },
+    reasoning: { type: ['string', 'null'] },
+    outcome_json: { type: ['string', 'null'] },
+    outcome: { type: ['object', 'null'] },
+    confidence: { type: ['number', 'null'] },
+    batch_id: { type: ['string', 'null'] },
+    created_at: { type: ['string', 'null'] },
+  },
+  required: ['id', 'project_id', 'action', 'outcome'],
+  additionalProperties: true,
+};
+
+const AUTO_RECOVERY_TRIGGER_RESULT_SCHEMA = {
+  type: 'object',
+  properties: {
+    attempted: { type: 'boolean' },
+    strategy: { type: ['string', 'null'] },
+    skipped: { type: ['string', 'null'] },
+  },
+  required: ['attempted'],
+  additionalProperties: true,
+};
+
 const OUTPUT_SCHEMAS = {
   // ── Task lifecycle ──
 
@@ -914,6 +968,34 @@ const OUTPUT_SCHEMAS = {
       'message',
     ],
   },
+
+  list_recovery_strategies: {
+    type: 'object',
+    properties: {
+      rules: { type: 'array', items: AUTO_RECOVERY_RULE_SCHEMA },
+      strategies: { type: 'array', items: AUTO_RECOVERY_STRATEGY_SCHEMA },
+    },
+    required: ['rules', 'strategies'],
+  },
+
+  get_recovery_history: {
+    type: 'object',
+    properties: {
+      decisions: { type: 'array', items: AUTO_RECOVERY_DECISION_SCHEMA },
+    },
+    required: ['decisions'],
+  },
+
+  clear_auto_recovery: {
+    type: 'object',
+    properties: {
+      cleared: { type: 'boolean' },
+      project_id: { type: 'string' },
+    },
+    required: ['cleared', 'project_id'],
+  },
+
+  trigger_auto_recovery: AUTO_RECOVERY_TRIGGER_RESULT_SCHEMA,
 
   // ── Phase 2: Provider/Cost/Monitoring ──
 
