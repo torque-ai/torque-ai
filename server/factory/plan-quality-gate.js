@@ -834,7 +834,7 @@ function buildFeedbackPrompt(hardFails, warnings, llmCritique) {
     for (const v of hardFails) {
       const hasTaskNum = typeof v.taskNumber === 'number' && Number.isFinite(v.taskNumber);
       const prefix = hasTaskNum ? `- [${v.rule}] Task ${v.taskNumber}:` : `- [${v.rule}]`;
-      lines.push(`${prefix} ${v.detail}`);
+      lines.push(`${prefix} ${formatFeedbackViolationDetail(v)}`);
     }
     lines.push('');
   }
@@ -856,6 +856,13 @@ function buildFeedbackPrompt(hardFails, warnings, llmCritique) {
   }
 
   return lines.join('\n');
+}
+
+function formatFeedbackViolationDetail(violation) {
+  if (violation?.rule === 'task_avoids_local_heavy_validation') {
+    return 'Remove heavyweight local validation commands from this task. Use a lightweight targeted check and leave full-suite project verification to the orchestrator verify step.';
+  }
+  return violation?.detail || '';
 }
 
 /**

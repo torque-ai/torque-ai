@@ -18,7 +18,8 @@ describe('plan-quality-gate module exports', () => {
   });
 });
 
-const { runDeterministicRules } = require('../factory/plan-quality-gate');
+const planQualityGate = require('../factory/plan-quality-gate');
+const { runDeterministicRules } = planQualityGate;
 
 function buildTasks(bodies) {
   return bodies.map((body, i) => `## Task ${i + 1}: Title ${i + 1}\n\n${body}`).join('\n\n');
@@ -217,6 +218,19 @@ Read \`server/tests/ollama-tools-coverage.test.js\`, then edit \`server/tests/TO
     const plan = `## Task 1: Record evidence\n\nUpdate docs/status/evidence.md with the touched files, then run dotnet build example-project.sln and dotnet test example-project.sln --no-build before committing.`;
     const { hardFails } = runDeterministicRules(plan);
     expect(hardFails.some(f => f.rule === 'task_avoids_local_heavy_validation' && f.taskNumber === 1)).toBe(true);
+  });
+
+  it('does not echo heavyweight validation commands back into replan feedback', () => {
+    const verifyCommand = 'dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release --filter "Category!=RequiresAndroidBuild"';
+    const feedback = planQualityGate.buildFeedbackPrompt([{
+      rule: 'task_avoids_local_heavy_validation',
+      taskNumber: 1,
+      detail: `Task 1 includes heavyweight local validation (Run \`${verifyCommand}\` and assert no new failures.).`,
+    }], [], null);
+
+    expect(feedback).toContain('Remove heavyweight local validation commands');
+    expect(feedback).toContain('orchestrator verify step');
+    expect(feedback).not.toContain(verifyCommand);
   });
 
   it('allows heavyweight validation when it is routed through torque-remote', () => {
@@ -836,8 +850,6 @@ describe('runLlmSemanticCheck', () => {
     expect(result).toBe('[no-go] The plan receives a no-go verdict. Key issues: broken server/server/tests path.');
   });
 });
-
-const planQualityGate = require('../factory/plan-quality-gate');
 
 describe('isUnsupportedWorktreeSetupCritique', () => {
   it('recognizes critiques that incorrectly require factory worktree setup', () => {
