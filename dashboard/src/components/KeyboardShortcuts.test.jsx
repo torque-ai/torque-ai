@@ -37,7 +37,7 @@ describe('ShortcutHelpOverlay', () => {
     expect(screen.getByText('Show keyboard shortcuts')).toBeInTheDocument();
     expect(screen.getByText('Focus search field')).toBeInTheDocument();
     expect(screen.getByText('Close drawer / modal')).toBeInTheDocument();
-    expect(screen.getByText('Go to Kanban')).toBeInTheDocument();
+    expect(screen.getByText('Go to Command Center')).toBeInTheDocument();
     expect(screen.getByText('Go to History')).toBeInTheDocument();
   });
 

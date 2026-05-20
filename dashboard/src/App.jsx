@@ -5,7 +5,7 @@ import TaskDetailDrawer from './components/TaskDetailDrawer';
 import { ToastProvider } from './components/Toast';
 import { useKeyboardShortcuts, ShortcutHelpOverlay } from './components/KeyboardShortcuts';
 import Onboarding from './components/Onboarding';
-import Kanban from './views/Kanban';
+import CommandCenter from './views/CommandCenter';
 import { useWebSocket } from './websocket';
 import { hosts as hostsApi, tasks as tasksApi } from './api';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -298,7 +298,7 @@ function AppInner() {
                 index
                 element={
                   <>
-                    <Kanban tasks={tasks} onOpenDrawer={openDrawer} hostActivity={hostActivity} statsVersion={statsVersion} tasksTick={tasksTick} wsStats={wsStats} />
+                    <CommandCenter tasks={tasks} onOpenDrawer={openDrawer} hostActivity={hostActivity} statsVersion={statsVersion} tasksTick={tasksTick} wsStats={wsStats} />
                     {!isOnboardingDismissed && initialLoadDone && tasks.length === 0 && (
                       <Onboarding onDismiss={dismissOnboarding} />
                     )}

@@ -241,9 +241,15 @@ const routes = [
     handlerName: 'handleV2CpListTasks',
     middleware: buildV2Middleware(),
   },
-  // Kanban batch endpoint — MUST precede the `/api/v2/tasks/:task_id` regex
-  // below, otherwise "kanban-summary" gets interpreted as a task_id and the
+  // Command Center batch endpoints — MUST precede the `/api/v2/tasks/:task_id` regex
+  // below, otherwise the summary slugs get interpreted as a task_id and the
   // getTask handler returns 404.
+  {
+    method: 'GET',
+    path: '/api/v2/tasks/command-center-summary',
+    handlerName: 'handleV2CpCommandCenterSummary',
+    middleware: buildV2Middleware(),
+  },
   {
     method: 'GET',
     path: '/api/v2/tasks/kanban-summary',

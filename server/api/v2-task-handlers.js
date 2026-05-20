@@ -469,6 +469,7 @@ async function handleListTasks(req, res) {
     filters.status = query.status;
   }
   if (query.provider) filters.provider = query.provider;
+  if (query.project) filters.project = query.project;
   if (query.search) filters.search = query.search;
   if (query.from) filters.from_date = query.from;
   if (query.to) filters.to_date = query.to;
@@ -496,7 +497,7 @@ async function handleListTasks(req, res) {
     // which only reads these summary fields. Pulling `SELECT *` on a multi-GB
     // tasks.db drags multi-MB error_output/output/context blobs across every row
     // just to drop them during serialization — that's the dominant source of
-    // Kanban fan-out latency.
+    // Command Center board fan-out latency.
     columns: [
       'id', 'status', 'task_description', 'provider', 'model',
       'working_directory', 'exit_code', 'priority', 'auto_approve',
@@ -514,9 +515,9 @@ async function handleListTasks(req, res) {
   sendList(res, requestId, items, total, req);
 }
 
-// ─── GET /api/v2/tasks/kanban-summary — Batched Kanban board data ───────
+// ─── GET /api/v2/tasks/command-center-summary — Batched board data ───────
 //
-// Replaces Kanban's 7-parallel-listTasks fan-out with one round-trip. Each
+// Replaces the board's 7-parallel-listTasks fan-out with one round-trip. Each
 // bucket gets the same shape as /api/v2/tasks: buildTaskResponse() items +
 // total (from countTasks). Only task buckets — stats/providers stay separate
 // because they're cacheable on different intervals. On the 3.7 GB live DB,
@@ -524,7 +525,7 @@ async function handleListTasks(req, res) {
 // SELECT * → column-projection fix; a single round-trip drops HTTP +
 // middleware + serialize/deserialize overhead that was the remaining floor.
 
-const KANBAN_BUCKETS = Object.freeze([
+const COMMAND_CENTER_BUCKETS = Object.freeze([
   { key: 'pending_approval',        status: 'pending_approval',        limit: 50, orderDir: 'asc'  },
   { key: 'queued',                  status: 'queued',                  limit: 50, orderDir: 'asc'  },
   { key: 'running',                 status: 'running',                 limit: 50, orderDir: 'asc'  },
@@ -534,19 +535,23 @@ const KANBAN_BUCKETS = Object.freeze([
   { key: 'cancelled',               status: 'cancelled',               limit: 30, orderBy: 'completed_at', orderDir: 'desc' },
 ]);
 
-async function handleKanbanSummary(req, res) {
+async function handleCommandCenterSummary(req, res) {
   const requestId = resolveRequestId(req);
   const buckets = {};
+  const project = typeof req.query?.project === 'string' && req.query.project.trim()
+    ? req.query.project.trim()
+    : null;
   const columns = Array.isArray(taskCore.TASK_LIST_COLUMNS) && taskCore.TASK_LIST_COLUMNS.length > 0
     ? taskCore.TASK_LIST_COLUMNS
     : undefined;
 
-  for (const cfg of KANBAN_BUCKETS) {
+  for (const cfg of COMMAND_CENTER_BUCKETS) {
     let items = [];
     let total = 0;
     try {
       const rows = taskCore.listTasks({
         status: cfg.status,
+        ...(project ? { project } : {}),
         limit: cfg.limit,
         orderBy: cfg.orderBy,
         orderDir: cfg.orderDir,
@@ -554,12 +559,12 @@ async function handleKanbanSummary(req, res) {
       });
       items = rows.map(buildTaskResponse).filter(Boolean);
       total = typeof taskCore.countTasks === 'function'
-        ? taskCore.countTasks({ status: cfg.status })
+        ? taskCore.countTasks({ status: cfg.status, ...(project ? { project } : {}) })
         : items.length;
     } catch (err) {
       // One failing bucket shouldn't break the whole board. Return an empty
       // bucket + error marker; the dashboard can still render other columns.
-      logger.warn('kanban-summary bucket failed', { bucket: cfg.key, err: err && err.message });
+      logger.warn('command-center-summary bucket failed', { bucket: cfg.key, err: err && err.message });
       items = [];
       total = 0;
     }
@@ -568,6 +573,8 @@ async function handleKanbanSummary(req, res) {
 
   sendSuccess(res, requestId, { buckets }, 200, req);
 }
+
+const handleKanbanSummary = handleCommandCenterSummary;
 
 // ─── GET /api/v2/tasks/:task_id — Get task detail ────────────────────────
 
@@ -1572,6 +1579,7 @@ function createV2TaskHandlers(_deps) {
     handleSubmitTask,
     handleListTasks,
     handleKanbanSummary,
+    handleCommandCenterSummary,
     handleGetTask,
     handleTaskArtifacts,
     handleGetTaskArtifact,
@@ -1599,6 +1607,7 @@ module.exports = {
   handleSubmitTask,
   handleListTasks,
   handleKanbanSummary,
+  handleCommandCenterSummary,
   handleGetTask,
   handleTaskArtifacts,
   handleGetTaskArtifact,

@@ -1,13 +1,14 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '../test-utils';
-import Kanban from './Kanban';
+import CommandCenter from './CommandCenter';
 
 vi.mock('../api', () => ({
   requestV2: vi.fn().mockResolvedValue({}),
   tasks: {
     list: vi.fn(),
     kanbanSummary: vi.fn(),
+    commandCenterSummary: vi.fn(),
     retry: vi.fn(),
     cancel: vi.fn(),
     approve: vi.fn(),
@@ -46,11 +47,14 @@ vi.mock('../api', () => ({
   },
 }));
 
-vi.mock('../hooks/useAbortableRequest', () => ({
-  useAbortableRequest: () => ({
+vi.mock('../hooks/useAbortableRequest', () => {
+  const stableRequest = {
     execute: (fn) => fn(() => true),
-  }),
-}));
+  };
+  return {
+    useAbortableRequest: () => stableRequest,
+  };
+});
 
 import { factory as factoryApi, tasks as tasksApi, stats as statsApi, providers as providersApi } from '../api';
 import { requestV2 } from '../api';
@@ -124,6 +128,10 @@ function installStorageMock(initialState = {}) {
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation((key, value) => {
     localStorageState[key] = String(value);
   });
+
+  vi.spyOn(Storage.prototype, 'removeItem').mockImplementation((key) => {
+    delete localStorageState[key];
+  });
 }
 
 function createDeferred() {
@@ -137,7 +145,7 @@ function createDeferred() {
   return { promise, resolve, reject };
 }
 
-describe('Kanban', () => {
+describe('CommandCenter', () => {
   beforeEach(() => {
     requestV2.mockReset();
     requestV2.mockResolvedValue([
@@ -146,11 +154,11 @@ describe('Kanban', () => {
     ]);
     // All list calls return empty by default
     tasksApi.list.mockResolvedValue(emptyTasks);
-    // kanbanSummary default adapter: call tasksApi.list per status so existing
+    // commandCenterSummary default adapter: call tasksApi.list per status so existing
     // test fixtures (`tasksApi.list.mockImplementation({ status } => ...)`)
     // keep working without rewriting every it() block. Each status becomes a
     // bucket whose `tasks` come from the per-status list call.
-    tasksApi.kanbanSummary.mockImplementation(async () => {
+    tasksApi.commandCenterSummary.mockImplementation(async () => {
       const statuses = [
         'pending_approval', 'queued', 'running', 'pending_provider_switch',
         'completed', 'failed', 'cancelled',
@@ -201,21 +209,21 @@ describe('Kanban', () => {
 
   it('renders loading skeleton initially', () => {
     tasksApi.list.mockReturnValue(new Promise(() => {}));
-    tasksApi.kanbanSummary.mockReturnValue(new Promise(() => {}));
+    tasksApi.commandCenterSummary.mockReturnValue(new Promise(() => {}));
     statsApi.overview.mockReturnValue(new Promise(() => {}));
     statsApi.stuck.mockReturnValue(new Promise(() => {}));
     statsApi.quality.mockReturnValue(new Promise(() => {}));
     statsApi.timeseries.mockReturnValue(new Promise(() => {}));
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     const skeleton = document.querySelector('.animate-pulse');
     expect(skeleton).toBeInTheDocument();
   });
 
   it('renders stat cards after loading', async () => {
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByText('Today')).toBeInTheDocument();
-      // Running/Queued/Completed appear in both stat cards and kanban columns
+      // Running/Queued/Completed appear in both stat cards and board columns
       expect(screen.getAllByText('Running').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Queued').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Completed').length).toBeGreaterThanOrEqual(1);
@@ -223,7 +231,7 @@ describe('Kanban', () => {
   });
 
   it('shows today task count from overview', async () => {
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByText('15')).toBeInTheDocument();
     });
@@ -237,7 +245,7 @@ describe('Kanban', () => {
       pending_switch: { tasks: [pendingSwitchTask] },
     }));
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     await waitFor(() => {
       expect(screen.getByText('Needs Attention')).toBeInTheDocument();
@@ -249,8 +257,8 @@ describe('Kanban', () => {
     });
   });
 
-  it('renders kanban column labels', async () => {
-    renderWithProviders(<Kanban />, { route: '/' });
+  it('renders board column labels', async () => {
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getAllByText('Pending Approval').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Queued').length).toBeGreaterThanOrEqual(1);
@@ -261,45 +269,115 @@ describe('Kanban', () => {
   });
 
   it('renders empty state when no tasks', async () => {
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByText('Welcome to TORQUE')).toBeInTheDocument();
     });
   });
 
   it('renders search input', async () => {
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Search tasks...')).toBeInTheDocument();
     });
   });
 
   it('renders project filter dropdown', async () => {
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByLabelText('Filter by project')).toBeInTheDocument();
     });
   });
 
   it('renders density toggle button', async () => {
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByText('Comfortable')).toBeInTheDocument();
     });
   });
 
   it('renders columns visibility button', async () => {
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByText('Columns')).toBeInTheDocument();
     });
   });
 
   it('renders refresh button', async () => {
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByLabelText('Refresh dashboard data')).toBeInTheDocument();
     });
+  });
+
+  it('persists the task activity daily/hourly preference', async () => {
+    statsApi.timeseries.mockResolvedValue([
+      { date: '2026-01-15T10:00:00Z', completed: 1, failed: 0 },
+    ]);
+
+    renderWithProviders(<CommandCenter />, { route: '/' });
+
+    const dailyButton = await screen.findByRole('button', { name: 'Daily' });
+    fireEvent.click(dailyButton);
+
+    expect(localStorage.getItem('torque-command-center-activity-view')).toBe('daily');
+  });
+
+  it('renders a concise project-scoped running log with clickable rows', async () => {
+    setStorageValue('torque-command-center-view', 'log');
+    setStorageValue('torque-command-center-project', 'alpha');
+    const onOpenDrawer = vi.fn();
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'running') {
+        return Promise.resolve({
+          tasks: [
+            { ...runningTask, id: 'task-run-1', task_description: 'Alpha running task', project: 'alpha' },
+            { ...runningTask, id: 'task-run-2', task_description: 'Beta running task', project: 'beta' },
+          ],
+        });
+      }
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<CommandCenter onOpenDrawer={onOpenDrawer} />, { route: '/' });
+
+    const log = await screen.findByRole('list', { name: 'Running Log' });
+    expect(within(log).getByText('Alpha running task')).toBeInTheDocument();
+    expect(within(log).queryByText('Beta running task')).toBeNull();
+
+    fireEvent.click(within(log).getByRole('button', { name: /Alpha running task/ }));
+    expect(onOpenDrawer).toHaveBeenCalledWith('task-run-1');
+  });
+
+  it('defaults the running log to the active factory project', async () => {
+    setStorageValue('torque-command-center-view', 'log');
+    factoryApi.projects.mockResolvedValue([{
+      id: 'factory-1',
+      name: 'alpha',
+      path: 'C:\\Users\\<os-user>\\Projects\\alpha',
+      status: 'running',
+      trust_level: 'guided',
+      loop_state: 'EXECUTE',
+      loop_paused_at_stage: null,
+      loop_last_action_at: '2026-04-13T12:00:00Z',
+    }]);
+    factoryApi.loopStatus.mockResolvedValue({
+      loop_state: 'EXECUTE',
+      loop_paused_at_stage: null,
+      loop_last_action_at: '2026-04-13T12:00:05Z',
+    });
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'queued') return Promise.resolve({ tasks: [{ ...queuedTask, project: 'alpha' }] });
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<CommandCenter />, { route: '/' });
+
+    const log = await screen.findByRole('list', { name: 'Running Log' });
+    const logPanel = log.closest('section');
+    expect(logPanel).not.toBeNull();
+    expect(within(logPanel).getByText('alpha')).toBeInTheDocument();
+    expect(within(log).getByText('Queued test task')).toBeInTheDocument();
   });
 
   it('renders the factory loop bar when factory projects exist', async () => {
@@ -334,16 +412,16 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     expect(await screen.findByText('Factory Loop')).toBeInTheDocument();
     expect(screen.getByLabelText('Factory project')).toHaveValue('factory-1');
-    expect(screen.getByText('PLAN')).toBeInTheDocument();
+    expect(screen.getAllByText('PLAN').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole('button', { name: 'Advance' })).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: /2 tasks awaiting approval/i })).toBeInTheDocument();
   });
 
-  it('advances the factory loop from Kanban', async () => {
+  it('advances the factory loop from Command Center', async () => {
     factoryApi.listLoopInstances.mockResolvedValue([{
       id: '11111111-1111-4111-8111-111111111111',
       project_id: 'factory-1',
@@ -369,7 +447,7 @@ describe('Kanban', () => {
       loop_last_action_at: '2026-04-13T12:00:05Z',
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     // LoopControlBar mounts with empty instances, renders a legacy placeholder
     // from projects' loop_state, then re-renders once listLoopInstances resolves.
@@ -392,7 +470,7 @@ describe('Kanban', () => {
   it('keeps the refresh spinner active until manual refresh finishes', async () => {
     const timeseriesRefresh = createDeferred();
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     await waitFor(() => {
       expect(screen.getByText('just now')).toBeInTheDocument();
@@ -433,7 +511,7 @@ describe('Kanban', () => {
       }
       return Promise.resolve(emptyTasks);
     });
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByText(/Running test task/)).toBeInTheDocument();
     });
@@ -452,7 +530,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     await waitFor(() => {
       expect(screen.getByText('Alpha running task')).toBeInTheDocument();
@@ -498,7 +576,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     await waitFor(() => {
       expect(screen.getByText('Starvation recovery scout for example-project')).toBeInTheDocument();
@@ -536,7 +614,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     await waitFor(() => {
       expect(screen.getByText('Architect cycle for example-project')).toBeInTheDocument();
@@ -564,7 +642,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     await waitFor(() => {
       expect(screen.getByText('Direct task in example-project')).toBeInTheDocument();
@@ -580,7 +658,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     const rejectButton = await screen.findByRole('button', { name: 'Reject' });
     fireEvent.click(rejectButton);
@@ -605,7 +683,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     const pendingApprovalColumn = await screen.findByRole('list', { name: 'Pending Approval' });
     expect(within(pendingApprovalColumn).getByText('Pending approval test task')).toBeInTheDocument();
@@ -633,7 +711,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     const pendingApprovalColumn = await screen.findByRole('list', { name: 'Pending Approval' });
     fireEvent.click(within(pendingApprovalColumn).getByRole('button', { name: 'Reject' }));
@@ -666,7 +744,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     const providerSelect = await screen.findByLabelText('Reassign provider for task task-que');
     fireEvent.change(providerSelect, { target: { value: 'groq' } });
@@ -691,7 +769,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     await waitFor(() => {
       expect(screen.getByText('codex')).toBeInTheDocument();
@@ -713,7 +791,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     await waitFor(() => {
       expect(screen.getByText('ollama · qwen2.5-coder:32b')).toBeInTheDocument();
@@ -734,7 +812,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     await waitFor(() => {
       expect(screen.getByText('ollama')).toBeInTheDocument();
@@ -756,7 +834,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     await waitFor(() => {
       expect(screen.getByText('codex')).toBeInTheDocument();
@@ -765,7 +843,7 @@ describe('Kanban', () => {
   });
 
   it('displays No tasks in empty columns', async () => {
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       const noTasksTexts = screen.getAllByText('No tasks');
       expect(noTasksTexts.length).toBeGreaterThanOrEqual(1);
@@ -773,14 +851,14 @@ describe('Kanban', () => {
   });
 
   it('renders total count text', async () => {
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByText(/0 total/)).toBeInTheDocument();
     });
   });
 
   it('marks task containers as lists', async () => {
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByRole('list', { name: 'Queued' })).toBeInTheDocument();
     });
@@ -803,7 +881,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     await waitFor(() => {
       expect(screen.getByRole('listitem')).toBeInTheDocument();
@@ -812,7 +890,7 @@ describe('Kanban', () => {
   });
 
   it('exposes aria-expanded on collapse toggle', async () => {
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByLabelText('Collapse Queued').getAttribute('aria-expanded')).toBe('true');
     });
@@ -836,7 +914,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban onOpenDrawer={onOpenDrawer} />, { route: '/' });
+    renderWithProviders(<CommandCenter onOpenDrawer={onOpenDrawer} />, { route: '/' });
 
     const card = await screen.findByRole('listitem');
     fireEvent.keyDown(card, { key: 'Enter', code: 'Enter' });
@@ -845,7 +923,7 @@ describe('Kanban', () => {
 
   it('falls back to defaults when torque-col-sorts localStorage JSON is malformed', async () => {
     setStorageValue('torque-col-sorts', '{bad json');
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByText('Welcome to TORQUE')).toBeInTheDocument();
     });
@@ -853,7 +931,7 @@ describe('Kanban', () => {
 
   it('falls back to defaults when torque-collapsed-cols localStorage JSON is malformed', async () => {
     setStorageValue('torque-collapsed-cols', '{bad json');
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getAllByText('Queued').length).toBeGreaterThanOrEqual(1);
     });
@@ -865,7 +943,7 @@ describe('Kanban', () => {
       if (status === 'running') return Promise.resolve({ tasks: [runningTask] });
       return Promise.resolve(emptyTasks);
     });
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByText(/Running test task/)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Pin to top' })).toBeInTheDocument();
@@ -874,14 +952,14 @@ describe('Kanban', () => {
 
   it('falls back to defaults when torque-hidden-cols localStorage JSON is malformed', async () => {
     setStorageValue('torque-hidden-cols', '{bad json');
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getAllByText('Running').length).toBeGreaterThanOrEqual(1);
     });
   });
 
   it('uses default UI settings when expected localStorage keys are missing', async () => {
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
       expect(screen.getByText('Comfortable')).toBeInTheDocument();
       expect(screen.getByText('Columns')).toBeInTheDocument();
@@ -899,7 +977,7 @@ describe('Kanban', () => {
       return Promise.resolve(emptyTasks);
     });
 
-    renderWithProviders(<Kanban />, { route: '/' });
+    renderWithProviders(<CommandCenter />, { route: '/' });
 
     await waitFor(() => {
       expect(screen.getByText(/Running test task/)).toBeInTheDocument();
@@ -916,7 +994,7 @@ describe('Kanban', () => {
   });
 
   // Regression: WS deltas from `tasks:batch-updated` only carry a subset of fields
-  // (see DELTA_FIELDS in server/dashboard-server.js). Before the merge fix, Kanban
+  // (see DELTA_FIELDS in server/dashboard-server.js). Before the merge fix, the board
   // replaced the full API-fetched row with the sparse delta, wiping `project`/`tags`
   // and making the project + factory batch badges flash and disappear on refresh.
   it('preserves project and factory tag badges when a sparse WS delta arrives', async () => {
@@ -934,7 +1012,7 @@ describe('Kanban', () => {
     });
 
     const { rerender } = renderWithProviders(
-      <Kanban tasks={[]} />,
+      <CommandCenter tasks={[]} />,
       { route: '/' }
     );
 
@@ -947,7 +1025,7 @@ describe('Kanban', () => {
     // App.jsx receives `tasks:batch-updated` and propagates a delta-only payload
     // (no `project`, no `tags`) as the `tasks` prop. The badges must survive.
     rerender(
-      <Kanban tasks={[{
+      <CommandCenter tasks={[{
         id: 'task-run-1',
         status: 'running',
         provider: 'codex',

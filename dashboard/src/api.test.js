@@ -72,6 +72,36 @@ describe('api.js', () => {
       );
     });
 
+    it('commandCenterSummary() sends GET to the renamed summary endpoint', async () => {
+      globalThis.fetch = mockFetch({
+        body: {
+          buckets: {
+            running: { items: [{ id: 'task-1' }], total: 1 },
+          },
+        },
+      });
+
+      const result = await tasks.commandCenterSummary({ project: 'torque-public' });
+
+      expect(result.running).toEqual({ tasks: [{ id: 'task-1' }], total: 1 });
+      expect(result.queued).toEqual({ tasks: [], total: 0 });
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/tasks/command-center-summary?project=torque-public',
+        expect.any(Object)
+      );
+    });
+
+    it('kanbanSummary() remains available as a compatibility endpoint', async () => {
+      globalThis.fetch = mockFetch({ body: { buckets: {} } });
+
+      await tasks.kanbanSummary({ project: 'torque-public' });
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/tasks/kanban-summary?project=torque-public',
+        expect.any(Object)
+      );
+    });
+
     it('get() sends GET to /api/v2/tasks/:id', async () => {
       globalThis.fetch = mockFetch({ body: {} });
       await tasks.get('abc-123');

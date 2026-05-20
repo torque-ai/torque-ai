@@ -239,7 +239,7 @@ function handleSubmitScout(args) {
   }
   if (project_id) {
     tags.push(`factory:project_id=${project_id}`);
-    // Mirror submitFactoryInternalTask's target_project tag so the kanban
+    // Mirror submitFactoryInternalTask's target_project tag so the board
     // can render a "→ <project>" badge on scout tasks the same way it does
     // for architect/plan-gen. Without this, scout tasks (especially
     // starvation_recovery scouts) showed up with no project label because

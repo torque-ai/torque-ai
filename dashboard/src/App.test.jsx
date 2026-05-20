@@ -20,6 +20,15 @@ vi.mock('./api', () => ({
       failed: { tasks: [] },
       cancelled: { tasks: [] },
     }),
+    commandCenterSummary: vi.fn().mockResolvedValue({
+      pending_approval: { tasks: [] },
+      queued: { tasks: [] },
+      running: { tasks: [] },
+      pending_provider_switch: { tasks: [] },
+      completed: { tasks: [] },
+      failed: { tasks: [] },
+      cancelled: { tasks: [] },
+    }),
   },
   stats: {
     overview: vi.fn().mockResolvedValue({
@@ -65,6 +74,24 @@ vi.mock('./api', () => ({
     getActive: vi.fn().mockResolvedValue(null),
     setActive: vi.fn().mockResolvedValue({}),
   },
+  factory: {
+    projects: vi.fn().mockResolvedValue([]),
+    loopStatus: vi.fn().mockResolvedValue({ loop_state: 'IDLE', loop_paused_at_stage: null, loop_last_action_at: null }),
+    startLoop: vi.fn().mockResolvedValue({}),
+    listLoopInstances: vi.fn().mockResolvedValue([]),
+    startLoopInstance: vi.fn().mockResolvedValue({}),
+    loopInstanceStatus: vi.fn().mockResolvedValue({}),
+    advanceLoopInstance: vi.fn().mockResolvedValue({}),
+    loopInstanceJobStatus: vi.fn().mockResolvedValue({ status: 'completed' }),
+    approveGateInstance: vi.fn().mockResolvedValue({}),
+    rejectGateInstance: vi.fn().mockResolvedValue({}),
+    retryVerifyInstance: vi.fn().mockResolvedValue({}),
+    advanceLoopAsync: vi.fn().mockResolvedValue({}),
+    loopJobStatus: vi.fn().mockResolvedValue({ status: 'completed' }),
+    approveGate: vi.fn().mockResolvedValue({}),
+    pause: vi.fn().mockResolvedValue({}),
+    resume: vi.fn().mockResolvedValue({}),
+  },
   default: {},
 }));
 
@@ -76,7 +103,7 @@ vi.mock('./views/ProjectSettings', () => ({
   ),
 }));
 
-// Mock useAbortableRequest (used by Kanban, History, etc.)
+// Mock useAbortableRequest (used by Command Center, History, etc.)
 // Stable reference outside the mock factory prevents useEffect re-runs on every render
 vi.mock('./hooks/useAbortableRequest', () => {
   const stableExecute = (fn) => fn(() => true);
@@ -219,7 +246,7 @@ describe('App', () => {
     renderApp();
     await waitFor(() => {
       // Some labels appear in both sidebar and breadcrumb — use getAllByText
-      expect(screen.getAllByText('Kanban').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('Command Center').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('History').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Providers').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Workflows').length).toBeGreaterThanOrEqual(1);
@@ -241,10 +268,10 @@ describe('App', () => {
     });
   });
 
-  it('default route renders Kanban view', async () => {
+  it('default route renders Command Center view', async () => {
     renderApp('/');
     await waitFor(() => {
-      // Kanban shows "Today" stat card
+      // Command Center shows "Today" stat card
       expect(screen.getByText('Today')).toBeInTheDocument();
     });
   });
@@ -331,11 +358,11 @@ describe('App', () => {
     });
   });
 
-  it('renders Kanban stat cards on default route', async () => {
+  it('renders Command Center stat cards on default route', async () => {
     renderApp('/');
     await waitFor(() => {
       expect(screen.getByText('Today')).toBeInTheDocument();
-      // Kanban columns
+      // Board columns
       expect(screen.getAllByText('Queued').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Running').length).toBeGreaterThanOrEqual(1);
     });

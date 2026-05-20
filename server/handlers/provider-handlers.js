@@ -346,7 +346,7 @@ async function handleStartDashboard(args) {
   output += `| Port | ${result.port} |\n\n`;
   output += `The dashboard should open in your default browser automatically.\n\n`;
   output += `### Features\n`;
-  output += `- **Kanban Board**: Visual task management with drag-drop\n`;
+  output += `- **Command Center**: Operator triage, task board, and running log\n`;
   output += `- **Task History**: Searchable, sortable task history\n`;
   output += `- **Provider Stats**: Charts for usage, success rates, costs\n`;
   output += `- **Real-time Updates**: Live task status via WebSocket\n`;

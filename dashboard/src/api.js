@@ -79,6 +79,23 @@ function factoryProjectsEndpoint(params = {}) {
   return `/factory/projects${buildQuery(normalizeFactoryProjectParams(params))}`;
 }
 
+function mapTaskSummaryBuckets(data) {
+  const buckets = (data && data.buckets) || {};
+  const pick = (key) => ({
+    tasks: (buckets[key] && Array.isArray(buckets[key].items)) ? buckets[key].items : [],
+    total: (buckets[key] && buckets[key].total) || 0,
+  });
+  return {
+    pending_approval: pick('pending_approval'),
+    queued: pick('queued'),
+    running: pick('running'),
+    pending_provider_switch: pick('pending_provider_switch'),
+    completed: pick('completed'),
+    failed: pick('failed'),
+    cancelled: pick('cancelled'),
+  };
+}
+
 function normalizeFactoryAutomationPlanParams(params = {}) {
   const normalized = { ...(params || {}) };
   if (Object.prototype.hasOwnProperty.call(normalized, 'blockedOnly')) {
@@ -252,28 +269,16 @@ export const tasks = {
       },
     }));
   },
-  // Batched Kanban board data — one round-trip for all 7 status buckets.
+  // Batched Command Center board data — one round-trip for all 7 status buckets.
   // Returns { <status>: { tasks: [...], total: N }, ... } shape so callers
   // can spread each bucket's tasks into state the same way they handle
   // individual list() responses.
-  kanbanSummary: (options = {}) => {
-    return requestV2('/tasks/kanban-summary', options).then(d => {
-      const buckets = (d && d.buckets) || {};
-      const pick = (key) => ({
-        tasks: (buckets[key] && Array.isArray(buckets[key].items)) ? buckets[key].items : [],
-        total: (buckets[key] && buckets[key].total) || 0,
-      });
-      return {
-        pending_approval: pick('pending_approval'),
-        queued: pick('queued'),
-        running: pick('running'),
-        pending_provider_switch: pick('pending_provider_switch'),
-        completed: pick('completed'),
-        failed: pick('failed'),
-        cancelled: pick('cancelled'),
-      };
-    });
-  },
+  kanbanSummary: (params = {}, options = {}) => (
+    requestV2(`/tasks/kanban-summary${buildQuery(params)}`, options).then(mapTaskSummaryBuckets)
+  ),
+  commandCenterSummary: (params = {}, options = {}) => (
+    requestV2(`/tasks/command-center-summary${buildQuery(params)}`, options).then(mapTaskSummaryBuckets)
+  ),
   get: (id) => requestV2(`/tasks/${id}`),
   listArtifacts: (id) => requestV2(`/tasks/${id}/artifacts`),
   getArtifact: (artifactId) => requestV2(`/tasks/artifacts/${artifactId}`),

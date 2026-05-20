@@ -21,6 +21,17 @@ const COLUMN_SORT_OPTIONS = [
   { value: 'provider', label: 'By provider' },
 ];
 
+const COMMAND_CENTER_VIEW_OPTIONS = [
+  { value: 'board', label: 'Board' },
+  { value: 'log', label: 'Running Log' },
+];
+
+const STORAGE_KEYS = {
+  activityView: 'torque-command-center-activity-view',
+  viewMode: 'torque-command-center-view',
+  project: 'torque-command-center-project',
+};
+
 const COMMON_PROVIDER_OPTIONS = [
   'codex',
   'claude-cli',
@@ -63,6 +74,26 @@ function buildProviderOptions(providerList, currentProvider) {
     label: provider,
     enabled: true,
   });
+}
+
+function readStoredValue(key, fallback = '') {
+  try {
+    return localStorage.getItem(key) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStoredValue(key, value) {
+  try {
+    if (value) {
+      localStorage.setItem(key, value);
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore storage failures in restricted environments
+  }
 }
 
 function sortTasks(tasks, sortKey) {
@@ -108,12 +139,12 @@ function LastRefreshed({ timestamp }) {
 
 const STATUS_COLUMNS = [
   { id: 'pending_approval', label: 'Pending Approval', color: 'bg-yellow-500', dotColor: 'bg-yellow-400' },
-  { id: 'queued', label: 'Queued', color: 'bg-slate-500', dotColor: 'bg-slate-400' },
-  { id: 'running', label: 'Running', color: 'bg-blue-500', dotColor: 'bg-blue-400' },
-  { id: 'completed', label: 'Completed', color: 'bg-green-500', dotColor: 'bg-green-400' },
-  { id: 'failed', label: 'Failed', color: 'bg-red-500', dotColor: 'bg-red-400' },
-  { id: 'cancelled', label: 'Cancelled', color: 'bg-amber-500', dotColor: 'bg-amber-400' },
   { id: 'pending_provider_switch', label: 'Pending Switch', color: 'bg-orange-500', dotColor: 'bg-orange-400' },
+  { id: 'running', label: 'Running', color: 'bg-blue-500', dotColor: 'bg-blue-400' },
+  { id: 'queued', label: 'Queued', color: 'bg-slate-500', dotColor: 'bg-slate-400' },
+  { id: 'failed', label: 'Failed', color: 'bg-red-500', dotColor: 'bg-red-400' },
+  { id: 'completed', label: 'Completed', color: 'bg-green-500', dotColor: 'bg-green-400' },
+  { id: 'cancelled', label: 'Cancelled', color: 'bg-amber-500', dotColor: 'bg-amber-400' },
 ];
 
 function formatElapsed(startedAt, now = Date.now()) {
@@ -243,6 +274,64 @@ function LiveElapsed({ startedAt }) {
     return () => clearInterval(id);
   }, []);
   return <span className="text-blue-400 font-mono">{formatElapsed(startedAt)}</span>;
+}
+
+function getLatestTaskActivityTimestamp(task) {
+  const candidates = [task.completed_at, task.started_at, task.created_at];
+  for (const value of candidates) {
+    const timestamp = new Date(value || 0).getTime();
+    if (Number.isFinite(timestamp) && timestamp > 0) return timestamp;
+  }
+  return 0;
+}
+
+function formatActivityTimestamp(task) {
+  const timestamp = getLatestTaskActivityTimestamp(task);
+  if (!timestamp) return '--';
+  try {
+    return dateFnsFormat(new Date(timestamp), 'MM/dd HH:mm');
+  } catch {
+    return '--';
+  }
+}
+
+function getTaskSignal(task) {
+  if (task.status === 'pending_approval') return 'Approval needed';
+  if (task.status === 'pending_provider_switch') return 'Switch pending';
+  if (task.status === 'failed') return 'Retryable failure';
+  if (task.status === 'cancelled') return task.cancel_reason ? task.cancel_reason.replace(/_/g, '-') : 'Cancelled';
+  if (task.status === 'running' && Number(task.progress_percent) > 0) return `${Math.round(task.progress_percent)}%`;
+  if (task.status === 'running') return 'Running';
+  if (task.status === 'queued') return 'Waiting';
+  if (task.status === 'completed') return 'Done';
+  return task.status?.replace(/_/g, ' ') || 'Task';
+}
+
+function getTaskDurationNode(task) {
+  if (task.status === 'running' && task.started_at) {
+    return <LiveElapsed startedAt={task.started_at} />;
+  }
+  if ((task.status === 'queued' || task.status === 'pending_approval' || task.status === 'pending_provider_switch') && task.created_at) {
+    return <QueueAge createdAt={task.created_at} />;
+  }
+  if (task.started_at && task.completed_at) {
+    const seconds = Math.max(0, Math.floor((new Date(task.completed_at).getTime() - new Date(task.started_at).getTime()) / 1000));
+    if (seconds >= 3600) return <span className="font-mono text-slate-400">{Math.floor(seconds / 3600)}h {Math.floor((seconds % 3600) / 60)}m</span>;
+    if (seconds >= 60) return <span className="font-mono text-slate-400">{Math.floor(seconds / 60)}m {seconds % 60}s</span>;
+    return <span className="font-mono text-slate-400">{seconds}s</span>;
+  }
+  return <span className="text-slate-600">--</span>;
+}
+
+function chooseDefaultProjectName(projects, selectedFactoryProject) {
+  if (selectedFactoryProject?.name) return selectedFactoryProject.name;
+  const candidates = Array.isArray(projects) ? projects : [];
+  if (candidates.length === 0) return '';
+
+  const [active] = [...candidates].sort((left, right) => (
+    new Date(right.loop_last_action_at || 0).getTime() - new Date(left.loop_last_action_at || 0).getTime()
+  ));
+  return active?.name || candidates[0]?.name || '';
 }
 
 const TaskCard = memo(function TaskCard({
@@ -634,7 +723,7 @@ const TaskCard = memo(function TaskCard({
     && prev.providerList === next.providerList;
 });
 
-const KanbanColumn = memo(function KanbanColumn({
+const BoardColumn = memo(function BoardColumn({
   label,
   // eslint-disable-next-line no-unused-vars
   color,
@@ -770,7 +859,74 @@ const NeedsAttentionCard = memo(function NeedsAttentionCard({ task, reason, onOp
   );
 });
 
-export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, statsVersion, tasksTick: _tasksTick, wsStats }) {
+const RunningLog = memo(function RunningLog({ tasks, selectedProject, onOpenDrawer }) {
+  const logTasks = useMemo(() => [...tasks].sort((left, right) => (
+    getLatestTaskActivityTimestamp(right) - getLatestTaskActivityTimestamp(left)
+  )), [tasks]);
+
+  return (
+    <section className="mb-6 rounded-lg border border-slate-700 bg-slate-800/40">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 px-4 py-3">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Running Log</h3>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {selectedProject ? selectedProject : 'No project selected'}
+          </p>
+        </div>
+        <span className="rounded-full bg-slate-700/70 px-2.5 py-1 text-xs font-medium text-slate-300">
+          {logTasks.length} task{logTasks.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      {!selectedProject ? (
+        <div className="px-4 py-8 text-center text-sm text-slate-500">
+          Select a project to view its running log.
+        </div>
+      ) : logTasks.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-slate-500">
+          No tasks for this project in the current Command Center window.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <ul role="list" aria-label="Running Log" className="min-w-[720px] divide-y divide-slate-700/70">
+            {logTasks.map((task) => {
+              const shortId = task.id?.substring(0, 8) || 'unknown';
+              const model = getRelevantModel(task.provider, task.model);
+              const providerLabel = `${task.provider || 'provider'}${model ? ` · ${model}` : ''}`;
+              const signal = getTaskSignal(task);
+              return (
+                <li key={task.id} role="listitem">
+                  <button
+                    type="button"
+                    onClick={() => onOpenDrawer?.(task.id)}
+                    className="grid w-full grid-cols-[78px_108px_82px_minmax(0,1fr)_120px_112px] items-center gap-3 px-4 py-2 text-left text-xs transition-colors hover:bg-slate-700/40 focus:bg-slate-700/40"
+                    title={task.task_description || shortId}
+                  >
+                    <span className="font-mono text-slate-500">{formatActivityTimestamp(task)}</span>
+                    <span className="min-w-0 truncate rounded-full border border-slate-600 bg-slate-900/70 px-2 py-1 text-[11px] font-medium text-slate-200">
+                      {task.status?.replace(/_/g, ' ') || 'unknown'}
+                    </span>
+                    <code className="font-mono text-slate-500">{shortId}</code>
+                    <span className="min-w-0 truncate text-slate-100">
+                      {task.task_description || 'No description'}
+                    </span>
+                    <span className="min-w-0 truncate text-slate-400">{providerLabel}</span>
+                    <span className="flex min-w-0 items-center justify-end gap-2">
+                      <span className="min-w-0 truncate text-slate-400">{signal}</span>
+                      <span className="shrink-0 text-right">{getTaskDurationNode(task)}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+});
+
+export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActivity, statsVersion, tasksTick: _tasksTick, wsStats }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const factoryLoopControl = useFactoryLoopControl();
   const [allTasks, setAllTasks] = useState([]);
@@ -780,7 +936,10 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   const [qualityStats, setQualityStats] = useState(null);
   const [activityData, setActivityData] = useState([]);
   const [activityDaily, setActivityDaily] = useState([]);
-  const [activityView, setActivityView] = useState('hourly'); // 'hourly' | 'daily'
+  const [activityView, setActivityView] = useState(() => {
+    const stored = readStoredValue(STORAGE_KEYS.activityView, 'hourly');
+    return stored === 'daily' ? 'daily' : 'hourly';
+  }); // 'hourly' | 'daily'
   const [activityLog, setActivityLog] = useState([]);
   const [activityOpen, setActivityOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -804,7 +963,13 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   });
   const [showColMenu, setShowColMenu] = useState(false);
   const colMenuRef = useRef(null);
-  const [selectedProject, setSelectedProject] = useState(() => searchParams.get('project') || '');
+  const [selectedProject, setSelectedProject] = useState(() => (
+    searchParams.get('project') || readStoredValue(STORAGE_KEYS.project, '')
+  ));
+  const [viewMode, setViewMode] = useState(() => {
+    const value = searchParams.get('view') || readStoredValue(STORAGE_KEYS.viewMode, 'board');
+    return value === 'log' ? 'log' : 'board';
+  });
   const [searchInput, setSearchInput] = useState(() => searchParams.get('q') || '');
   const [searchQuery, setSearchQuery] = useState(() => (searchParams.get('q') || '').trim().toLowerCase());
   const searchTimerRef = useRef(null);
@@ -817,11 +982,21 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   const [showSubmitForm, setShowSubmitForm] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   // now state removed — clock components (LiveElapsed, QueueAge, LastRefreshed)
-  // each own their own timer to avoid re-rendering the entire Kanban every second
+  // each own their own timer to avoid re-rendering the entire Command Center every second
   const [queuedProviderSelections, setQueuedProviderSelections] = useState({});
   const [reassigningIds, setReassigningIds] = useState(new Set());
   const toast = useToast();
   const { execute } = useAbortableRequest();
+  const setPersistedActivityView = useCallback((nextView) => {
+    const normalized = nextView === 'daily' ? 'daily' : 'hourly';
+    setActivityView(normalized);
+    writeStoredValue(STORAGE_KEYS.activityView, normalized);
+  }, []);
+  const setPersistedViewMode = useCallback((nextMode) => {
+    const normalized = nextMode === 'log' ? 'log' : 'board';
+    setViewMode(normalized);
+    writeStoredValue(STORAGE_KEYS.viewMode, normalized);
+  }, []);
   const appendActivityEvents = useCallback((events) => {
     if (!Array.isArray(events) || events.length === 0) return;
     setActivityLog((prev) => [...events, ...prev].slice(0, 100));
@@ -897,8 +1072,21 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
     const params = {};
     if (searchQuery) params.q = searchQuery;
     if (selectedProject) params.project = selectedProject;
+    if (viewMode === 'log') params.view = 'log';
     setSearchParams(params, { replace: true });
-  }, [searchQuery, selectedProject, setSearchParams]);
+    writeStoredValue(STORAGE_KEYS.project, selectedProject);
+  }, [searchQuery, selectedProject, viewMode, setSearchParams]);
+
+  useEffect(() => {
+    if (viewMode !== 'log' || selectedProject) return;
+    const defaultProject = chooseDefaultProjectName(
+      factoryLoopControl.projects,
+      factoryLoopControl.selectedProject
+    );
+    if (defaultProject) {
+      setSelectedProject(defaultProject);
+    }
+  }, [factoryLoopControl.projects, factoryLoopControl.selectedProject, selectedProject, viewMode]);
 
   const mergeTasks = useCallback((freshTasks) => {
     setAllTasks((prev) => {
@@ -922,26 +1110,26 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
   // which on the live 3.7 GB tasks.db dominated load latency even after
   // column projection landed server-side (each still paid HTTP +
   // middleware + serialize/deserialize overhead, and browsers limit to
-  // ~6 concurrent per origin). tasksApi.kanbanSummary() collapses all 7
+  // ~6 concurrent per origin). tasksApi.commandCenterSummary() collapses all 7
   // into one round-trip. Stats and providers stay separate — they're
   // cacheable on different intervals and unrelated to the task buckets.
   const loadData = useCallback(() => {
     return execute(async (isCurrent) => {
       try {
         // Phase 1: critical data first — gets the board visible fast
-        const [kanban, overviewData] = await Promise.all([
-          tasksApi.kanbanSummary(),
+        const [summary, overviewData] = await Promise.all([
+          tasksApi.commandCenterSummary({ project: selectedProject || undefined }),
           statsApi.overview(),
         ]);
         if (!isCurrent()) return;
         mergeTasks([
-          ...kanban.pending_approval.tasks,
-          ...kanban.queued.tasks,
-          ...kanban.running.tasks,
-          ...kanban.pending_provider_switch.tasks,
-          ...kanban.completed.tasks,
-          ...kanban.failed.tasks,
-          ...kanban.cancelled.tasks,
+          ...summary.pending_approval.tasks,
+          ...summary.queued.tasks,
+          ...summary.running.tasks,
+          ...summary.pending_provider_switch.tasks,
+          ...summary.completed.tasks,
+          ...summary.failed.tasks,
+          ...summary.cancelled.tasks,
         ]);
         setOverview(overviewData);
         setLoading(false);
@@ -965,7 +1153,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
         setLastRefreshed(Date.now());
       } catch (err) {
         if (!isCurrent()) return;
-        console.error('Failed to load kanban data:', err);
+        console.error('Failed to load command center data:', err);
         failCountRef.current++;
         if (failCountRef.current >= 3) {
           setStaleData(true);
@@ -977,7 +1165,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
         if (isCurrent()) setLoading(false);
       }
     });
-  }, [execute, toast, mergeTasks]);
+  }, [execute, toast, mergeTasks, selectedProject]);
 
   useEffect(() => {
     loadData();
@@ -1473,6 +1661,45 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
         </div>
       )}
 
+      <section className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-amber-300">Attention</p>
+          <p className="mt-2 text-2xl font-semibold text-white">
+            {stuckTasks?.total_needs_attention || stuckRunningTasks.length || 0}
+          </p>
+          <p className="mt-1 truncate text-xs text-amber-200/80">
+            Long-running, approvals, and switches
+          </p>
+        </div>
+        <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-orange-300">Manual Gates</p>
+          <p className="mt-2 text-2xl font-semibold text-white">
+            {(Number(countByStatus.pending_approval) || 0) + (Number(countByStatus.pending_provider_switch) || 0)}
+          </p>
+          <p className="mt-1 truncate text-xs text-orange-200/80">
+            {Number(countByStatus.pending_approval) || 0} approval, {Number(countByStatus.pending_provider_switch) || 0} switch
+          </p>
+        </div>
+        <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-cyan-300">Active Work</p>
+          <p className="mt-2 text-2xl font-semibold text-white">
+            {(Number(countByStatus.running) || 0) + (Number(countByStatus.queued) || 0)}
+          </p>
+          <p className="mt-1 truncate text-xs text-cyan-200/80">
+            {Number(countByStatus.running) || 0} running, {Number(countByStatus.queued) || 0} queued
+          </p>
+        </div>
+        <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-violet-300">Loop State</p>
+          <p className="mt-2 truncate text-lg font-semibold text-white">
+            {factoryLoopControl.selectedProject?.name || 'No project'}
+          </p>
+          <p className="mt-1 truncate text-xs text-violet-200/80">
+            {factoryLoopControl.loopStatus?.loop_state || factoryLoopControl.selectedProject?.loop_state || 'Idle'}
+          </p>
+        </div>
+      </section>
+
       {/* Toolbar: density toggle + bulk actions */}
       <div className="flex flex-wrap items-center justify-between gap-y-2 mb-3">
         <div className="flex items-center gap-2">
@@ -1496,6 +1723,22 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
           )}
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex rounded-lg bg-slate-800/60 p-0.5">
+            {COMMAND_CENTER_VIEW_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setPersistedViewMode(option.value)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  viewMode === option.value
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           <button
             onClick={() => setShowSubmitForm((s) => !s)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
@@ -1549,54 +1792,58 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
             onChange={(project) => setSelectedProject(project || '')}
             className="w-48"
           />
-          <button
-            onClick={toggleDensity}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50 text-slate-400 hover:text-white text-xs transition-colors"
-            title={compact ? 'Switch to comfortable view' : 'Switch to compact view'}
-          >
-            {compact ? (
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            ) : (
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-              </svg>
-            )}
-            {compact ? 'Compact' : 'Comfortable'}
-          </button>
-          <div className="relative" ref={colMenuRef}>
-            <button
-              onClick={() => setShowColMenu((s) => !s)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50 text-slate-400 hover:text-white text-xs transition-colors"
-              title="Toggle column visibility"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-              Columns
-            </button>
-            {showColMenu && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-lg z-50 py-1">
-                {STATUS_COLUMNS.map((col) => (
-                  <label
-                    key={col.id}
-                    className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-700/50 cursor-pointer text-xs"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!hiddenCols.has(col.id)}
-                      onChange={() => toggleColumnVisibility(col.id)}
-                      className="rounded border-slate-600 bg-slate-700 accent-blue-500"
-                    />
-                    <span aria-hidden="true" className={`w-2 h-2 rounded-full ${col.dotColor}`} />
-                    <span className="text-slate-300">{col.label}</span>
-                  </label>
-                ))}
+          {viewMode === 'board' && (
+            <>
+              <button
+                onClick={toggleDensity}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50 text-slate-400 hover:text-white text-xs transition-colors"
+                title={compact ? 'Switch to comfortable view' : 'Switch to compact view'}
+              >
+                {compact ? (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                  </svg>
+                )}
+                {compact ? 'Compact' : 'Comfortable'}
+              </button>
+              <div className="relative" ref={colMenuRef}>
+                <button
+                  onClick={() => setShowColMenu((s) => !s)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50 text-slate-400 hover:text-white text-xs transition-colors"
+                  title="Toggle column visibility"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                  Columns
+                </button>
+                {showColMenu && (
+                  <div className="absolute right-0 top-full mt-1 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-lg z-50 py-1">
+                    {STATUS_COLUMNS.map((col) => (
+                      <label
+                        key={col.id}
+                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-700/50 cursor-pointer text-xs"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!hiddenCols.has(col.id)}
+                          onChange={() => toggleColumnVisibility(col.id)}
+                          className="rounded border-slate-600 bg-slate-700 accent-blue-500"
+                        />
+                        <span aria-hidden="true" className={`w-2 h-2 rounded-full ${col.dotColor}`} />
+                        <span className="text-slate-300">{col.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -1654,13 +1901,13 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
             <h3 className="text-white font-medium">Task Activity</h3>
             <div className="flex bg-slate-700/50 rounded-lg p-0.5">
               <button
-                onClick={() => setActivityView('daily')}
+                onClick={() => setPersistedActivityView('daily')}
                 className={`px-3 py-1 text-xs rounded-md transition-colors ${activityView === 'daily' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
               >
                 Daily
               </button>
               <button
-                onClick={() => setActivityView('hourly')}
+                onClick={() => setPersistedActivityView('hourly')}
                 className={`px-3 py-1 text-xs rounded-md transition-colors ${activityView === 'hourly' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
               >
                 Hourly
@@ -1728,7 +1975,7 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
       )}
 
       {/* Empty state */}
-      {allTasks.length === 0 && !staleData && (
+      {viewMode === 'board' && allTasks.length === 0 && !staleData && (
         <div className="glass-card p-8 md:p-10 mb-6">
           <div className="text-center mb-8">
             <h2 className="text-3xl font-semibold text-white mb-3">Welcome to TORQUE</h2>
@@ -1769,35 +2016,42 @@ export default function Kanban({ tasks: liveTasks, onOpenDrawer, hostActivity, s
         </div>
       )}
 
-      {/* Kanban columns */}
-      <div className="flex flex-col md:flex-row gap-4 overflow-x-auto pb-4">
-        {STATUS_COLUMNS.filter((col) => !hiddenCols.has(col.id)).map((col) => (
-          <KanbanColumn
-            key={col.id}
-            label={col.label}
-            color={col.color}
-            dotColor={col.dotColor}
-            tasks={tasksByStatus[col.id] || []}
-            count={countByStatus[col.id]}
-            onAction={handleAction}
-            onOpenDrawer={onOpenDrawer}
-            collapsed={!!collapsedCols[col.id]}
-            onToggle={() => toggleColumn(col.id)}
-            compact={compact}
-            sortKey={columnSorts[col.id] || 'newest'}
-            onSortChange={(key) => setColumnSort(col.id, key)}
-            flashIds={flashIds}
-            pinnedIds={pinnedIds}
-            onPin={togglePin}
-            hostActivity={hostActivity}
-            providerList={providerList}
-            queuedProviderSelections={queuedProviderSelections}
-            reassigningIds={reassigningIds}
-            onProviderSelectionChange={handleQueuedProviderSelectionChange}
-            onReassignProvider={handleReassignProvider}
-          />
-        ))}
+      {viewMode === 'log' ? (
+        <RunningLog
+          tasks={filteredTasks}
+          selectedProject={selectedProject}
+          onOpenDrawer={onOpenDrawer}
+        />
+      ) : (
+        <div className="flex flex-col md:flex-row gap-4 overflow-x-auto pb-4">
+          {STATUS_COLUMNS.filter((col) => !hiddenCols.has(col.id)).map((col) => (
+            <BoardColumn
+              key={col.id}
+              label={col.label}
+              color={col.color}
+              dotColor={col.dotColor}
+              tasks={tasksByStatus[col.id] || []}
+              count={countByStatus[col.id]}
+              onAction={handleAction}
+              onOpenDrawer={onOpenDrawer}
+              collapsed={!!collapsedCols[col.id]}
+              onToggle={() => toggleColumn(col.id)}
+              compact={compact}
+              sortKey={columnSorts[col.id] || 'newest'}
+              onSortChange={(key) => setColumnSort(col.id, key)}
+              flashIds={flashIds}
+              pinnedIds={pinnedIds}
+              onPin={togglePin}
+              hostActivity={hostActivity}
+              providerList={providerList}
+              queuedProviderSelections={queuedProviderSelections}
+              reassigningIds={reassigningIds}
+              onProviderSelectionChange={handleQueuedProviderSelectionChange}
+              onReassignProvider={handleReassignProvider}
+            />
+          ))}
         </div>
+      )}
       </div>
       </div>
       <ActivityPanel events={activityLog} isOpen={activityOpen} onToggle={toggleActivityPanel} />
