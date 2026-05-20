@@ -392,6 +392,7 @@ describe('CommandCenter', () => {
 
     const log = await screen.findByRole('list', { name: 'Running Log' });
     expect(within(log).getByText('Failed')).toBeInTheDocument();
+    expect(within(log).getByText('alpha')).toBeInTheDocument();
     expect(within(log).getByText('Failed deploy verification task')).toBeInTheDocument();
     expect(within(log).getByText(/Q:42/)).toBeInTheDocument();
     expect(within(log).getByText(/exit 1/)).toBeInTheDocument();
@@ -413,11 +414,11 @@ describe('CommandCenter', () => {
     renderWithProviders(<CommandCenter onOpenDrawer={onOpenDrawer} />, { route: '/' });
 
     const log = await screen.findByRole('list', { name: 'Running Log' });
+    expect(within(log).getByText('factory-architect')).toBeInTheDocument();
     expect(within(log).getByText('Architect cycle for DLPhone')).toBeInTheDocument();
     expect(within(log).getByText('to DLPhone')).toBeInTheDocument();
     expect(within(log).queryByText(/You are the Architect/)).toBeNull();
     expect(log).not.toHaveTextContent('factory-arch-1');
-    expect(log).not.toHaveTextContent('factory-a');
 
     fireEvent.click(within(log).getByRole('button', { name: /Architect cycle for DLPhone/ }));
     expect(onOpenDrawer).toHaveBeenCalledWith('factory-arch-1');
@@ -434,11 +435,11 @@ describe('CommandCenter', () => {
     renderWithProviders(<CommandCenter />, { route: '/' });
 
     const log = await screen.findByRole('list', { name: 'Running Log' });
+    expect(within(log).getByText('StateTrace')).toBeInTheDocument();
     expect(within(log).getByText('Task 2: Add focused Pester coverage for the new-user startup decision')).toBeInTheDocument();
     expect(within(log).getByText('batch factory-659')).toBeInTheDocument();
     expect(within(log).queryByText(/Plan: Run and document/)).toBeNull();
     expect(log).not.toHaveTextContent('factory-plan-task-2');
-    expect(log).not.toHaveTextContent('factory-p');
   });
 
   it('renders a concise project-scoped running log with clickable rows', async () => {
@@ -460,10 +461,11 @@ describe('CommandCenter', () => {
     renderWithProviders(<CommandCenter onOpenDrawer={onOpenDrawer} />, { route: '/' });
 
     const log = await screen.findByRole('list', { name: 'Running Log' });
+    expect(within(log).getByText('alpha')).toBeInTheDocument();
     expect(within(log).getByText('Alpha running task')).toBeInTheDocument();
     expect(within(log).queryByText('Beta running task')).toBeNull();
 
-    fireEvent.click(within(log).getByRole('button', { name: /Alpha running task/ }));
+    fireEvent.click(within(log).getByRole('button', { name: /alpha task: Alpha running task/ }));
     expect(onOpenDrawer).toHaveBeenCalledWith('task-run-1');
   });
 
@@ -494,7 +496,8 @@ describe('CommandCenter', () => {
     const log = await screen.findByRole('list', { name: 'Running Log' });
     const logPanel = log.closest('section');
     expect(logPanel).not.toBeNull();
-    expect(within(logPanel).getByText('alpha')).toBeInTheDocument();
+    expect(within(logPanel).getAllByText('alpha').length).toBeGreaterThanOrEqual(2);
+    expect(within(log).getByText('alpha')).toBeInTheDocument();
     expect(within(log).getByText('Queued test task')).toBeInTheDocument();
   });
 
