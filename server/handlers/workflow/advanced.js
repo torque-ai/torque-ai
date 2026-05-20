@@ -464,6 +464,51 @@ function handleRetryWorkflowFrom(args) {
   };
 }
 
+const REOPEN_RESETTABLE_TASK_STATUSES = new Set(['failed', 'cancelled', 'skipped']);
+const REOPEN_REACTIVATABLE_TASK_STATUSES = new Set([
+  'pending',
+  'queued',
+  'blocked',
+  'waiting',
+  'retry_scheduled',
+]);
+
+function getReopenTaskStatus(task, deps, tasksById, plannedStatuses) {
+  const taskDeps = deps.filter(d => d.task_id === task.id);
+  if (taskDeps.length === 0) return 'pending';
+
+  const hasUnmetDeps = taskDeps.some(dep => {
+    const prereq = tasksById.get(dep.depends_on_task_id);
+    const plannedStatus = plannedStatuses.get(dep.depends_on_task_id);
+    const prereqStatus = plannedStatus || prereq?.status;
+    return prereqStatus !== 'completed';
+  });
+
+  return hasUnmetDeps ? 'blocked' : 'pending';
+}
+
+function buildReopenResetFields(task) {
+  const fields = {
+    output: null,
+    error_output: null,
+    exit_code: null,
+    pid: null,
+    progress_percent: 0,
+    files_modified: null,
+    started_at: null,
+    completed_at: null,
+    cancel_reason: null,
+    partial_output: null,
+  };
+
+  if (task.resume_context) {
+    fields.resume_context = task.resume_context;
+    fields.task_description = prependResumeContextToPrompt(task.task_description, task.resume_context);
+  }
+
+  return fields;
+}
+
 
 /**
  * Reopen a failed or cancelled workflow by resetting ALL non-completed tasks
@@ -501,30 +546,17 @@ function handleReopenWorkflow(args) {
   }
 
   const deps = workflowEngine.getWorkflowDependencies(args.workflow_id);
-  const resettableStatuses = new Set(['failed', 'cancelled', 'skipped']);
+  const tasksById = new Map(tasks.map(task => [task.id, task]));
+  const plannedStatuses = new Map();
   const resetTasks = [];
+  const reactivatedTasks = [];
 
   for (const task of tasks) {
-    if (!resettableStatuses.has(task.status)) continue;
+    if (!REOPEN_RESETTABLE_TASK_STATUSES.has(task.status)) continue;
 
-    const taskDeps = deps.filter(d => d.task_id === task.id);
-    const hasUnmetDeps = taskDeps.some(dep => {
-      const prereq = tasks.find(t => t.id === dep.depends_on_task_id);
-      return prereq && prereq.status !== 'completed';
-    });
-
-    const newStatus = (taskDeps.length > 0 && hasUnmetDeps) ? 'blocked' : 'pending';
-    const resumeFields = task.resume_context
-      ? {
-          resume_context: task.resume_context,
-          task_description: prependResumeContextToPrompt(task.task_description, task.resume_context),
-        }
-      : undefined;
-    if (resumeFields) {
-      taskCore.updateTaskStatus(task.id, newStatus, resumeFields);
-    } else {
-      taskCore.updateTaskStatus(task.id, newStatus);
-    }
+    const newStatus = getReopenTaskStatus(task, deps, tasksById, plannedStatuses);
+    plannedStatuses.set(task.id, newStatus);
+    taskCore.updateTaskStatus(task.id, newStatus, buildReopenResetFields(task));
     resetTasks.push({
       id: task.id,
       node_id: task.workflow_node_id || task.id.substring(0, 8),
@@ -533,10 +565,26 @@ function handleReopenWorkflow(args) {
     });
   }
 
-  if (resetTasks.length === 0) {
+  for (const task of tasks) {
+    if (!REOPEN_REACTIVATABLE_TASK_STATUSES.has(task.status)) continue;
+
+    const newStatus = getReopenTaskStatus(task, deps, tasksById, plannedStatuses);
+    plannedStatuses.set(task.id, newStatus);
+    if (task.status !== newStatus) {
+      taskCore.updateTaskStatus(task.id, newStatus);
+    }
+    reactivatedTasks.push({
+      id: task.id,
+      node_id: task.workflow_node_id || task.id.substring(0, 8),
+      old_status: task.status,
+      new_status: newStatus,
+    });
+  }
+
+  if (resetTasks.length === 0 && reactivatedTasks.length === 0) {
     return makeError(
       ErrorCodes.INVALID_STATUS_TRANSITION,
-      `No failed, cancelled, or skipped tasks found in workflow '${workflow.name}' to reset.`
+      `No failed, cancelled, or skipped tasks found in workflow '${workflow.name}' to reset, and no pending workflow tasks were available to reactivate.`
     );
   }
 
@@ -571,6 +619,9 @@ function handleReopenWorkflow(args) {
   output += `**Workflow:** ${workflow.name}\n`;
   output += `**ID:** ${args.workflow_id}\n`;
   output += `**Tasks Reset:** ${resetTasks.length}\n`;
+  if (reactivatedTasks.length > 0) {
+    output += `**Tasks Reactivated:** ${reactivatedTasks.length}\n`;
+  }
   output += `**Tasks Started:** ${started}\n`;
   output += `**Workflow Status:** running\n`;
 

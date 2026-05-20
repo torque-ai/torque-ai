@@ -588,7 +588,20 @@ describe('workflow-advanced handlers', () => {
     it('resets failed + cancelled + skipped tasks while preserving completed ones', () => {
       const tasks = [
         { id: 'task-a', status: 'completed', workflow_node_id: 'A' },
-        { id: 'task-b', status: 'failed', workflow_node_id: 'B' },
+        {
+          id: 'task-b',
+          status: 'failed',
+          workflow_node_id: 'B',
+          output: 'stale output',
+          error_output: 'stale error',
+          exit_code: 1,
+          pid: 1234,
+          progress_percent: 85,
+          started_at: '2026-03-08T09:00:00.000Z',
+          completed_at: '2026-03-08T10:00:00.000Z',
+          cancel_reason: 'old',
+          partial_output: 'partial',
+        },
         { id: 'task-c', status: 'cancelled', workflow_node_id: 'C' },
         { id: 'task-d', status: 'skipped', workflow_node_id: 'D' },
       ];
@@ -614,9 +627,19 @@ describe('workflow-advanced handlers', () => {
       // Completed task must NOT be reset.
       expect(updateStatusSpy).not.toHaveBeenCalledWith('task-a', expect.anything());
       // Failed/cancelled/skipped → pending (no deps).
-      expect(updateStatusSpy).toHaveBeenCalledWith('task-b', 'pending');
-      expect(updateStatusSpy).toHaveBeenCalledWith('task-c', 'pending');
-      expect(updateStatusSpy).toHaveBeenCalledWith('task-d', 'pending');
+      expect(updateStatusSpy).toHaveBeenCalledWith('task-b', 'pending', expect.objectContaining({
+        output: null,
+        error_output: null,
+        exit_code: null,
+        pid: null,
+        progress_percent: 0,
+        started_at: null,
+        completed_at: null,
+        cancel_reason: null,
+        partial_output: null,
+      }));
+      expect(updateStatusSpy).toHaveBeenCalledWith('task-c', 'pending', expect.any(Object));
+      expect(updateStatusSpy).toHaveBeenCalledWith('task-d', 'pending', expect.any(Object));
       expect(updateWorkflowSpy).toHaveBeenCalledWith('wf-1', expect.objectContaining({
         status: 'running',
         completed_at: null,
@@ -653,8 +676,48 @@ describe('workflow-advanced handlers', () => {
 
       expect(result.isError).toBeFalsy();
       // task-a has no deps → pending. task-b depends on task-a which is not completed → blocked.
-      expect(updateStatusSpy).toHaveBeenCalledWith('task-a', 'pending');
-      expect(updateStatusSpy).toHaveBeenCalledWith('task-b', 'blocked');
+      expect(updateStatusSpy).toHaveBeenCalledWith('task-a', 'pending', expect.any(Object));
+      expect(updateStatusSpy).toHaveBeenCalledWith('task-b', 'blocked', expect.any(Object));
+    });
+
+    it('reopens failed workflows that still have pending or blocked straggler tasks', () => {
+      const taskState = {
+        'task-a': { id: 'task-a', status: 'completed', workflow_node_id: 'A' },
+        'task-b': { id: 'task-b', status: 'blocked', workflow_node_id: 'B' },
+        'task-c': { id: 'task-c', status: 'pending', workflow_node_id: 'C' },
+      };
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
+        id: 'wf-1', name: 'Stragglers', status: 'failed', context: {}
+      });
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockImplementation(() => Object.values(taskState));
+      vi.spyOn(workflowEngine, 'getWorkflowDependencies').mockReturnValue([
+        { task_id: 'task-b', depends_on_task_id: 'task-a' },
+      ]);
+
+      const updateStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation((id, status, fields = {}) => {
+        taskState[id] = { ...taskState[id], ...fields, status };
+      });
+      const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue({
+        total_tasks: 3,
+        completed_tasks: 1,
+        failed_tasks: 0,
+        skipped_tasks: 0,
+      });
+      const startTaskSpy = vi.spyOn(taskManager, 'startTask').mockImplementation(() => {});
+
+      const result = handlers.handleReopenWorkflow({ workflow_id: 'wf-1' });
+
+      expect(result.isError).toBeFalsy();
+      expect(updateStatusSpy).toHaveBeenCalledWith('task-b', 'pending');
+      expect(updateWorkflowSpy).toHaveBeenCalledWith('wf-1', expect.objectContaining({
+        status: 'running',
+        completed_at: null,
+      }));
+      expect(startTaskSpy).toHaveBeenCalledWith('task-b');
+      expect(startTaskSpy).toHaveBeenCalledWith('task-c');
+      expect(textOf(result)).toContain('**Tasks Reset:** 0');
+      expect(textOf(result)).toContain('**Tasks Reactivated:** 2');
     });
 
     it('works for cancelled workflows too', () => {
