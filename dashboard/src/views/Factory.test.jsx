@@ -30,6 +30,7 @@ import { factory as factoryApi } from '../api';
 
 const approveGate = vi.fn();
 const handlePauseAll = vi.fn();
+const handleSetProjectWorkEnabled = vi.fn();
 const handleToggleProject = vi.fn();
 const loadProjects = vi.fn();
 const refreshSelectedProject = vi.fn();
@@ -114,7 +115,11 @@ describe('Factory overview', () => {
     });
     useFactoryShell.mockReturnValue({
       activeProjectAction: null,
+      automationReadiness: {
+        project_work_enabled: false,
+      },
       handlePauseAll,
+      handleSetProjectWorkEnabled,
       handleToggleProject,
       idleDiagnosis: null,
       loadProjects,
@@ -170,6 +175,7 @@ describe('Factory overview', () => {
       },
       pauseAllBusy: false,
       pausedProjects: 0,
+      projectWorkBusy: false,
       projectActivity: {},
       projects: [factoryProject],
       projectsError: null,
@@ -289,6 +295,15 @@ describe('Factory overview', () => {
     expect(screen.getByText('Project work disabled')).toBeInTheDocument();
     expect(screen.getByText(/armed scheduler ticks will skip registered project work/i)).toBeInTheDocument();
     expect(screen.getByText(/1 running .* 0 paused .* 3 open items .* 0 queued/i)).toBeInTheDocument();
+  });
+
+  it('exposes a global project-work enable control when parked', () => {
+    renderFactory();
+
+    const button = screen.getByRole('button', { name: 'Enable Project Work' });
+    fireEvent.click(button);
+
+    expect(handleSetProjectWorkEnabled).toHaveBeenCalledWith(true);
   });
 
   it('surfaces automation readiness blockers above the project grid', () => {

@@ -14,6 +14,7 @@ vi.mock('../../api', () => ({
     intake: vi.fn(),
     pause: vi.fn(),
     pauseAll: vi.fn(),
+    setProjectWorkEnabled: vi.fn(),
     rejectWorkItem: vi.fn(),
     resume: vi.fn(),
     triggerArchitect: vi.fn(),
@@ -79,6 +80,7 @@ describe('useFactoryShell route-gated loading', () => {
     });
     factoryApi.health.mockResolvedValue({ project, scores: {}, balance: 0 });
     factoryApi.intake.mockResolvedValue({ items: [] });
+    factoryApi.setProjectWorkEnabled.mockResolvedValue({});
     getDecisionLog.mockResolvedValue({ decisions: [], stats: { total: 0 } });
     getFactoryDigest.mockResolvedValue({ events: [] });
   });
@@ -103,5 +105,37 @@ describe('useFactoryShell route-gated loading', () => {
     renderHook(() => useFactoryShell(), { wrapper: wrapperForRoute('/factory/policy') });
 
     await waitFor(() => expect(factoryApi.factoryCosts).toHaveBeenCalledWith(project.id));
+  });
+
+  it('updates global project-work admission and refreshes control state', async () => {
+    const refreshLoopControl = vi.fn();
+    useFactoryLoopControl.mockReturnValue({
+      activeProjectAction: null,
+      approvalsHref: null,
+      approveGate: vi.fn(),
+      advanceLoop: vi.fn(),
+      handleToggleProject: vi.fn(),
+      loadProjects: vi.fn(),
+      loading: false,
+      loopActionBusy: null,
+      loopAdvanceJob: null,
+      loopRefreshAgeSeconds: 0,
+      loopStatus: { loop_state: 'EXECUTE' },
+      pendingApprovalCount: 0,
+      projects: [project],
+      projectsError: null,
+      refreshSelectedProject: refreshLoopControl,
+      selectedProject: project,
+      selectedProjectId: project.id,
+      setSelectedProjectId: vi.fn(),
+      startLoop: vi.fn(),
+    });
+
+    const { result } = renderHook(() => useFactoryShell(), { wrapper: wrapperForRoute('/factory') });
+
+    await result.current.handleSetProjectWorkEnabled(false);
+
+    expect(factoryApi.setProjectWorkEnabled).toHaveBeenCalledWith(false);
+    await waitFor(() => expect(refreshLoopControl).toHaveBeenCalledWith({ includeProjects: true }));
   });
 });

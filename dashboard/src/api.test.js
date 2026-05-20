@@ -810,5 +810,19 @@ describe('api.js', () => {
         })
       );
     });
+
+    it('setProjectWorkEnabled() posts to the global configure endpoint', async () => {
+      globalThis.fetch = mockFetch({ body: { data: { configured: true } } });
+
+      await factory.setProjectWorkEnabled(false);
+
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/v2/tasks/configure',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ factory_project_work_enabled: false }),
+        })
+      );
+    });
   });
 });

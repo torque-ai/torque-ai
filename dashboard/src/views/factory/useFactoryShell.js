@@ -37,6 +37,7 @@ export function useFactoryShell() {
   const [costMetricsLoading, setCostMetricsLoading] = useState(false);
   const [rejectingItemId, setRejectingItemId] = useState(null);
   const [pauseAllBusy, setPauseAllBusy] = useState(false);
+  const [projectWorkBusy, setProjectWorkBusy] = useState(false);
   const [recentActivity, setRecentActivity] = useState([]);
   const [recentActivityHydrated, setRecentActivityHydrated] = useState(false);
   const toast = useToast();
@@ -523,6 +524,23 @@ export function useFactoryShell() {
     }
   }, [loadProjects, toast]);
 
+  const handleSetProjectWorkEnabled = useCallback(async (enabled) => {
+    setProjectWorkBusy(true);
+
+    try {
+      await factoryApi.setProjectWorkEnabled(enabled);
+      toast.success(enabled ? 'Factory project work enabled' : 'Factory project work disabled');
+      await Promise.all([
+        loadProjects({ silent: true }),
+        refreshLoopControl({ includeProjects: true }),
+      ]);
+    } catch (error) {
+      toast.error(`Failed to update factory project work: ${error.message}`);
+    } finally {
+      setProjectWorkBusy(false);
+    }
+  }, [loadProjects, refreshLoopControl, toast]);
+
   const handleRejectWorkItem = useCallback(async (itemId) => {
     setRejectingItemId(itemId);
 
@@ -570,6 +588,7 @@ export function useFactoryShell() {
     activeProjectAction,
     automationReadiness,
     handlePauseAll,
+    handleSetProjectWorkEnabled,
     handleToggleProject,
     idleDiagnosis,
     loadProjects,
@@ -617,6 +636,7 @@ export function useFactoryShell() {
     },
     pauseAllBusy,
     pausedProjects,
+    projectWorkBusy,
     projectActivity,
     projects,
     projectsError,

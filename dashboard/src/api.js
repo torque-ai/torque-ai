@@ -846,6 +846,11 @@ export const factory = {
   register: (data, opts = {}) => requestV2('/factory/projects', { method: 'POST', body: JSON.stringify(data), ...opts }),
   pause: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/pause`, { method: 'POST', ...opts }),
   resume: (projectId, opts = {}) => requestV2(`/factory/projects/${projectId}/resume`, { method: 'POST', ...opts }),
+  setProjectWorkEnabled: (enabled, opts = {}) => requestV2('/tasks/configure', {
+    method: 'POST',
+    body: JSON.stringify({ factory_project_work_enabled: Boolean(enabled) }),
+    ...opts,
+  }),
   intake: (projectId, params = {}, opts = {}) => requestV2(`/factory/projects/${projectId}/intake${buildQuery(params)}`, opts),
   createWorkItem: (projectId, data, opts = {}) => requestV2(`/factory/projects/${projectId}/intake`, { method: 'POST', body: JSON.stringify(data), ...opts }),
   rejectWorkItem: (itemId, reason, opts = {}) => requestV2(`/factory/intake/${itemId}/reject`, { method: 'POST', body: JSON.stringify({ reason }), ...opts }),

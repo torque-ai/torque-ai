@@ -289,6 +289,7 @@ export default function Factory() {
     activeProjectAction,
     automationReadiness,
     handlePauseAll,
+    handleSetProjectWorkEnabled,
     handleToggleProject,
     idleDiagnosis,
     loadProjects,
@@ -297,6 +298,7 @@ export default function Factory() {
     pauseAllBusy,
     pausedProjects,
     projectActivity,
+    projectWorkBusy,
     projects,
     projectsError,
     runningProjects,
@@ -305,6 +307,7 @@ export default function Factory() {
   } = useFactoryShell();
   const { refreshSelectedProject, selectedProjectId } = outletContext;
   const projectGroups = useMemo(() => groupProjectsForList(projects), [projects]);
+  const projectWorkEnabled = automationReadiness?.project_work_enabled !== false;
 
   const handleClearAutoRecovery = useCallback(async (project) => {
     if (!project?.id || clearRecoveryProjectId) {
@@ -388,6 +391,24 @@ export default function Factory() {
           >
             {loading ? 'Refreshing...' : 'Refresh'}
           </button>
+          {totalProjects > 0 && (
+            <button
+              type="button"
+              disabled={projectWorkBusy}
+              onClick={() => handleSetProjectWorkEnabled(!projectWorkEnabled)}
+              className={`inline-flex items-center justify-center rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                projectWorkEnabled
+                  ? 'border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20'
+                  : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20'
+              }`}
+            >
+              {projectWorkBusy
+                ? 'Updating...'
+                : projectWorkEnabled
+                ? 'Disable Project Work'
+                : 'Enable Project Work'}
+            </button>
+          )}
           {totalProjects > 0 && (
             <button
               type="button"
