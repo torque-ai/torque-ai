@@ -3313,15 +3313,87 @@ async function handleResetFactoryLoop(args) {
 }
 
 async function handleStartFactoryLoop(args) {
-  const project = resolveProject(args.project);
-  const disabled = blockWhenFactoryProjectWorkDisabled('start_factory_loop', project);
-  if (disabled) return disabled;
-  if (args.auto_advance === true) {
-    const result = loopController.startLoopAutoAdvanceForProject(project.id);
-    return jsonResponse(result);
+  try {
+    const project = resolveProject(args.project);
+    const disabled = blockWhenFactoryProjectWorkDisabled('start_factory_loop', project);
+    if (disabled) return disabled;
+    const autoAdvance = args.auto_advance === true;
+    const activeInstance = getProjectLevelLoopStartTarget(project.id);
+    if (activeInstance) {
+      return jsonResponse(buildProjectLevelLoopAlreadyActiveResult(project, activeInstance, { autoAdvance }));
+    }
+
+    try {
+      if (autoAdvance) {
+        const result = loopController.startLoopAutoAdvanceForProject(project.id);
+        return jsonResponse(result);
+      }
+      const result = await loopController.startLoopForProject(project.id);
+      return jsonResponse(result);
+    } catch (error) {
+      if (!isFactoryStageOccupiedError(error)) {
+        throw error;
+      }
+      const racedInstance = getProjectLevelLoopStartTarget(project.id);
+      if (!racedInstance) {
+        throw error;
+      }
+      return jsonResponse(buildProjectLevelLoopAlreadyActiveResult(project, racedInstance, { autoAdvance }));
+    }
+  } catch (error) {
+    return buildFactoryLoopErrorResponse(error);
   }
-  const result = await loopController.startLoopForProject(project.id);
-  return jsonResponse(result);
+}
+
+function isFactoryStageOccupiedError(error) {
+  return Boolean(
+    error
+      && (
+        error instanceof loopController.StageOccupiedError
+        || error.code === 'FACTORY_STAGE_OCCUPIED'
+      )
+  );
+}
+
+function getProjectLevelLoopStartTarget(projectId) {
+  return loopController.getActiveInstances(projectId)
+    .find((instance) => !instance.terminated_at) || null;
+}
+
+function buildProjectLevelLoopAlreadyActiveResult(project, instance, { autoAdvance = false } = {}) {
+  const result = {
+    project_id: project.id,
+    instance_id: instance.id,
+    state: instance.loop_state,
+    message: autoAdvance
+      ? 'Factory loop already active; auto-advance attached'
+      : 'Factory loop already active',
+    already_active: true,
+    auto_advance: autoAdvance,
+  };
+
+  if (instance.paused_at_stage) {
+    result.paused_at_stage = instance.paused_at_stage;
+  }
+
+  if (autoAdvance) {
+    try {
+      const advanceJob = loopController.advanceLoopAsync(instance.id, { autoAdvance: true });
+      result.advance_job_id = advanceJob.job_id;
+      result.advance_job_status = advanceJob.status;
+    } catch (error) {
+      result.message = 'Factory loop already active; auto-advance could not attach';
+      result.advance_blocked = true;
+      result.advance_blocked_reason = error instanceof Error ? error.message : String(error);
+      logger.info('Project-level factory loop start reused active loop without auto-advance', {
+        project_id: project.id,
+        instance_id: instance.id,
+        reason: result.advance_blocked_reason,
+      });
+    }
+  }
+
+  return result;
 }
 
 async function handleAwaitFactoryLoop(args) {

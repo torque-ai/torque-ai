@@ -13,9 +13,10 @@ const factoryDecisions = require('../db/factory/decisions');
 const factoryHealth = require('../db/factory/health');
 const factoryIntake = require('../db/factory/intake');
 const factoryLoopInstances = require('../db/factory/loop-instances');
+const factoryHandlers = require('../handlers/factory-handlers');
 const loopController = require('../factory/loop-controller');
 const { LOOP_STATES } = require('../factory/loop-states');
-const { FACTORY_V2_ROUTES } = require('../api/routes/factory-routes');
+const { FACTORY_V2_ROUTES, parseFactoryHandlerPayload } = require('../api/routes/factory-routes');
 const { defaultContainer } = require('../container');
 
 function createFactoryTables(db) {
@@ -237,6 +238,15 @@ async function invokeFactoryRoute(route, { params = {}, query = {}, body } = {})
   const res = createRouteResponse();
   await route.handler(req, res, { requestId: req.requestId, params, query });
   return { req, res, body: res._body };
+}
+
+async function invokeFactoryToolHandler(handler, args) {
+  const result = await handler(args);
+  return {
+    result,
+    res: { statusCode: Number.isInteger(result?.status) ? result.status : 200 },
+    body: { data: parseFactoryHandlerPayload(result) },
+  };
 }
 
 async function advanceLoopViaRest(instanceId) {
@@ -489,6 +499,65 @@ describe('factory loop pipeline parallelism', () => {
 
     expect(advanced.instance_id).toBe(oldest.id);
     expect(loopController.getLoopState(newest.instance_id).loop_state).toBe(LOOP_STATES.SENSE);
+  });
+
+  it('project-level start reuses an active loop while explicit instance start can still create parallel loops', async () => {
+    const project = registerProject();
+    createPlanWorkItem(project.id, tempDir, 'project-level-idempotent');
+
+    const instanceStartRoute = findFactoryRoute(
+      (route) => route.tool === 'start_factory_loop_instance',
+      'start_factory_loop_instance',
+    );
+
+    const first = await invokeFactoryToolHandler(factoryHandlers.handleStartFactoryLoop, {
+      project: project.id,
+      auto_advance: false,
+    });
+    expect(first.res.statusCode).toBe(200);
+    const firstInstanceId = first.body.data.instance_id;
+
+    const advanceSpy = vi.spyOn(loopController, 'advanceLoopAsync').mockReturnValue({
+      project_id: project.id,
+      instance_id: firstInstanceId,
+      job_id: 'job-existing-loop',
+      status: 'running',
+    });
+
+    let reused;
+    try {
+      reused = await invokeFactoryToolHandler(factoryHandlers.handleStartFactoryLoop, {
+        project: project.id,
+        auto_advance: true,
+      });
+    } finally {
+      advanceSpy.mockRestore();
+    }
+
+    expect(reused.res.statusCode).toBe(200);
+    expect(reused.body.data).toMatchObject({
+      project_id: project.id,
+      instance_id: firstInstanceId,
+      state: LOOP_STATES.SENSE,
+      already_active: true,
+      auto_advance: true,
+      advance_job_id: 'job-existing-loop',
+      advance_job_status: 'running',
+    });
+    expect(loopController.getActiveInstances(project.id)).toHaveLength(1);
+
+    const firstPrioritize = await advanceLoopViaRest(firstInstanceId);
+    expect(firstPrioritize.new_state).toBe(LOOP_STATES.PRIORITIZE);
+
+    const explicitParallel = await invokeFactoryRoute(instanceStartRoute, {
+      params: { project: project.id },
+    });
+    expect(explicitParallel.res.statusCode).toBe(200);
+    expect(explicitParallel.body.data.id).not.toBe(firstInstanceId);
+    expect(loopController.getActiveInstances(project.id).map((entry) => entry.id)).toEqual(expect.arrayContaining([
+      firstInstanceId,
+      explicitParallel.body.data.id,
+    ]));
   });
 
   it('drives three loop instances through the REST surface while preserving stage occupancy', async () => {
