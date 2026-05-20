@@ -49,11 +49,19 @@ function isPlanTestPath(filePath) {
     || /\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(filePath);
 }
 
+function isGeneratedPlannerArtifactPath(filePath) {
+  const normalized = String(filePath || '').trim().replace(/\\/g, '/').replace(/^\.\//, '');
+  return PLAN_RELATED_GENERATED_ARTIFACT_RE.test(normalized);
+}
+
 function collectArchitectHardScopeFiles(workItem) {
   const out = new Set();
   const push = (value) => {
     if (typeof value === 'string' && value.trim()) {
-      out.add(value.trim());
+      const trimmed = value.trim();
+      if (!isGeneratedPlannerArtifactPath(trimmed)) {
+        out.add(trimmed);
+      }
     }
   };
   const pushAll = (arr) => {
@@ -220,6 +228,7 @@ function discoverExistingFileAlternates(projectPath, missingPath, limit = 4) {
   const addCandidate = (rel, baseScore = 0) => {
     const normalized = normalizePlanProjectRelativePath(rel, null);
     if (!normalized || seen.has(normalized)) return;
+    if (isGeneratedPlannerArtifactPath(normalized)) return;
     const absolute = path.resolve(root, normalized);
     if (!absolute.startsWith(root + path.sep) && absolute !== root) return;
     if (!fs.existsSync(absolute)) return;
@@ -273,6 +282,7 @@ function discoverExistingFileAlternates(projectPath, missingPath, limit = 4) {
       visited += 1;
       if (!PLAN_RELATED_FILE_EXT_RE.test(entry.name)) continue;
       const rel = path.relative(root, absolute).replace(/\\/g, '/');
+      if (isGeneratedPlannerArtifactPath(rel)) continue;
       const candidateTokens = new Set(tokenizeReplacementPath(rel));
       let overlap = 0;
       for (const token of candidateTokens) {
@@ -349,6 +359,7 @@ function collectArchitectScopeDetails(workItem, projectPath = null) {
   const addScopeFile = (file, trustExisting = false) => {
     const normalized = normalizePlanProjectRelativePath(file, projectPath);
     if (!normalized) return;
+    if (isGeneratedPlannerArtifactPath(normalized)) return;
     if (!projectPath || trustExisting || projectFileExists(projectPath, normalized)) {
       verified.add(normalized);
     } else {
@@ -493,6 +504,7 @@ module.exports = {
   hasCandidatePathAffinity,
   shouldIncludeRelatedPlannerFile,
   findUniqueProjectFileByBasename,
+  isGeneratedPlannerArtifactPath,
   collectPriorMissingTargetFiles,
   discoverExistingFileAlternates,
   collectPriorMissingTargetResolutionHints,

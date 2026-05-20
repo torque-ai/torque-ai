@@ -152,7 +152,9 @@ describe('Phase G: ollama-friendly architect prompt', () => {
 
     expect(out).toContain('Remote validation is disabled for this project');
     expect(out).toContain('Do not write `torque-remote` commands');
+    expect(out).toContain('Do not write `dotnet test`');
     expect(out).toContain('runs the configured project verify command locally');
+    expect(out).toContain('prefer `git diff --check`');
     expect(out).toContain('Verification: run the configured project verify command locally');
     expect(out).toContain('Do not rely on the configured project verify command inside the plan.');
     expect(out).toContain('Prior feedback: remove the configured project verify command from task validation.');

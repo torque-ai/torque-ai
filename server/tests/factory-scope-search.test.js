@@ -14,6 +14,7 @@ const {
   hasCandidatePathAffinity,
   shouldIncludeRelatedPlannerFile,
   findUniqueProjectFileByBasename,
+  isGeneratedPlannerArtifactPath,
   collectPriorMissingTargetFiles,
   discoverExistingFileAlternates,
   collectPriorMissingTargetResolutionHints,
@@ -210,6 +211,11 @@ describe('scope-search', () => {
     test('is case-insensitive', () => {
       expect(PLAN_RELATED_GENERATED_ARTIFACT_RE.test('Docs/Findings/report.md')).toBe(true);
     });
+
+    test('exported helper matches generated planner artifacts', () => {
+      expect(isGeneratedPlannerArtifactPath('docs/superpowers/plans/auto-generated/123-task.md')).toBe(true);
+      expect(isGeneratedPlannerArtifactPath('docs/architecture/notes.md')).toBe(false);
+    });
   });
 
   // ========================================================================
@@ -254,6 +260,19 @@ describe('scope-search', () => {
       });
       const result = collectArchitectHardScopeFiles(wi);
       expect(result).toEqual(['valid.js']);
+    });
+
+    test('skips generated plan artifacts from allowed_files hard scope', () => {
+      const wi = makeWorkItem({
+        origin: {
+          allowed_files: [
+            'docs/superpowers/plans/auto-generated/2052-stale-plan.md',
+            'tools/validate_udp_packet_contract_tests.py',
+          ],
+        },
+      });
+      const result = collectArchitectHardScopeFiles(wi);
+      expect(result).toEqual(['tools/validate_udp_packet_contract_tests.py']);
     });
   });
 
@@ -566,6 +585,37 @@ describe('scope-search', () => {
       const result = discoverExistingFileAlternates(tmpDir, 'server/scope-missing.js', 2);
       expect(result.length).toBeLessThanOrEqual(2);
     });
+
+    test('does not suggest generated plan artifacts as replacement targets', () => {
+      makeFsTree(tmpDir, {
+        docs: {
+          superpowers: {
+            plans: {
+              'auto-generated': {
+                '2052-dlphone-udp-packet-contract-discoverability-guard.md': '# stale plan\n',
+              },
+            },
+          },
+        },
+        tools: {
+          'validate_udp_packet_contract_tests.py': '',
+        },
+        simtests: {
+          Netcode: {
+            'UdpPacketContractDiscoverabilityTests.cs': '',
+          },
+        },
+      });
+      const result = discoverExistingFileAlternates(
+        tmpDir,
+        'docs/superpowers/plans/auto-generated/666-harden-udp-packet-contract-regression-coverage-around-sessionid-offset-and-comma.md',
+      );
+      expect(result).not.toContain('docs/superpowers/plans/auto-generated/2052-dlphone-udp-packet-contract-discoverability-guard.md');
+      expect(result).toEqual(expect.arrayContaining([
+        'tools/validate_udp_packet_contract_tests.py',
+        'simtests/Netcode/UdpPacketContractDiscoverabilityTests.cs',
+      ]));
+    });
   });
 
   // ========================================================================
@@ -748,6 +798,55 @@ describe('scope-search', () => {
       const details = collectArchitectScopeDetails(wi, null);
       // Without a project path, all files go to scopeFiles (trustExisting for origin)
       expect(details.scopeFiles).toContain('server/foo.js');
+    });
+
+    test('does not advertise stale generated plan docs as scope or candidates', () => {
+      makeFsTree(tmpDir, {
+        docs: {
+          superpowers: {
+            plans: {
+              'auto-generated': {
+                '2052-dlphone-udp-packet-contract-discoverability-guard.md': '# generated\n',
+              },
+            },
+          },
+        },
+        tools: {
+          'validate_udp_packet_contract_tests.py': '',
+        },
+        simtests: {
+          Netcode: {
+            'UdpPacketContractDiscoverabilityTests.cs': '',
+          },
+        },
+      });
+      const wi = makeWorkItem({
+        title: 'Dlphone udp packet contract discoverability guard',
+        description: [
+          'C# coverage already exists; only the optional Python discoverability guard is absent.',
+          'Allowed files: docs/superpowers/plans/auto-generated/666-harden-udp-packet-contract-regression-coverage-around-sessionid-offset-and-comma.md',
+        ].join('\n'),
+        origin: {
+          allowed_files: [
+            'docs/superpowers/plans/auto-generated/666-harden-udp-packet-contract-regression-coverage-around-sessionid-offset-and-comma.md',
+          ],
+          last_gate_feedback: [
+            'Task edits missing target file(s): docs/superpowers/plans/auto-generated/666-harden-udp-packet-contract-regression-coverage-around-sessionid-offset-and-comma.md.',
+          ].join('\n'),
+        },
+      });
+      const details = collectArchitectScopeDetails(wi, tmpDir);
+      const combined = [
+        ...details.scopeFiles,
+        ...details.candidateFiles,
+        ...details.hardScopeFiles,
+        ...details.relatedFiles,
+      ].join('\n');
+      expect(combined).not.toContain('docs/superpowers/plans/auto-generated');
+      expect(details.relatedFiles).toEqual(expect.arrayContaining([
+        'tools/validate_udp_packet_contract_tests.py',
+        'simtests/Netcode/UdpPacketContractDiscoverabilityTests.cs',
+      ]));
     });
   });
 
