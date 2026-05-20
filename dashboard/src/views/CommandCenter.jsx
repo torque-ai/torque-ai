@@ -147,6 +147,63 @@ const STATUS_COLUMNS = [
   { id: 'cancelled', label: 'Cancelled', color: 'bg-amber-500', dotColor: 'bg-amber-400' },
 ];
 
+const STATUS_LABELS = STATUS_COLUMNS.reduce((labels, column) => {
+  labels[column.id] = column.label;
+  return labels;
+}, {});
+
+const STATUS_BADGE_CLASSES = {
+  pending_approval: 'border-yellow-500/40 bg-yellow-500/10 text-yellow-200',
+  pending_provider_switch: 'border-orange-500/40 bg-orange-500/10 text-orange-200',
+  running: 'border-blue-500/40 bg-blue-500/10 text-blue-200',
+  queued: 'border-slate-500/40 bg-slate-500/10 text-slate-200',
+  failed: 'border-red-500/40 bg-red-500/10 text-red-200',
+  completed: 'border-green-500/40 bg-green-500/10 text-green-200',
+  cancelled: 'border-amber-500/40 bg-amber-500/10 text-amber-200',
+};
+
+const BRIEF_TONE_STYLES = {
+  critical: {
+    rail: 'border-l-red-500',
+    dot: 'bg-red-400',
+    text: 'text-red-200',
+    glow: 'shadow-[0_0_28px_rgba(239,68,68,0.12)]',
+  },
+  waiting: {
+    rail: 'border-l-orange-500',
+    dot: 'bg-orange-400',
+    text: 'text-orange-200',
+    glow: 'shadow-[0_0_28px_rgba(249,115,22,0.12)]',
+  },
+  active: {
+    rail: 'border-l-cyan-500',
+    dot: 'bg-cyan-400',
+    text: 'text-cyan-200',
+    glow: 'shadow-[0_0_28px_rgba(34,211,238,0.10)]',
+  },
+  healthy: {
+    rail: 'border-l-emerald-500',
+    dot: 'bg-emerald-400',
+    text: 'text-emerald-200',
+    glow: 'shadow-[0_0_28px_rgba(16,185,129,0.10)]',
+  },
+  idle: {
+    rail: 'border-l-slate-500',
+    dot: 'bg-slate-500',
+    text: 'text-slate-300',
+    glow: '',
+  },
+};
+
+const FACTORY_KIND_LABELS = {
+  architect_cycle: 'architect',
+  architect_json: 'architect',
+  architect_backlog: 'architect',
+  plan_generation: 'plan-gen',
+  verify_review: 'verify-review',
+  scout: 'scout',
+};
+
 function formatElapsed(startedAt, now = Date.now()) {
   if (!startedAt) return null;
   const secs = Math.floor((now - new Date(startedAt).getTime()) / 1000);
@@ -176,6 +233,18 @@ function getTaskTagValue(task, prefix) {
   const tags = Array.isArray(task?.tags) ? task.tags : [];
   const matchingTag = tags.find((tag) => typeof tag === 'string' && tag.startsWith(`${prefix}=`));
   return matchingTag ? matchingTag.slice(prefix.length + 1) : null;
+}
+
+function getFactoryTaskKind(task) {
+  const tags = Array.isArray(task?.tags) ? task.tags : [];
+  for (const tag of tags) {
+    if (typeof tag !== 'string' || !tag.startsWith('factory:')) continue;
+    const rest = tag.slice('factory:'.length);
+    if (rest.includes('=')) continue;
+    const label = FACTORY_KIND_LABELS[rest];
+    if (label) return label;
+  }
+  return null;
 }
 
 function getTaskActivityTarget(task) {
@@ -323,6 +392,211 @@ function getTaskDurationNode(task) {
   return <span className="text-slate-600">--</span>;
 }
 
+function formatDurationLabel(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '--';
+  if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return `${seconds}s`;
+}
+
+function getTaskDurationLabel(task, now = Date.now()) {
+  if (task.status === 'running' && task.started_at) {
+    return formatDurationLabel(Math.floor((now - new Date(task.started_at).getTime()) / 1000));
+  }
+  if ((task.status === 'queued' || task.status === 'pending_approval' || task.status === 'pending_provider_switch') && task.created_at) {
+    return formatDurationLabel(Math.floor((now - new Date(task.created_at).getTime()) / 1000));
+  }
+  if (task.started_at && task.completed_at) {
+    return formatDurationLabel(Math.max(0, Math.floor((new Date(task.completed_at).getTime() - new Date(task.started_at).getTime()) / 1000)));
+  }
+  return '--';
+}
+
+function getStatusLabel(status) {
+  return STATUS_LABELS[status] || status?.replace(/_/g, ' ') || 'Unknown';
+}
+
+function getStatusBadgeClass(status) {
+  return STATUS_BADGE_CLASSES[status] || 'border-slate-500/40 bg-slate-500/10 text-slate-200';
+}
+
+function asCount(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatCount(value) {
+  return asCount(value).toLocaleString();
+}
+
+function getCountByStatus(countByStatus, status) {
+  return asCount(countByStatus?.[status]);
+}
+
+function getLatestTask(tasks) {
+  return [...(tasks || [])].sort((left, right) => (
+    getLatestTaskActivityTimestamp(right) - getLatestTaskActivityTimestamp(left)
+  ))[0] || null;
+}
+
+function getTaskLogContext(task) {
+  const context = [];
+  const factoryKind = getFactoryTaskKind(task);
+  const targetProject = getTaskTagValue(task, 'factory:target_project');
+  const batchId = getTaskTagValue(task, 'factory:batch_id');
+  const testTag = Array.isArray(task.tags) && task.tags.find(t => t.startsWith('tests:'));
+
+  if (factoryKind) context.push(factoryKind);
+  if (targetProject && targetProject !== task.project) context.push(`to ${targetProject}`);
+  if (batchId) context.push(`batch ${batchId}`);
+  if (task.quality_score != null) context.push(`Q:${Math.round(task.quality_score)}`);
+  if (testTag) context.push(testTag.replace(':', ' '));
+  if (task.status === 'failed' && task.exit_code != null) context.push(`exit ${task.exit_code}`);
+  if (task.status === 'cancelled' && task.cancel_reason) context.push(task.cancel_reason.replace(/_/g, '-'));
+
+  return context.slice(0, 3);
+}
+
+function getFocusReason(task, stuckTaskIds = new Set()) {
+  if (stuckTaskIds.has(task.id)) return 'Running >30m';
+  if (task.status === 'failed') return 'Failed';
+  if (task.status === 'pending_approval') return 'Approval';
+  if (task.status === 'pending_provider_switch') return 'Provider switch';
+  return null;
+}
+
+function buildFocusTasks(tasks, stuckRunningTasks) {
+  const priority = {
+    Failed: 0,
+    'Running >30m': 1,
+    Approval: 2,
+    'Provider switch': 3,
+  };
+  const stuckTaskIds = new Set((stuckRunningTasks || []).map((task) => task.id));
+  return (tasks || [])
+    .map((task) => ({ task, reason: getFocusReason(task, stuckTaskIds) }))
+    .filter((entry) => entry.reason)
+    .sort((left, right) => {
+      const priorityDelta = (priority[left.reason] ?? 99) - (priority[right.reason] ?? 99);
+      if (priorityDelta !== 0) return priorityDelta;
+      return getLatestTaskActivityTimestamp(right.task) - getLatestTaskActivityTimestamp(left.task);
+    });
+}
+
+function buildCommandBrief({
+  countByStatus,
+  effectiveOverview,
+  filteredTasks,
+  selectedProject,
+  searchQuery,
+  stuckTasks,
+  stuckRunningTasks,
+  factoryLoopControl,
+  qualityStats,
+}) {
+  const failed = getCountByStatus(countByStatus, 'failed');
+  const running = getCountByStatus(countByStatus, 'running');
+  const queued = getCountByStatus(countByStatus, 'queued');
+  const completed = getCountByStatus(countByStatus, 'completed');
+  const approvals = getCountByStatus(countByStatus, 'pending_approval');
+  const switches = getCountByStatus(countByStatus, 'pending_provider_switch');
+  const manualGates = approvals + switches;
+  const longRunning = (stuckRunningTasks || []).length;
+  const reportedAttention = asCount(stuckTasks?.total_needs_attention);
+  const attention = Math.max(reportedAttention, manualGates + longRunning);
+  const actionLoad = attention + failed;
+  const activeWork = running + queued;
+  const todayTotal = asCount(effectiveOverview?.today?.total);
+  const todayCompleted = asCount(effectiveOverview?.today?.completed);
+  const todayFailed = asCount(effectiveOverview?.today?.failed);
+  const successRate = asCount(effectiveOverview?.today?.successRate ?? effectiveOverview?.today?.success_rate);
+  const scopeLabel = selectedProject || (searchQuery ? 'Search results' : 'All projects');
+  const scoped = Boolean(selectedProject || searchQuery);
+  const latestTask = getLatestTask(filteredTasks);
+  const loopProject = factoryLoopControl.selectedProject?.name || selectedProject || 'No project';
+  const loopState = factoryLoopControl.loopStatus?.loop_state || factoryLoopControl.selectedProject?.loop_state || 'Idle';
+
+  let tone = 'idle';
+  let title = 'Quiet command center';
+  let detail = 'No visible work is moving right now.';
+  let nextAction = selectedProject ? 'Submit or queue work' : 'Choose a project';
+
+  if (failed > 0 || longRunning > 0) {
+    tone = 'critical';
+    title = 'Attention needed';
+    detail = `${formatCount(failed)} failed, ${formatCount(manualGates)} gate, ${formatCount(longRunning)} long-running.`;
+    nextAction = failed > 0 ? 'Retry failed tasks' : longRunning > 0 ? 'Inspect long-running tasks' : 'Review gates';
+  } else if (manualGates > 0) {
+    tone = 'waiting';
+    title = 'Operator decision queued';
+    detail = `${formatCount(approvals)} approval and ${formatCount(switches)} provider switch waiting.`;
+    nextAction = 'Review pending gates';
+  } else if (activeWork > 0) {
+    tone = 'active';
+    title = 'Work is moving';
+    detail = `${formatCount(running)} running and ${formatCount(queued)} queued in this scope.`;
+    nextAction = queued > running * 3 && queued > 3 ? 'Watch queue pressure' : 'Monitor active work';
+  } else if ((scoped ? completed : todayTotal) > 0) {
+    tone = 'healthy';
+    title = 'Throughput is healthy';
+    detail = scoped
+      ? `${formatCount(completed)} completed tasks in the current Command Center window.`
+      : `${formatCount(todayCompleted)} completed today with ${formatCount(todayFailed)} failed.`;
+    nextAction = 'Keep monitoring';
+  }
+
+  const throughputValue = scoped ? completed : todayTotal;
+  const throughputSubtext = scoped
+    ? `${formatCount(failed)} failed in view`
+    : `${formatCount(successRate)}% success today`;
+
+  return {
+    tone,
+    title,
+    detail,
+    nextAction,
+    scopeLabel,
+    chips: [
+      `${formatCount(activeWork)} active`,
+      `${formatCount(actionLoad)} attention`,
+      `Loop ${loopState}`,
+      qualityStats?.overall?.avgScore != null ? `Q:${Math.round(qualityStats.overall.avgScore)}` : null,
+    ].filter(Boolean),
+    metrics: [
+      {
+        label: scoped ? 'In View' : 'Throughput',
+        value: scoped ? `${formatCount(throughputValue)} done` : `${formatCount(throughputValue)} today`,
+        subtext: throughputSubtext,
+      },
+      {
+        label: 'Attention',
+        value: `${formatCount(actionLoad)} open`,
+        subtext: `${formatCount(manualGates)} gates, ${formatCount(failed)} failed`,
+      },
+      {
+        label: 'In Motion',
+        value: `${formatCount(activeWork)} active`,
+        subtext: `${formatCount(running)} running, ${formatCount(queued)} queued`,
+      },
+      {
+        label: 'Loop',
+        value: loopState,
+        subtext: loopProject,
+      },
+      {
+        label: 'Latest',
+        value: latestTask ? formatActivityTimestamp(latestTask) : '--',
+        subtext: latestTask ? getStatusLabel(latestTask.status) : 'No recent task',
+      },
+      {
+        label: 'Scope',
+        value: scopeLabel,
+        subtext: `${formatCount((filteredTasks || []).length)} visible tasks`,
+      },
+    ],
+  };
+}
+
 function chooseDefaultProjectName(projects, selectedFactoryProject) {
   if (selectedFactoryProject?.name) return selectedFactoryProject.name;
   const candidates = Array.isArray(projects) ? projects : [];
@@ -372,25 +646,7 @@ const TaskCard = memo(function TaskCard({
   // verify_review) or the scout submission path (scout). Surfaces the
   // role of the task on the card so operators don't have to read the
   // description to tell architect tasks from plan-gen tasks.
-  const FACTORY_KIND_LABELS = {
-    architect_cycle: 'architect',
-    architect_json: 'architect',
-    architect_backlog: 'architect',
-    plan_generation: 'plan-gen',
-    verify_review: 'verify-review',
-    scout: 'scout',
-  };
-  const factoryKind = (() => {
-    const tags = Array.isArray(task?.tags) ? task.tags : [];
-    for (const tag of tags) {
-      if (typeof tag !== 'string' || !tag.startsWith('factory:')) continue;
-      const rest = tag.slice('factory:'.length);
-      if (rest.includes('=')) continue;
-      const label = FACTORY_KIND_LABELS[rest];
-      if (label) return label;
-    }
-    return null;
-  })();
+  const factoryKind = getFactoryTaskKind(task);
   const providerOptions = useMemo(
     () => buildProviderOptions(providerList, task.provider),
     [providerList, task.provider]
@@ -859,6 +1115,107 @@ const NeedsAttentionCard = memo(function NeedsAttentionCard({ task, reason, onOp
   );
 });
 
+const FocusTaskRow = memo(function FocusTaskRow({ task, reason, onOpenDrawer }) {
+  const shortId = task.id?.substring(0, 8) || 'unknown';
+  const provider = getRelevantModel(task.provider, task.model)
+    ? `${task.provider || 'provider'} · ${getRelevantModel(task.provider, task.model)}`
+    : task.provider || 'provider';
+  const context = getTaskLogContext(task);
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpenDrawer?.(task.id)}
+      className="grid w-full grid-cols-[92px_minmax(0,1fr)_116px] items-center gap-3 border-t border-slate-700/60 px-0 py-2 text-left text-xs transition-colors first:border-t-0 hover:bg-slate-800/70 focus:bg-slate-800/70"
+      aria-label={`Open task ${shortId}: ${task.task_description || reason}`}
+      title={task.task_description || shortId}
+    >
+      <span className={`min-w-0 truncate rounded-full border px-2 py-1 text-[11px] font-medium ${getStatusBadgeClass(task.status)}`}>
+        {reason}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-slate-100">{task.task_description || 'No description'}</span>
+        <span className="mt-0.5 block truncate text-[11px] text-slate-500">
+          <code className="font-mono">{shortId}</code>
+          {context.length > 0 && <> · {context.join(' · ')}</>}
+        </span>
+      </span>
+      <span className="min-w-0 text-right">
+        <span className="block truncate text-slate-400">{provider}</span>
+        <span className="block font-mono text-[11px] text-slate-500">{getTaskDurationLabel(task)}</span>
+      </span>
+    </button>
+  );
+});
+
+const OperatorBrief = memo(function OperatorBrief({ brief, focusTasks, onOpenDrawer }) {
+  const tone = BRIEF_TONE_STYLES[brief.tone] || BRIEF_TONE_STYLES.idle;
+
+  return (
+    <section
+      aria-label="Command Center briefing"
+      className={`mb-4 overflow-hidden rounded-lg border border-slate-700 bg-slate-900/70 ${tone.glow}`}
+    >
+      <div className={`border-l-4 ${tone.rail} p-4`}>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full ${tone.dot}`} />
+              <p className={`text-xs font-semibold uppercase ${tone.text}`}>Command Brief</p>
+              <span className="min-w-0 truncate rounded-full border border-slate-700 bg-slate-800/70 px-2 py-0.5 text-xs text-slate-400">
+                {brief.scopeLabel}
+              </span>
+            </div>
+            <h2 className="mt-2 text-xl font-semibold text-white">{brief.title}</h2>
+            <p className="mt-1 max-w-3xl text-sm text-slate-400">{brief.detail}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className={`rounded-full border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs font-medium ${tone.text}`}>
+                Next: {brief.nextAction}
+              </span>
+              {brief.chips.map((chip) => (
+                <span key={chip} className="rounded-full border border-slate-700 bg-slate-800/60 px-2.5 py-1 text-xs text-slate-400">
+                  {chip}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-3">
+            {brief.metrics.map((metric) => (
+              <div key={metric.label} className="min-w-0 border-l border-slate-700/70 pl-3">
+                <p className="text-[11px] font-medium uppercase text-slate-500">{metric.label}</p>
+                <p className="mt-1 truncate text-lg font-semibold text-white" title={String(metric.value)}>
+                  {metric.value}
+                </p>
+                <p className="mt-0.5 truncate text-xs text-slate-500" title={metric.subtext}>{metric.subtext}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {focusTasks.length > 0 && (
+          <div className="mt-4 border-t border-slate-700/70 pt-3">
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase text-slate-500">Live Signals</p>
+              <span className="text-xs text-slate-600">{focusTasks.length} in scope</span>
+            </div>
+            <div>
+              {focusTasks.slice(0, 4).map(({ task, reason }) => (
+                <FocusTaskRow
+                  key={task.id}
+                  task={task}
+                  reason={reason}
+                  onOpenDrawer={onOpenDrawer}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+});
+
 const RunningLog = memo(function RunningLog({ tasks, selectedProject, onOpenDrawer }) {
   const logTasks = useMemo(() => [...tasks].sort((left, right) => (
     getLatestTaskActivityTimestamp(right) - getLatestTaskActivityTimestamp(left)
@@ -888,27 +1245,32 @@ const RunningLog = memo(function RunningLog({ tasks, selectedProject, onOpenDraw
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <ul role="list" aria-label="Running Log" className="min-w-[720px] divide-y divide-slate-700/70">
+          <ul role="list" aria-label="Running Log" className="min-w-[920px] divide-y divide-slate-700/70">
             {logTasks.map((task) => {
               const shortId = task.id?.substring(0, 8) || 'unknown';
               const model = getRelevantModel(task.provider, task.model);
               const providerLabel = `${task.provider || 'provider'}${model ? ` · ${model}` : ''}`;
               const signal = getTaskSignal(task);
+              const context = getTaskLogContext(task);
               return (
                 <li key={task.id} role="listitem">
                   <button
                     type="button"
                     onClick={() => onOpenDrawer?.(task.id)}
-                    className="grid w-full grid-cols-[78px_108px_82px_minmax(0,1fr)_120px_112px] items-center gap-3 px-4 py-2 text-left text-xs transition-colors hover:bg-slate-700/40 focus:bg-slate-700/40"
+                    className="grid w-full grid-cols-[78px_118px_82px_minmax(260px,1fr)_136px_130px_112px] items-center gap-3 px-4 py-2 text-left text-xs transition-colors hover:bg-slate-700/40 focus:bg-slate-700/40"
                     title={task.task_description || shortId}
+                    aria-label={`Open ${getStatusLabel(task.status)} task ${shortId}: ${task.task_description || 'No description'}`}
                   >
                     <span className="font-mono text-slate-500">{formatActivityTimestamp(task)}</span>
-                    <span className="min-w-0 truncate rounded-full border border-slate-600 bg-slate-900/70 px-2 py-1 text-[11px] font-medium text-slate-200">
-                      {task.status?.replace(/_/g, ' ') || 'unknown'}
+                    <span className={`min-w-0 truncate rounded-full border px-2 py-1 text-[11px] font-medium ${getStatusBadgeClass(task.status)}`}>
+                      {getStatusLabel(task.status)}
                     </span>
                     <code className="font-mono text-slate-500">{shortId}</code>
                     <span className="min-w-0 truncate text-slate-100">
                       {task.task_description || 'No description'}
+                    </span>
+                    <span className="min-w-0 truncate text-slate-500">
+                      {context.length > 0 ? context.join(' · ') : 'No extra signal'}
                     </span>
                     <span className="min-w-0 truncate text-slate-400">{providerLabel}</span>
                     <span className="flex min-w-0 items-center justify-end gap-2">
@@ -1567,6 +1929,39 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
     }
   }
 
+  const focusTasks = useMemo(
+    () => buildFocusTasks(filteredTasks, stuckRunningTasks),
+    [filteredTasks, stuckRunningTasks]
+  );
+
+  const commandBrief = useMemo(() => buildCommandBrief({
+    countByStatus,
+    effectiveOverview,
+    filteredTasks,
+    selectedProject,
+    searchQuery,
+    stuckTasks,
+    stuckRunningTasks,
+    factoryLoopControl,
+    qualityStats,
+  }), [
+    countByStatus,
+    effectiveOverview,
+    factoryLoopControl,
+    filteredTasks,
+    qualityStats,
+    searchQuery,
+    selectedProject,
+    stuckRunningTasks,
+    stuckTasks,
+  ]);
+
+  const todayTotal = effectiveOverview?.today?.total || 0;
+  const yesterdayTotal = effectiveOverview?.yesterday?.total || 0;
+  const todayTrend = yesterdayTotal > 0
+    ? Math.round(((todayTotal - yesterdayTotal) / yesterdayTotal) * 100)
+    : null;
+
   if (loading) {
     return (
       <div className="flex">
@@ -1601,12 +1996,6 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
       </div>
     );
   }
-
-  const todayTotal = effectiveOverview?.today?.total || 0;
-  const yesterdayTotal = effectiveOverview?.yesterday?.total || 0;
-  const todayTrend = yesterdayTotal > 0
-    ? Math.round(((todayTotal - yesterdayTotal) / yesterdayTotal) * 100)
-    : null;
 
   return (
     <div className="flex">
@@ -1660,6 +2049,12 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
           </div>
         </div>
       )}
+
+      <OperatorBrief
+        brief={commandBrief}
+        focusTasks={focusTasks}
+        onOpenDrawer={onOpenDrawer}
+      />
 
       <section className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">

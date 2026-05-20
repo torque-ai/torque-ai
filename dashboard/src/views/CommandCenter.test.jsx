@@ -93,6 +93,19 @@ const pendingApprovalTask = {
   provider: 'codex',
   created_at: '2026-01-15T10:00:00Z',
 };
+const failedTask = {
+  id: 'task-fail-1',
+  status: 'failed',
+  task_description: 'Failed deploy verification task',
+  project: 'alpha',
+  provider: 'codex',
+  exit_code: 1,
+  started_at: '2026-01-15T10:00:00Z',
+  completed_at: '2026-01-15T10:03:00Z',
+  created_at: '2026-01-15T09:59:00Z',
+  quality_score: 42,
+  tags: ['tests:fail:2'],
+};
 const mockOverview = {
   today: { total: 15, completed: 12, failed: 3, successRate: 80 },
   yesterday: { total: 10 },
@@ -321,6 +334,49 @@ describe('CommandCenter', () => {
     fireEvent.click(dailyButton);
 
     expect(localStorage.getItem('torque-command-center-activity-view')).toBe('daily');
+  });
+
+  it('renders an operator brief with next action and clickable live signals', async () => {
+    setStorageValue('torque-command-center-project', 'alpha');
+    const onOpenDrawer = vi.fn();
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'failed') return Promise.resolve({ tasks: [failedTask], total: 1 });
+      if (status === 'running') return Promise.resolve({ tasks: [runningTask], total: 1 });
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<CommandCenter onOpenDrawer={onOpenDrawer} />, { route: '/' });
+
+    const brief = await screen.findByRole('region', { name: 'Command Center briefing' });
+    expect(within(brief).getByText('Attention needed')).toBeInTheDocument();
+    expect(within(brief).getByText('Next: Retry failed tasks')).toBeInTheDocument();
+    expect(within(brief).getByText(/Q:42/)).toBeInTheDocument();
+
+    const signal = within(brief).getByRole('button', { name: /Failed deploy verification task/ });
+    fireEvent.click(signal);
+    expect(onOpenDrawer).toHaveBeenCalledWith('task-fail-1');
+  });
+
+  it('renders running log rows with concise operational context', async () => {
+    setStorageValue('torque-command-center-view', 'log');
+    setStorageValue('torque-command-center-project', 'alpha');
+    const onOpenDrawer = vi.fn();
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'failed') return Promise.resolve({ tasks: [failedTask], total: 1 });
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<CommandCenter onOpenDrawer={onOpenDrawer} />, { route: '/' });
+
+    const log = await screen.findByRole('list', { name: 'Running Log' });
+    expect(within(log).getByText('Failed')).toBeInTheDocument();
+    expect(within(log).getByText('Failed deploy verification task')).toBeInTheDocument();
+    expect(within(log).getByText(/Q:42/)).toBeInTheDocument();
+    expect(within(log).getByText(/exit 1/)).toBeInTheDocument();
+    expect(within(log).getByText('Retryable failure')).toBeInTheDocument();
+
+    fireEvent.click(within(log).getByRole('button', { name: /Failed deploy verification task/ }));
+    expect(onOpenDrawer).toHaveBeenCalledWith('task-fail-1');
   });
 
   it('renders a concise project-scoped running log with clickable rows', async () => {
