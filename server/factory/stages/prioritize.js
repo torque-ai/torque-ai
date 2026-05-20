@@ -123,6 +123,9 @@ function createPrioritizeStage(deps = {}) {
       : await claimNextWorkItemForInstance(project.id, instance.id);
     const openItems = claimResult.openItems;
     const workItem = claimResult.workItem;
+    const coolingNeedsReplanItems = Array.isArray(claimResult.coolingNeedsReplanItems)
+      ? claimResult.coolingNeedsReplanItems
+      : [];
 
     safeLogDecision({
       project_id: project.id,
@@ -142,6 +145,21 @@ function createPrioritizeStage(deps = {}) {
     if (!workItem) {
       clearSelectedWorkItem(instance.id);
       updateInstanceAndSync(instance.id, { work_item_id: null });
+      if (coolingNeedsReplanItems.length > 0) {
+        const nextReadyMs = Math.min(...coolingNeedsReplanItems
+          .map((item) => Number(item.remaining_ms))
+          .filter((value) => Number.isFinite(value)));
+        return {
+          work_item: null,
+          reason: 'needs_replan_cooling',
+          stage_result: {
+            status: 'needs_replan_cooling',
+            cooling_count: coolingNeedsReplanItems.length,
+            next_ready_ms: Number.isFinite(nextReadyMs) ? nextReadyMs : null,
+            cooling_work_item_ids: coolingNeedsReplanItems.map((item) => item.id),
+          },
+        };
+      }
       return {
         work_item: null,
         reason: 'no open work item selected',
@@ -302,6 +320,34 @@ function createPrioritizeStage(deps = {}) {
     transitionReason = prioritizeStage?.reason || null;
 
     if (!prioritizeStage?.work_item) {
+      if (stageResult?.status === 'needs_replan_cooling') {
+        setConsecutiveEmptyCycles(project.id, 0);
+        const updatedInstance = terminateInstanceAndSync(instance.id);
+        safeLogDecision({
+          project_id: project.id,
+          stage: LOOP_STATES.PRIORITIZE,
+          action: 'needs_replan_cooldown_wait',
+          reasoning: 'PRIORITIZE found only needs_replan work items still inside cooldown; waiting for the next tick instead of treating intake as empty.',
+          outcome: {
+            reason: 'needs_replan_cooling',
+            from_state: currentState,
+            to_state: LOOP_STATES.IDLE,
+            cooling_count: stageResult.cooling_count,
+            next_ready_ms: stageResult.next_ready_ms,
+            cooling_work_item_ids: stageResult.cooling_work_item_ids,
+          },
+          confidence: 1,
+          batch_id: getDecisionBatchId(project, null, null, updatedInstance),
+        });
+        return {
+          instance: updatedInstance,
+          transitionWorkItem: null,
+          stageResult,
+          transitionReason: 'needs_replan_cooling',
+          nextState: LOOP_STATES.IDLE,
+        };
+      }
+
       const consecutiveEmptyCycles = incrementConsecutiveEmptyCycles(project);
       const nextState = consecutiveEmptyCycles >= STARVATION_THRESHOLD
         ? LOOP_STATES.STARVED

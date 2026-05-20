@@ -180,4 +180,77 @@ describe('PRIORITIZE short-circuit on empty intake', () => {
       threshold: 3,
     });
   });
+
+  it('waits for cooling needs_replan-only intake without counting it as empty', async () => {
+    const project = factoryHealth.registerProject({
+      name: 'cooling-needs-replan-project',
+      path: `${process.cwd()}\\cooling-replan`,
+      trust_level: 'dark',
+    });
+    factoryHealth.updateProject(project.id, {
+      status: 'running',
+      consecutive_empty_cycles: 2,
+    });
+    const workItem = factoryIntake.createWorkItem({
+      project_id: project.id,
+      source: 'scout',
+      title: 'Cooling needs replan item',
+      description: 'This item is cooling down before another plan attempt.',
+      priority: 80,
+      status: 'needs_replan',
+    });
+    db.prepare('UPDATE factory_work_items SET updated_at = ? WHERE id = ?')
+      .run('2026-05-20 17:53:13', workItem.id);
+    const instance = factoryLoopInstances.createInstance({ project_id: project.id });
+    const prioritizeInstance = factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.PRIORITIZE,
+    });
+    const planSpy = vi.spyOn(loopController._internalForTests, 'executePlanStage');
+    const dateNowSpy = vi.spyOn(Date, 'now')
+      .mockReturnValue(Date.parse('2026-05-20T17:54:42.000Z'));
+
+    try {
+      const result = await loopController._internalForTests.handlePrioritizeTransition({
+        project: factoryHealth.getProject(project.id),
+        instance: prioritizeInstance,
+        currentState: LOOP_STATES.PRIORITIZE,
+      });
+
+      expect(planSpy).not.toHaveBeenCalled();
+      expect(result.transitionReason).toBe('needs_replan_cooling');
+      expect(result.nextState).toBe(LOOP_STATES.IDLE);
+      expect(result.stageResult).toMatchObject({
+        status: 'needs_replan_cooling',
+        cooling_count: 1,
+        cooling_work_item_ids: [workItem.id],
+      });
+      expect(factoryLoopInstances.getInstance(instance.id).loop_state).toBe(LOOP_STATES.IDLE);
+      expect(factoryHealth.getProject(project.id).consecutive_empty_cycles).toBe(0);
+      expect(factoryIntake.getWorkItem(workItem.id)).toMatchObject({
+        status: 'needs_replan',
+        claimed_by_instance_id: null,
+      });
+
+      const waitDecision = db.prepare(`
+        SELECT action, outcome_json
+        FROM factory_decisions
+        WHERE action = 'needs_replan_cooldown_wait'
+      `).get();
+      expect(waitDecision).toBeTruthy();
+      expect(JSON.parse(waitDecision.outcome_json)).toMatchObject({
+        reason: 'needs_replan_cooling',
+        from_state: LOOP_STATES.PRIORITIZE,
+        to_state: LOOP_STATES.IDLE,
+        cooling_count: 1,
+        cooling_work_item_ids: [workItem.id],
+      });
+      expect(db.prepare(`
+        SELECT action
+        FROM factory_decisions
+        WHERE action IN ('short_circuit_to_idle', 'entered_starved')
+      `).all()).toEqual([]);
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
 });

@@ -3340,6 +3340,7 @@ async function claimNextWorkItemForInstance(project_id, instance_id) {
 
   const maxRepicks = Math.max(1, (promotionConfig?.stale_max_repicks) || 3);
   const skipped = [];
+  const coolingNeedsReplanItems = [];
   let staleProbeBudgetExhaustedLogged = false;
   const projectPath = project?.path || null;
   const { probeStaleness } = require('./stale-probe');
@@ -3352,7 +3353,12 @@ async function claimNextWorkItemForInstance(project_id, instance_id) {
     // would race the architect against itself with no chance for fresh
     // context. Skip if we're inside the cooldown window; PRIORITIZE will
     // try again on a subsequent tick once the cooldown expires.
-    if (getNeedsReplanCooldownInfo(item).active) {
+    const needsReplanCooldown = getNeedsReplanCooldownInfo(item);
+    if (needsReplanCooldown.active) {
+      coolingNeedsReplanItems.push({
+        id: item.id,
+        remaining_ms: needsReplanCooldown.remainingMs,
+      });
       continue;
     }
 
@@ -3427,7 +3433,7 @@ async function claimNextWorkItemForInstance(project_id, instance_id) {
     });
   }
 
-  return { openItems: survivors, workItem: null };
+  return { openItems: survivors, workItem: null, coolingNeedsReplanItems };
 }
 
 function parseProjectScoresForPromotion(project) {
