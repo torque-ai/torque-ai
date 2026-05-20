@@ -445,6 +445,79 @@ EOF
   echo "  Restart env file: ${TORQUE_RESTART_ENV_FILE_PATH}"
 }
 
+park_current_project_work_for_cutover() {
+  if [ "${DISABLE_PROJECT_WORK:-0}" != "1" ]; then
+    return 0
+  fi
+
+  echo "  Disabling current factory project work before cutover drain..."
+
+  if [ "${CUTOVER_DRY_RUN:-0}" = "1" ]; then
+    echo "[dry-run] Would persist factory_project_work_enabled=0 in the current TORQUE data store"
+    echo "[dry-run] Would POST ${TORQUE_API}/api/v2/tasks/configure with factory_project_work_enabled=false"
+    return 0
+  fi
+
+  local db_path api_response api_confirmed cache_wait_seconds
+  db_path="$(resolve_torque_data_file "tasks.db")"
+  if [ ! -f "${db_path}" ]; then
+    echo "[warn] TORQUE DB not found at ${db_path}; current process may be offline. Successor env override will still be staged."
+    return 0
+  fi
+
+  if [ ! -d "${REPO_ROOT}/server/node_modules/better-sqlite3" ]; then
+    echo "  Refreshing server node_modules for project-work parking..."
+    (cd "${REPO_ROOT}/server" && npm install --silent --include=dev --no-audit --no-fund --prefer-offline 2>&1 | tail -3) \
+      || echo "[warn] server npm install failed before project-work parking; direct DB update may fail if better-sqlite3 is missing."
+  fi
+
+  node - "${db_path}" "${REPO_ROOT}" <<'EOF'
+const path = require('path');
+const dbPath = process.argv[2];
+const repoRoot = process.argv[3];
+const Database = require(path.join(repoRoot, 'server', 'node_modules', 'better-sqlite3'));
+
+const db = new Database(dbPath, { fileMustExist: true });
+try {
+  db.pragma('busy_timeout = 5000');
+  db.prepare('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)').run('factory_project_work_enabled', '0');
+  const row = db.prepare('SELECT value FROM config WHERE key = ?').get('factory_project_work_enabled');
+  if (!row || row.value !== '0') {
+    throw new Error('factory_project_work_enabled did not persist as 0');
+  }
+} finally {
+  db.close();
+}
+EOF
+  echo "  Current TORQUE DB config set: factory_project_work_enabled=0"
+
+  api_confirmed=0
+  api_response=$(curl -s --max-time 10 \
+    -X POST "${TORQUE_API}/api/v2/tasks/configure" \
+    -H "Content-Type: application/json" \
+    -d '{"factory_project_work_enabled":false}' \
+    2>/dev/null || true)
+  if echo "${api_response}" | grep -q "Factory Project Work Enabled"; then
+    api_confirmed=1
+    echo "  Live TORQUE config cache updated through /api/v2/tasks/configure"
+  else
+    echo "  Live TORQUE configure endpoint did not confirm project-work support; persisted DB config will take effect after cache expiry."
+  fi
+
+  if [ "${api_confirmed}" != "1" ]; then
+    cache_wait_seconds="${CUTOVER_PROJECT_WORK_DISABLE_CACHE_WAIT_SECONDS:-31}"
+    case "$cache_wait_seconds" in
+      ''|*[!0-9]*)
+        cache_wait_seconds=31
+        ;;
+    esac
+    if [ "$cache_wait_seconds" -gt 0 ]; then
+      echo "  Waiting ${cache_wait_seconds}s for any live config cache to expire before merging..."
+      sleep "$cache_wait_seconds"
+    fi
+  fi
+}
+
 main_worktree_has_tracked_changes() {
   ! git -C "${REPO_ROOT}" diff --quiet 2>/dev/null || \
     ! git -C "${REPO_ROOT}" diff --cached --quiet 2>/dev/null
@@ -500,6 +573,7 @@ run_cutover_preflight() {
   fi
 
   if [ "${DISABLE_PROJECT_WORK:-0}" = "1" ]; then
+    echo "  Current live control plane would be parked with factory_project_work_enabled=0"
     echo "  Successor restart env would force TORQUE_FACTORY_PROJECT_WORK_ENABLED=0"
     echo "  Restart env file would be: ${TORQUE_RESTART_ENV_FILE_PATH}"
   fi
@@ -559,6 +633,8 @@ if main_worktree_has_tracked_changes; then
   fi
   echo "[warn] CUTOVER_ALLOW_DIRTY_MAIN=1 set — proceeding with dirty main."
 fi
+
+park_current_project_work_for_cutover
 
 cutover_write_heartbeat "merging" "branch=${BRANCH}"
 echo "  Merging ${BRANCH} into main..."

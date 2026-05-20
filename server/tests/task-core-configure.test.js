@@ -141,6 +141,7 @@ function resetMockDefaults() {
     max_concurrent: 2,
     default_timeout: 30,
     scheduling_mode: 'legacy',
+    factory_project_work_enabled: '1',
   };
 
   for (const fn of Object.values(mockDb)) {
@@ -324,5 +325,26 @@ describe('handleConfigure scheduling_mode', () => {
     expect(text).toContain('**Scheduling Mode:** slot-pull');
     expect(text).toContain('Configuration updated');
     expect(mockTaskManager.processQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('sets factory_project_work_enabled from a boolean and reports parked state', () => {
+    const result = handlers.handleConfigure({ factory_project_work_enabled: false });
+    const text = getText(result);
+
+    expect(result.isError).toBeUndefined();
+    expect(mockDb.setConfig).toHaveBeenCalledWith('factory_project_work_enabled', '0');
+    expect(text).toContain('**Factory Project Work Enabled:** no');
+    expect(text).toContain('Configuration updated');
+    expect(mockTaskManager.processQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects invalid factory_project_work_enabled values', () => {
+    const result = handlers.handleConfigure({ factory_project_work_enabled: 'sometimes' });
+
+    expect(result.isError).toBe(true);
+    expect(result.error_code).toBe('INVALID_PARAM');
+    expect(getText(result)).toContain('factory_project_work_enabled must be a boolean');
+    expect(mockDb.setConfig).not.toHaveBeenCalled();
+    expect(mockTaskManager.processQueue).not.toHaveBeenCalled();
   });
 });

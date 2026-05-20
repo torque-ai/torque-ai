@@ -18,6 +18,10 @@ module.exports = [
         "default_timeout": {
           "type": "number",
           "description": "Default timeout in minutes for new tasks"
+        },
+        "factory_project_work_enabled": {
+          "type": "boolean",
+          "description": "Enable or disable registered factory project work. When false, project-processing tasks and factory loops stay parked while control-plane tools remain available."
         }
       },
       "required": []

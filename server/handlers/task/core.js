@@ -1410,12 +1410,33 @@ function handleConfigure(args) {
     changed = true;
   }
 
+  if (args.factory_project_work_enabled !== undefined) {
+    const value = args.factory_project_work_enabled;
+    let enabled = null;
+    if (typeof value === 'boolean') {
+      enabled = value;
+    } else {
+      const normalized = String(value).trim().toLowerCase();
+      if (['1', 'true', 'yes', 'on', 'enabled'].includes(normalized)) {
+        enabled = true;
+      } else if (['0', 'false', 'no', 'off', 'disabled'].includes(normalized)) {
+        enabled = false;
+      }
+    }
+    if (enabled === null) {
+      return makeError(ErrorCodes.INVALID_PARAM, 'factory_project_work_enabled must be a boolean');
+    }
+    configCore.setConfig('factory_project_work_enabled', enabled ? '1' : '0');
+    changed = true;
+  }
+
   const config = configCore.getAllConfig();
 
   let result = `## Configuration\n\n`;
   result += `**Max Concurrent Tasks:** ${config.max_concurrent}\n`;
   result += `**Default Timeout:** ${config.default_timeout} minutes\n`;
   result += `**Scheduling Mode:** ${config.scheduling_mode || 'legacy'}\n`;
+  result += `**Factory Project Work Enabled:** ${config.factory_project_work_enabled === '0' ? 'no' : 'yes'}\n`;
   result += `**Currently Running:** ${taskManager.getRunningTaskCount()}\n`;
 
   if (changed) {

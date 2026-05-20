@@ -1075,6 +1075,8 @@ describe('worktree-cutover.sh barrier integration', () => {
 
     it('prints the successor env override when project work is disabled for cutover', () => {
       if (!disabledProjectWorkDryRunOutput) return;
+      expect(disabledProjectWorkDryRunOutput).toContain('[dry-run] Would persist factory_project_work_enabled=0');
+      expect(disabledProjectWorkDryRunOutput).toContain('/api/v2/tasks/configure');
       expect(disabledProjectWorkDryRunOutput).toContain('[dry-run] Would write successor restart env override');
       expect(disabledProjectWorkDryRunOutput).toContain('restart-env.json');
       expect(disabledProjectWorkDryRunOutput).toContain('TORQUE_FACTORY_PROJECT_WORK_ENABLED=0');
@@ -1089,6 +1091,7 @@ describe('worktree-cutover.sh barrier integration', () => {
       expect(output).toContain('[ok] Merge simulation clean: preflight-tree-sha');
       expect(output).toContain('Files that would merge: 2');
       expect(output).toContain('Restart barrier would be required after merge');
+      expect(output).toContain('Current live control plane would be parked with factory_project_work_enabled=0');
       expect(output).toContain('Successor restart env would force TORQUE_FACTORY_PROJECT_WORK_ENABLED=0');
       expect(output).toContain('[ok] Cutover preflight complete; no changes made.');
       expect(output).not.toContain('git merge must not run during preflight');
