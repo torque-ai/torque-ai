@@ -1313,6 +1313,12 @@ const OperatorBrief = memo(function OperatorBrief({ brief, focusTasks, onOpenDra
   );
 });
 
+const RUNNING_LOG_VISIBLE_ROWS = 10;
+const RUNNING_LOG_ROW_HEIGHT_PX = 44;
+const RUNNING_LOG_DIVIDER_HEIGHT_PX = 1;
+const RUNNING_LOG_MAX_HEIGHT_PX = (RUNNING_LOG_VISIBLE_ROWS * RUNNING_LOG_ROW_HEIGHT_PX)
+  + ((RUNNING_LOG_VISIBLE_ROWS - 1) * RUNNING_LOG_DIVIDER_HEIGHT_PX);
+
 const RunningLog = memo(function RunningLog({ tasks, selectedProject, onOpenDrawer }) {
   const logTasks = useMemo(() => [...tasks].sort((left, right) => (
     getLatestTaskActivityTimestamp(right) - getLatestTaskActivityTimestamp(left)
@@ -1342,42 +1348,49 @@ const RunningLog = memo(function RunningLog({ tasks, selectedProject, onOpenDraw
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <ul role="list" aria-label="Running Log" className="min-w-[920px] divide-y divide-slate-700/70">
-            {logTasks.map((task) => {
-              const model = getRelevantModel(task.provider, task.model);
-              const providerLabel = `${task.provider || 'provider'}${model ? ` · ${model}` : ''}`;
-              const signal = getTaskSignal(task);
-              const context = getTaskLogContext(task);
-              const displayDescription = getTaskDisplayDescription(task);
-              return (
-                <li key={task.id} role="listitem">
-                  <button
-                    type="button"
-                    onClick={() => onOpenDrawer?.(task.id)}
-                    className="grid w-full grid-cols-[78px_118px_minmax(300px,1fr)_146px_130px_112px] items-center gap-3 px-4 py-2 text-left text-xs transition-colors hover:bg-slate-700/40 focus:bg-slate-700/40"
-                    title={displayDescription}
-                    aria-label={`Open ${getStatusLabel(task.status)} task: ${displayDescription}`}
-                  >
-                    <span className="font-mono text-slate-500">{formatActivityTimestamp(task)}</span>
-                    <span className={`min-w-0 truncate rounded-full border px-2 py-1 text-[11px] font-medium ${getStatusBadgeClass(task.status)}`}>
-                      {getStatusLabel(task.status)}
-                    </span>
-                    <span className="min-w-0 truncate text-slate-100">
-                      {displayDescription}
-                    </span>
-                    <span className="min-w-0 truncate text-slate-500">
-                      {context.length > 0 ? context.join(' · ') : 'No extra signal'}
-                    </span>
-                    <span className="min-w-0 truncate text-slate-400">{providerLabel}</span>
-                    <span className="flex min-w-0 items-center justify-end gap-2">
-                      <span className="min-w-0 truncate text-slate-400">{signal}</span>
-                      <span className="shrink-0 text-right">{getTaskDurationNode(task)}</span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <div
+            role="region"
+            aria-label="Running Log tasks"
+            className="overflow-y-auto"
+            style={{ maxHeight: `${RUNNING_LOG_MAX_HEIGHT_PX}px` }}
+          >
+            <ul role="list" aria-label="Running Log" className="min-w-[920px] divide-y divide-slate-700/70">
+              {logTasks.map((task) => {
+                const model = getRelevantModel(task.provider, task.model);
+                const providerLabel = `${task.provider || 'provider'}${model ? ` · ${model}` : ''}`;
+                const signal = getTaskSignal(task);
+                const context = getTaskLogContext(task);
+                const displayDescription = getTaskDisplayDescription(task);
+                return (
+                  <li key={task.id} role="listitem">
+                    <button
+                      type="button"
+                      onClick={() => onOpenDrawer?.(task.id)}
+                      className="grid h-11 w-full grid-cols-[78px_118px_minmax(300px,1fr)_146px_130px_112px] items-center gap-3 px-4 py-2 text-left text-xs transition-colors hover:bg-slate-700/40 focus:bg-slate-700/40"
+                      title={displayDescription}
+                      aria-label={`Open ${getStatusLabel(task.status)} task: ${displayDescription}`}
+                    >
+                      <span className="font-mono text-slate-500">{formatActivityTimestamp(task)}</span>
+                      <span className={`min-w-0 truncate rounded-full border px-2 py-1 text-[11px] font-medium ${getStatusBadgeClass(task.status)}`}>
+                        {getStatusLabel(task.status)}
+                      </span>
+                      <span className="min-w-0 truncate text-slate-100">
+                        {displayDescription}
+                      </span>
+                      <span className="min-w-0 truncate text-slate-500">
+                        {context.length > 0 ? context.join(' · ') : 'No extra signal'}
+                      </span>
+                      <span className="min-w-0 truncate text-slate-400">{providerLabel}</span>
+                      <span className="flex min-w-0 items-center justify-end gap-2">
+                        <span className="min-w-0 truncate text-slate-400">{signal}</span>
+                        <span className="shrink-0 text-right">{getTaskDurationNode(task)}</span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         </div>
       )}
     </section>

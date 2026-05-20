@@ -405,6 +405,32 @@ describe('CommandCenter', () => {
     expect(onOpenDrawer).toHaveBeenCalledWith('task-fail-1');
   });
 
+  it('constrains the running log to a ten-row scrollbox', async () => {
+    setStorageValue('torque-command-center-view', 'log');
+    setStorageValue('torque-command-center-project', 'alpha');
+    const logTasks = Array.from({ length: 11 }, (_, index) => ({
+      ...runningTask,
+      id: `task-run-${index + 1}`,
+      task_description: `Alpha running task ${index + 1}`,
+      project: 'alpha',
+      created_at: `2026-01-15T10:${String(index).padStart(2, '0')}:00Z`,
+      started_at: `2026-01-15T10:${String(index).padStart(2, '0')}:30Z`,
+    }));
+    tasksApi.list.mockImplementation(({ status }) => {
+      if (status === 'running') return Promise.resolve({ tasks: logTasks, total: logTasks.length });
+      return Promise.resolve(emptyTasks);
+    });
+
+    renderWithProviders(<CommandCenter />, { route: '/' });
+
+    const log = await screen.findByRole('list', { name: 'Running Log' });
+    const scrollbox = screen.getByRole('region', { name: 'Running Log tasks' });
+    expect(scrollbox).toHaveClass('overflow-y-auto');
+    expect(scrollbox).toHaveStyle({ maxHeight: '449px' });
+    expect(within(log).getAllByRole('listitem')).toHaveLength(11);
+    expect(within(log).getAllByRole('button')[0]).toHaveClass('h-11');
+  });
+
   it('renders short informative descriptions for factory-generated running log rows', async () => {
     setStorageValue('torque-command-center-view', 'log');
     setStorageValue('torque-command-center-project', 'factory-architect');
