@@ -1030,6 +1030,25 @@ describe('execute-cli.js', () => {
       expect(runningProcesses.has(taskId)).toBe(false);
     });
 
+    it('resolves detached process-exit annotations directly from log files', () => {
+      const logDir = path.join(testDir, 'detached-log-annotation');
+      fs.mkdirSync(logDir, { recursive: true });
+      const stdoutPath = path.join(logDir, 'stdout.log');
+      const stderrPath = path.join(logDir, 'stderr.log');
+      fs.writeFileSync(stdoutPath, 'final answer\n', 'utf8');
+      fs.writeFileSync(stderrPath, '[process-exit] code=0 signal=none duration_ms=25 provider=codex\n', 'utf8');
+
+      expect(mod.resolveDetachedProcessExitAnnotation({
+        output: '',
+        errorOutput: '',
+        outputLogPath: stdoutPath,
+        errorLogPath: stderrPath,
+      })).toEqual(expect.objectContaining({
+        code: 0,
+        provider: 'codex',
+      }));
+    });
+
     it('passes detached Codex auto-committed files into task finalization', async () => {
       const childProcess = require('child_process');
       const execFileSync = childProcess._realExecFileSync || childProcess.execFileSync;

@@ -161,6 +161,26 @@ function readDetachedLogRemainder(logPath, offset) {
   }
 }
 
+function readDetachedLogFile(logPath) {
+  if (!logPath || typeof logPath !== 'string') return '';
+  try {
+    return fs.readFileSync(logPath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function resolveDetachedProcessExitAnnotation(proc) {
+  if (!proc) return null;
+  const buffered = parseProcessExitAnnotation(buildCombinedProcessOutput(proc.output || '', proc.errorOutput || ''));
+  if (buffered) return buffered;
+
+  const stdout = readDetachedLogFile(proc.outputLogPath);
+  const stderr = readDetachedLogFile(proc.errorLogPath);
+  if (!stdout && !stderr) return null;
+  return parseProcessExitAnnotation(buildCombinedProcessOutput(stdout, stderr));
+}
+
 function flushDetachedLogRemainders(taskId, proc, streamId) {
   if (!proc) return;
 
@@ -187,7 +207,7 @@ function flushDetachedLogRemainders(taskId, proc, streamId) {
 
 function scheduleDetachedFinalizeFromProcessExit(taskId, proc, source) {
   if (!proc || !proc.detached || proc.finalizing) return false;
-  const annotation = parseProcessExitAnnotation(buildCombinedProcessOutput(proc.output || '', proc.errorOutput || ''));
+  const annotation = resolveDetachedProcessExitAnnotation(proc);
   if (!annotation) return false;
 
   proc.finalizing = true;
@@ -198,6 +218,10 @@ function scheduleDetachedFinalizeFromProcessExit(taskId, proc, source) {
   if (proc.completionGraceHandle) {
     clearTimeout(proc.completionGraceHandle);
     proc.completionGraceHandle = null;
+  }
+  if (proc.exitAnnotationHandle) {
+    clearInterval(proc.exitAnnotationHandle);
+    proc.exitAnnotationHandle = null;
   }
 
   logger.info(`[Detached] task ${taskId} process-exit annotation observed from ${source} - finalizing`);
@@ -215,6 +239,24 @@ function scheduleDetachedFinalizeFromProcessExit(taskId, proc, source) {
     });
   }, DETACHED_FINAL_DRAIN_MS);
   return true;
+}
+
+function startDetachedExitAnnotationWatchdog(taskId, proc, triggerFinalize) {
+  if (!proc || typeof triggerFinalize !== 'function') return null;
+  const handle = setInterval(() => {
+    if (runningProcesses.get(taskId) !== proc) {
+      clearInterval(handle);
+      return;
+    }
+    if (proc.finalizing) return;
+    const annotation = resolveDetachedProcessExitAnnotation(proc);
+    if (!annotation) return;
+    logger.info(`[Detached] task ${taskId} process-exit annotation observed by log watchdog - finalizing`);
+    triggerFinalize();
+  }, DETACHED_LIVENESS_POLL_MS);
+  if (typeof handle.unref === 'function') handle.unref();
+  proc.exitAnnotationHandle = handle;
+  return handle;
 }
 
 /**
@@ -1810,6 +1852,7 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, providerArg) {
     outputTail: null,
     errorTail: null,
     livenessHandle: null,
+    exitAnnotationHandle: null,
     finalizing: false,
   };
   runningProcesses.set(taskId, procEntry);
@@ -1911,6 +1954,7 @@ function spawnAndTrackProcessDetached(taskId, task, cmdSpec, providerArg) {
       triggerFinalize();
     }
   }, DETACHED_LIVENESS_POLL_MS);
+  startDetachedExitAnnotationWatchdog(taskId, procEntry, triggerFinalize);
 
   if (earlySpawnError) {
     triggerFinalize();
@@ -1997,6 +2041,10 @@ async function finalizeDetachedTask({ taskId, task, provider, isCodexProvider })
     if (proc.livenessHandle) {
       clearInterval(proc.livenessHandle);
       proc.livenessHandle = null;
+    }
+    if (proc.exitAnnotationHandle) {
+      clearInterval(proc.exitAnnotationHandle);
+      proc.exitAnnotationHandle = null;
     }
     const streamId = db.getOrCreateTaskStream(taskId, 'output');
     flushDetachedLogRemainders(taskId, proc, streamId);
@@ -2356,6 +2404,7 @@ function reAdoptDetachedSubprocess(taskId, persistedTask) {
     outputTail: null,
     errorTail: null,
     livenessHandle: null,
+    exitAnnotationHandle: null,
     finalizing: false,
   };
   runningProcesses.set(taskId, procEntry);
@@ -2450,6 +2499,7 @@ function reAdoptDetachedSubprocess(taskId, persistedTask) {
       triggerFinalize();
     }
   }, DETACHED_LIVENESS_POLL_MS);
+  startDetachedExitAnnotationWatchdog(taskId, procEntry, triggerFinalize);
 
   try { dashboard.notifyTaskUpdated(taskId); } catch { /* non-critical */ }
 
@@ -2468,6 +2518,7 @@ module.exports = {
   resolveReAdoptLastOutputAt,
   resolveReAdoptCompletionDetectedAt,
   verifyTorqueSpawnMarker,
+  resolveDetachedProcessExitAnnotation,
   computeActivityAwareTimeoutDelay,
   parseProcessExitAnnotation,
   shouldUseDetachedPath,
