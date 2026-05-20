@@ -185,6 +185,38 @@ function flushDetachedLogRemainders(taskId, proc, streamId) {
   } catch { /* best-effort flush bookkeeping */ }
 }
 
+function scheduleDetachedFinalizeFromProcessExit(taskId, proc, source) {
+  if (!proc || !proc.detached || proc.finalizing) return false;
+  const annotation = parseProcessExitAnnotation(buildCombinedProcessOutput(proc.output || '', proc.errorOutput || ''));
+  if (!annotation) return false;
+
+  proc.finalizing = true;
+  if (proc.livenessHandle) {
+    clearInterval(proc.livenessHandle);
+    proc.livenessHandle = null;
+  }
+  if (proc.completionGraceHandle) {
+    clearTimeout(proc.completionGraceHandle);
+    proc.completionGraceHandle = null;
+  }
+
+  logger.info(`[Detached] task ${taskId} process-exit annotation observed from ${source} - finalizing`);
+  setTimeout(() => {
+    const currentTask = db.getTask(taskId);
+    const provider = proc.provider || currentTask?.provider || annotation.provider || 'codex';
+    const isCodexProvider = provider === 'codex' || provider === 'codex-spark';
+    void finalizeDetachedTask({
+      taskId,
+      task: currentTask || { id: taskId, provider },
+      provider,
+      isCodexProvider,
+    }).catch((err) => {
+      logger.info(`[Detached] process-exit finalize failed for task ${taskId}: ${err.message}`);
+    });
+  }, DETACHED_FINAL_DRAIN_MS);
+  return true;
+}
+
 /**
  * Force-terminate the subprocess associated with `taskId` after the
  * completion-grace window expired without a natural exit. Works for both
@@ -305,6 +337,7 @@ function processStdoutChunk(taskId, text, streamId) {
   if (proc.output.length > _MAX_OUTPUT_BUFFER) {
     proc.output = '[...truncated...]\n' + proc.output.slice(-_MAX_OUTPUT_BUFFER / 2);
   }
+  scheduleDetachedFinalizeFromProcessExit(taskId, proc, 'stdout');
   const progress = _helpers.estimateProgress(proc.output, proc.provider);
   db.updateTaskProgress(taskId, progress, text);
 
@@ -367,6 +400,7 @@ function processStderrChunk(taskId, text, streamId) {
   if (proc.errorOutput.length > _MAX_OUTPUT_BUFFER) {
     proc.errorOutput = '[...truncated...]\n' + proc.errorOutput.slice(-_MAX_OUTPUT_BUFFER / 2);
   }
+  scheduleDetachedFinalizeFromProcessExit(taskId, proc, 'stderr');
 
   // Codex banner check: a chunk is "banner only" iff EVERY line matches the
   // banner pattern (or is blank). The previous regex used `/m.test(text)`,

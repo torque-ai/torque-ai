@@ -1384,6 +1384,68 @@ describe('execute-cli.js', () => {
       expect(proc.errorOutput).toBe('');
       expect(proc.lastOutputAt).toBe(1000);
     });
+
+    it('finalizes detached tasks when the process-exit annotation is tailed', async () => {
+      vi.useFakeTimers();
+      try {
+        const runningProcesses = new Map();
+        const finalizeTaskSpy = vi.fn(async () => ({ finalized: true, queueManaged: false }));
+        const deps = makeDeps({ runningProcesses, finalizeTask: finalizeTaskSpy });
+        mod.init(deps);
+        const taskId = `detached-exit-${randomUUID()}`;
+        taskCore.createTask({
+          id: taskId,
+          task_description: 'Detached annotation finalize test',
+          status: 'running',
+          provider: 'codex',
+          working_directory: testDir,
+        });
+        runningProcesses.set(taskId, {
+          process: null,
+          output: 'done\n',
+          errorOutput: '',
+          startTime: Date.now() - 10_000,
+          lastOutputAt: Date.now() - 10_000,
+          provider: 'codex',
+          model: 'gpt-5.5',
+          startupTimeoutHandle: null,
+          timeoutHandle: null,
+          completionDetected: false,
+          completionGraceHandle: setTimeout(() => {}, 30_000),
+          detached: true,
+          subprocessPid: 12345,
+          outputLogPath: null,
+          errorLogPath: null,
+          outputLogOffset: 0,
+          errorLogOffset: 0,
+          outputTail: { stop: vi.fn() },
+          errorTail: { stop: vi.fn() },
+          livenessHandle: setInterval(() => {}, 30_000),
+          finalizing: false,
+        });
+
+        mod.processStderrChunk(
+          taskId,
+          '[process-exit] code=0 signal=none duration_ms=25 provider=codex\n',
+          'stream-1'
+        );
+
+        expect(runningProcesses.get(taskId).finalizing).toBe(true);
+        await vi.advanceTimersByTimeAsync(1600);
+        await vi.waitFor(() => expect(finalizeTaskSpy).toHaveBeenCalledTimes(1));
+
+        expect(finalizeTaskSpy).toHaveBeenCalledWith(
+          taskId,
+          expect.objectContaining({
+            exitCode: 0,
+            errorOutput: expect.stringContaining('[process-exit] code=0'),
+          })
+        );
+        expect(runningProcesses.has(taskId)).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   // ── resolveReAdoptLastOutputAt: stall-clock preservation ────────
