@@ -278,6 +278,14 @@ function isFalseyConfig(value) {
   return ['0', 'false', 'no', 'off'].includes(value.trim().toLowerCase());
 }
 
+function inferOwnerProjectFromWorktreePath(workingDir) {
+  if (!workingDir) return null;
+  const parts = path.normalize(workingDir).split(/[\\/]+/).filter(Boolean);
+  const worktreesIndex = parts.map(part => part.toLowerCase()).lastIndexOf('.worktrees');
+  if (worktreesIndex <= 0) return null;
+  return parts[worktreesIndex - 1] || null;
+}
+
 function buildTorqueRemoteInvocation(command) {
   const normalized = String(command || '').trim();
   return `torque-remote bash -lc ${JSON.stringify(normalized)}`;
@@ -503,14 +511,28 @@ function createRemoteTestRouter({ agentRegistry, db, logger }) {
   function resolveProjectRemoteTestPreference(workingDir) {
     try {
       if (!db || !workingDir) return { project: null, config: null, forceLocal: false };
-      const project = typeof db.getProjectFromPath === 'function'
+      let project = typeof db.getProjectFromPath === 'function'
         ? db.getProjectFromPath(workingDir)
         : null;
+      const ownerProject = inferOwnerProjectFromWorktreePath(workingDir);
+      if (!project && ownerProject) {
+        project = ownerProject;
+      }
       if (!project) return { project: null, config: null, forceLocal: false };
 
-      const config = typeof db.getProjectConfig === 'function'
+      let config = typeof db.getProjectConfig === 'function'
         ? db.getProjectConfig(project)
         : null;
+      if ((!config || !Object.prototype.hasOwnProperty.call(config, 'prefer_remote_tests'))
+        && ownerProject
+        && ownerProject !== project
+        && typeof db.getProjectConfig === 'function') {
+        const ownerConfig = db.getProjectConfig(ownerProject);
+        if (ownerConfig) {
+          project = ownerProject;
+          config = ownerConfig;
+        }
+      }
       const hasPreference = config
         && Object.prototype.hasOwnProperty.call(config, 'prefer_remote_tests');
       return {

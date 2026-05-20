@@ -1001,6 +1001,66 @@ describe('remote-test-routing', () => {
       }
     });
 
+    it('honors disabled remote tests inside factory worktrees', async () => {
+      const db = {
+        getProjectFromPath: vi.fn().mockReturnValue('fea-c4a18cba'),
+        getProjectConfig: vi.fn((project) => {
+          if (project === 'DLPhone') return { prefer_remote_tests: 0 };
+          return null;
+        }),
+      };
+
+      const wsModelPath = require.resolve('../../../workstation/model');
+      const originalWsCache = require.cache[wsModelPath];
+      require.cache[wsModelPath] = {
+        id: wsModelPath, filename: wsModelPath, loaded: true,
+        exports: {
+          listWorkstations: vi.fn().mockReturnValue([]),
+          hasCapability: vi.fn().mockReturnValue(false),
+        },
+      };
+
+      const existsSpy = vi.spyOn(fs, 'existsSync').mockImplementation((filePath) => {
+        const normalized = String(filePath).replace(/\\/g, '/');
+        return normalized.endsWith('/.torque-remote.json')
+          || normalized === 'C:/Program Files/Git/bin/bash.exe';
+      });
+      const readFileSpy = vi.spyOn(fs, 'readFileSync').mockImplementation((filePath) => {
+        const normalized = String(filePath).replace(/\\/g, '/');
+        if (normalized.endsWith('/.torque-remote.json')) {
+          return JSON.stringify({ transport: 'ssh' });
+        }
+        return '';
+      });
+      mockSpawn.mockReturnValueOnce(makeMockChild(0, 'local-verify-ok\n', ''));
+
+      try {
+        const logger = makeLogger();
+        const router = createRemoteTestRouter({ agentRegistry: null, db, logger });
+        const result = await router.runVerifyCommand(
+          'dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release',
+          '/workspace/DLPhone/.worktrees/fea-c4a18cba',
+          { provider: 'codex' }
+        );
+
+        expect(result.success).toBe(true);
+        expect(result.remote).toBe(false);
+        expect(result.output).toBe('local-verify-ok\n');
+        expect(db.getProjectConfig).toHaveBeenCalledWith('DLPhone');
+        expect(mockSpawn).toHaveBeenCalledTimes(1);
+        expect(mockSpawn.mock.calls[0][0]).toBe('dotnet test simtests/SimCore.DotNet.Tests.csproj -c Release');
+        expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining('Running via torque-remote wrapper'));
+      } finally {
+        existsSpy.mockRestore();
+        readFileSpy.mockRestore();
+        if (originalWsCache) {
+          require.cache[wsModelPath] = originalWsCache;
+        } else {
+          delete require.cache[wsModelPath];
+        }
+      }
+    });
+
     it('falls back locally when torque-remote lacks the verify executable', async () => {
       const db = {
         getProjectFromPath: vi.fn().mockReturnValue('example-project'),
