@@ -193,6 +193,120 @@ function recoverModifiedFiles(ctx) {
   return recovered;
 }
 
+function isCodexProvider(provider) {
+  const normalized = String(provider || '').trim().toLowerCase();
+  return normalized === 'codex' || normalized === 'codex-spark';
+}
+
+function looksLikeCodexPromptEchoWithoutAssistant(task, ctx, errorPayload) {
+  if (!isCodexProvider(task?.provider || ctx?.proc?.provider)) return false;
+  if (ctx?.status !== 'failed') return false;
+  if (String(ctx?.output || ctx?.proc?.output || '').trim()) return false;
+
+  const text = String(errorPayload || '');
+  if (!/\bOpenAI Codex\b/i.test(text)) return false;
+  if (!/(?:^|\r?\n)user\r?\n/i.test(text)) return false;
+  if (/(?:^|\r?\n)assistant\r?\n/i.test(text)) return false;
+  if (/(?:^|\r?\n)(?:tool|function|exec_command|apply_patch)\b/i.test(text)) return false;
+
+  return true;
+}
+
+function getProviderLaneRetryCount(task) {
+  const metadata = getTaskMetadata(task);
+  const raw = metadata.provider_lane_retry_count;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function buildRetryMetadata(task, retryCount, reason) {
+  return {
+    ...getTaskMetadata(task),
+    provider_lane_retry_count: retryCount,
+    provider_lane_retry_reason: reason,
+    provider_lane_retry_at: new Date().toISOString(),
+  };
+}
+
+function scheduleSameProviderRetry(ctx, reason, options = {}) {
+  const { taskId, code, proc, task } = ctx;
+  const maxRetries = options.maxRetries || 3;
+  const retryCount = getProviderLaneRetryCount(task) + 1;
+  if (retryCount > maxRetries) {
+    logger.info(`[Provider Lane Retry] Task ${taskId} exhausted same-provider retries (${retryCount - 1}/${maxRetries}); leaving failed`);
+    return false;
+  }
+
+  const provider = task.provider || proc?.provider || 'codex';
+  const sanitizedOutput = _sanitizeTaskOutput(proc?.output || ctx.output || '');
+  const errorOutput = options.diagnosticOutput || ctx.errorOutput || proc?.errorOutput || '';
+  const retryErrorOutput = `[Provider Lane Retry ${retryCount}/${maxRetries} - ${reason}] ${errorOutput}`;
+  const delayMs = failoverBackoffMs(retryCount);
+  const retryMetadata = buildRetryMetadata(task, retryCount, reason);
+  const resumeContext = buildResumeContext(sanitizedOutput, retryErrorOutput, {
+    task_description: task.task_description,
+    provider,
+    started_at: task.started_at,
+    completed_at: new Date().toISOString(),
+  });
+
+  db.updateTaskStatus(taskId, 'retry_scheduled', {
+    exit_code: code,
+    output: sanitizedOutput,
+    error_output: retryErrorOutput,
+    files_modified: recoverModifiedFiles(ctx),
+    progress_percent: 0,
+    provider,
+    model: task.model || null,
+    retry_count: Math.max(Number.parseInt(task.retry_count || 0, 10) || 0, retryCount),
+    max_retries: Math.max(Number.parseInt(task.max_retries || 0, 10) || 0, maxRetries),
+    metadata: JSON.stringify(retryMetadata),
+    resume_context: resumeContext,
+    task_description: prependResumeContextToPrompt(task.task_description, resumeContext),
+  });
+
+  try {
+    if (typeof db.recordFailoverEvent === 'function') {
+      db.recordFailoverEvent({
+        task_id: taskId,
+        from_provider: provider,
+        to_provider: provider,
+        from_model: task.model,
+        to_model: task.model,
+        reason: `Provider lane retry: ${reason}`,
+        failover_type: 'retry',
+        attempt_num: retryCount,
+      });
+    }
+  } catch (eventErr) {
+    logger.info(`[Provider Lane Retry] Failed to record retry event for ${taskId}: ${eventErr.message}`);
+  }
+
+  dashboard?.notifyTaskUpdated?.(taskId);
+  const retryTimer = setTimeout(() => {
+    try {
+      const current = db.getTask(taskId);
+      if (!current || current.status !== 'retry_scheduled') return;
+      db.updateTaskStatus(taskId, 'queued', {
+        pid: null,
+        started_at: null,
+        progress_percent: 0,
+      });
+      if (typeof _processQueue === 'function') {
+        _processQueue();
+      }
+    } catch (retryErr) {
+      logger.info(`[Provider Lane Retry] Failed to requeue ${taskId}: ${retryErr.message}`);
+    }
+  }, delayMs);
+  if (typeof retryTimer?.unref === 'function') retryTimer.unref();
+
+  ctx.status = 'queued';
+  ctx.earlyExit = true;
+  logger.info(`[Provider Lane Retry] Re-queued ${taskId} on ${provider} in ${Math.round(delayMs / 1000)}s: ${reason}`);
+  return true;
+}
+
 /**
  * Phase 5: Per-file quality checks, line-count regression, scoped rollback.
  */
@@ -418,6 +532,20 @@ function handleProviderFailover(ctx) {
   // Combined errorOutput + tail of proc.output so model-not-found errors that
   // landed on stdout (some adapters mix the two) are still classified.
   const errorPayload = errorOutput + '\n' + String(proc?.output || '').slice(-2000);
+  if (
+    ctx.status === 'failed'
+    && providerActuallyFailed
+    && task
+    && failoverCount < MAX_FAILOVERS
+    && looksLikeCodexPromptEchoWithoutAssistant(task, ctx, errorPayload)
+  ) {
+    if (scheduleSameProviderRetry(ctx, 'Codex exited before producing assistant output', {
+      maxRetries: MAX_FAILOVERS,
+      diagnosticOutput: 'Codex CLI exited before producing assistant output; stderr contained only startup banner plus echoed prompt.',
+    })) {
+      return;
+    }
+  }
   // Detect model-related failures so we can both blocklist the (provider, model)
   // pair and trigger the same failover path as quota errors. The patterns
   // are intentionally narrow — we want "the model isn't callable on this key"
@@ -454,6 +582,9 @@ function handleProviderFailover(ctx) {
     if (fallbackProvider) {
       const laneDecision = getFailoverLaneDecision(task, fallbackProvider);
       if (!laneDecision.allowed) {
+        if (scheduleSameProviderRetry(ctx, laneDecision.reason || 'provider lane blocked failover', { maxRetries: MAX_FAILOVERS })) {
+          return;
+        }
         logger.info(`[Provider Failover] ${laneDecision.reason} for task ${taskId}; leaving task failed`);
         ctx.status = 'failed';
         ctx.errorOutput = (ctx.errorOutput || errorOutput || '') +

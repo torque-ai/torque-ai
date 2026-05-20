@@ -514,7 +514,9 @@ describe('Close Phases', () => {
       vi.useRealTimers();
     });
 
-    it('blocks quota failover to providers outside an enforced factory lane policy', () => {
+    it('retries the same provider when quota failover is blocked by an enforced factory lane policy', () => {
+      vi.useFakeTimers();
+
       mockDb.isProviderQuotaError.mockReturnValue(true);
       mockDb.getNextFallbackProvider.mockReturnValue('ollama');
 
@@ -537,15 +539,85 @@ describe('Close Phases', () => {
 
       closePhases.handleProviderFailover(ctx);
 
-      expect(ctx.earlyExit).toBe(false);
-      expect(ctx.status).toBe('failed');
-      expect(ctx.errorOutput).toContain('[Provider Failover Blocked]');
-      expect(ctx.errorOutput).toContain('blocked handoff to ollama');
+      expect(ctx.earlyExit).toBe(true);
+      expect(ctx.status).toBe('queued');
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
+        'task-001',
+        'retry_scheduled',
+        expect.objectContaining({
+          provider: 'codex',
+          retry_count: 1,
+          max_retries: 3,
+          error_output: expect.stringContaining('[Provider Lane Retry 1/3'),
+        })
+      );
       expect(mockDb.approveProviderSwitch).not.toHaveBeenCalled();
-      expect(mockDb.recordFailoverEvent).not.toHaveBeenCalled();
+      expect(mockDb.recordFailoverEvent).toHaveBeenCalledWith(expect.objectContaining({
+        from_provider: 'codex',
+        to_provider: 'codex',
+        failover_type: 'retry',
+      }));
       expect(mockDb.setCodexExhausted).not.toHaveBeenCalled();
-      expect(mockDashboard.notifyTaskUpdated).not.toHaveBeenCalled();
+      expect(mockDashboard.notifyTaskUpdated).toHaveBeenCalledWith('task-001');
       expect(mocks.processQueue).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('treats Codex prompt echo without assistant output as a same-provider retry, not quota failover', () => {
+      vi.useFakeTimers();
+
+      mockDb.isProviderQuotaError.mockReturnValue(false);
+      mockDb.getNextFallbackProvider.mockReturnValue('ollama');
+
+      const task = makeTask({
+        provider: 'codex',
+        retry_count: 0,
+        max_retries: 0,
+        metadata: JSON.stringify({
+          provider_lane_policy: {
+            expected_provider: 'codex',
+            allowed_providers: ['codex'],
+            allowed_fallback_providers: ['codex'],
+            enforce_handoffs: true,
+          },
+        }),
+      });
+      const proc = makeProc({
+        output: '',
+        errorOutput: [
+          'OpenAI Codex v0.130.0',
+          '--------',
+          'workdir: C:\\repo',
+          'model: gpt-5.5',
+          'provider: openai',
+          '--------',
+          'user',
+          'Prompt text that mentions Rate limited in a few-shot example.',
+          '[process-exit] code=1 signal=none duration_ms=10771 provider=codex',
+        ].join('\n'),
+      });
+      const ctx = makeCtx({ status: 'failed', task, proc, code: 1, output: '', errorOutput: proc.errorOutput });
+
+      closePhases.handleProviderFailover(ctx);
+
+      expect(ctx.earlyExit).toBe(true);
+      expect(ctx.status).toBe('queued');
+      expect(mockDb.isProviderQuotaError).not.toHaveBeenCalled();
+      expect(mockDb.approveProviderSwitch).not.toHaveBeenCalled();
+      expect(mockDb.updateTaskStatus).toHaveBeenCalledWith(
+        'task-001',
+        'retry_scheduled',
+        expect.objectContaining({
+          provider: 'codex',
+          retry_count: 1,
+          max_retries: 3,
+          error_output: expect.stringContaining('Codex exited before producing assistant output'),
+        })
+      );
+      expect(mocks.processQueue).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
     });
 
     it('falls back locally for ollama failures', () => {
