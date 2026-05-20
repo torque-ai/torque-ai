@@ -2750,12 +2750,23 @@ function normalizeAgenticWorkerError(error, cleanupTrackedWorker) {
   return timeoutError;
 }
 
+const DEFAULT_AGENTIC_FIRST_RESPONSE_TIMEOUT_SECONDS = {
+  openrouter: 180,
+  ollama: 600,
+  'ollama-cloud': 600,
+};
+
 function resolveAgenticFirstResponseTimeoutMs(provider) {
-  if (provider !== 'openrouter') return null;
+  const normalizedProvider = String(provider || '').trim().toLowerCase();
+  const providerDefault = DEFAULT_AGENTIC_FIRST_RESPONSE_TIMEOUT_SECONDS[normalizedProvider];
+  if (providerDefault === undefined) return null;
+
   const serverConfig = require('../config');
-  const raw = serverConfig.get('openrouter_agentic_first_response_timeout_seconds')
-    || serverConfig.get('agentic_first_response_timeout_seconds')
-    || '180';
+  const providerConfigKey = `${normalizedProvider.replace(/[^a-z0-9]+/g, '_')}_agentic_first_response_timeout_seconds`;
+  const providerRaw = serverConfig.get(providerConfigKey);
+  const genericRaw = serverConfig.get('agentic_first_response_timeout_seconds');
+  const raw = providerRaw ?? genericRaw ?? String(providerDefault);
+  if (raw === '') return null;
   const seconds = parseInt(raw, 10);
   if (!Number.isFinite(seconds) || seconds <= 0) return null;
   return seconds * 1000;
@@ -3246,6 +3257,7 @@ async function executeOllamaTaskWithAgentic(task) {
       workingDir,
       timeoutHandle,
       timeoutMs,
+      firstResponseTimeoutMs: resolveAgenticFirstResponseTimeoutMs(provider),
     });
 
     // Wire abort: forward AbortController.abort() → worker abort message
@@ -3369,9 +3381,10 @@ async function executeOllamaTaskWithAgentic(task) {
     logger.info(`[Agentic] Ollama task ${taskId} completed: ${result.iterations} iterations, ${(result.toolLog || []).length} tool calls, ${(result.changedFiles || []).length} files changed`);
 
   } catch (error) {
-    logger.info(`[Agentic] Ollama task ${taskId} failed: ${error.message}`);
+    const handledError = normalizeAgenticWorkerError(error, cleanupTrackedWorker);
+    logger.info(`[Agentic] Ollama task ${taskId} failed: ${handledError.message}`);
     safeUpdateTaskStatus(taskId, 'failed', {
-      error_output: error.message,
+      error_output: handledError.message,
       exit_code: 1,
       completed_at: new Date().toISOString(),
     });

@@ -64,6 +64,10 @@ const REGISTRY = {
   tsserver_enabled:        { default: false, type: 'bool-optin' },
   openrouter_role_require_live_pass: { default: true, type: 'bool' },
   openrouter_discovery_smoke_limit:  { default: 5,    type: 'int' },
+  openrouter_agentic_first_response_timeout_seconds: { default: null, type: 'int', envVar: 'TORQUE_OPENROUTER_AGENTIC_FIRST_RESPONSE_TIMEOUT_SECONDS' },
+  ollama_agentic_first_response_timeout_seconds: { default: null, type: 'int', envVar: 'TORQUE_OLLAMA_AGENTIC_FIRST_RESPONSE_TIMEOUT_SECONDS' },
+  ollama_cloud_agentic_first_response_timeout_seconds: { default: null, type: 'int', envVar: 'TORQUE_OLLAMA_CLOUD_AGENTIC_FIRST_RESPONSE_TIMEOUT_SECONDS' },
+  agentic_first_response_timeout_seconds: { default: null, type: 'int', envVar: 'TORQUE_AGENTIC_FIRST_RESPONSE_TIMEOUT_SECONDS' },
 
   // Provider quota auto-scale
   quota_auto_scale_enabled:    { default: false, type: 'bool-optin' },

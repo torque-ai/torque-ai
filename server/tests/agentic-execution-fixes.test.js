@@ -514,6 +514,84 @@ describe('providers/execution agentic fixes', () => {
     expect(runningProcesses.has(task.id)).toBe(false);
   });
 
+  it('fails an Ollama agentic task when it produces no first response', async () => {
+    vi.useFakeTimers();
+
+    const { mod, configMock } = loadSubject();
+    const defaultConfigGet = configMock.get.getMockImplementation();
+    configMock.get.mockImplementation((key) => (
+      key === 'ollama_agentic_first_response_timeout_seconds' ? '1' : defaultConfigGet(key)
+    ));
+
+    const task = {
+      id: 'task-ollama-first-response-timeout',
+      provider: 'ollama',
+      model: TEST_MODELS.DEFAULT,
+      task_description: 'Fix the bug',
+      working_directory: 'C:/repo',
+      timeout_minutes: 1,
+    };
+    const tasks = new Map([[task.id, { ...task, status: 'queued' }]]);
+    const host = { id: 'host-1', url: 'http://ollama-host:11434' };
+    const runningProcesses = new Map();
+    runningProcesses.stallAttempts = new Map();
+    const db = {
+      listOllamaHosts: vi.fn(() => [host]),
+      selectOllamaHostForModel: vi.fn(() => ({ host })),
+      tryReserveHostSlot: vi.fn(() => ({ acquired: true })),
+      releaseHostSlot: vi.fn(),
+      decrementHostTasks: vi.fn(),
+      updateTaskStatus: vi.fn((taskId, status, patch = {}) => {
+        const next = { ...(tasks.get(taskId) || { id: taskId }), ...patch, status };
+        tasks.set(taskId, next);
+        return next;
+      }),
+      getOrCreateTaskStream: vi.fn(() => 'stream-1'),
+      getTask: vi.fn((taskId) => tasks.get(taskId) || null),
+      addStreamChunk: vi.fn(),
+    };
+    const safeUpdateTaskStatus = vi.fn((taskId, status, patch = {}) => db.updateTaskStatus(taskId, status, patch));
+    mod.init({
+      db,
+      dashboard: {
+        notifyTaskUpdated: vi.fn(),
+        notifyTaskOutput: vi.fn(),
+      },
+      runningProcesses,
+      safeUpdateTaskStatus,
+      processQueue: vi.fn(),
+      handleWorkflowTermination: vi.fn(),
+      apiAbortControllers: new Map(),
+    });
+
+    const workers = [];
+    vi.spyOn(require('worker_threads'), 'Worker').mockImplementation(function MockWorker() {
+      const emitter = new EventEmitter();
+      this.postMessage = vi.fn((msg) => {
+        if (msg?.type === 'abort') {
+          queueMicrotask(() => emitter.emit('message', { type: 'error', message: 'aborted' }));
+        }
+      });
+      this.terminate = vi.fn(() => Promise.resolve(1));
+      this.on = (eventName, handler) => emitter.on(eventName, handler);
+      workers.push({ emitter, worker: this });
+    });
+
+    const taskPromise = mod.executeOllamaTask(task);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await taskPromise;
+
+    expect(workers).toHaveLength(1);
+    expect(workers[0].worker.postMessage).toHaveBeenCalledWith({ type: 'abort' });
+    expect(tasks.get(task.id)).toEqual(expect.objectContaining({
+      status: 'failed',
+      error_output: 'Agentic worker timed out after 1s without model output or tool calls',
+      exit_code: 1,
+    }));
+    expect(runningProcesses.has(task.id)).toBe(false);
+  });
+
   it('resolves an omitted OpenRouter template model from the approved registry', async () => {
     const { mod, configMock, registryMock } = loadSubject();
     configMock.getApiKey.mockImplementation((provider) => (provider === 'openrouter' ? 'openrouter-key' : null));
