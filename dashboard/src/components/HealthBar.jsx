@@ -85,9 +85,9 @@ export default function HealthBar() {
     : `${healthyCount}/${providerList.length}`;
 
   return (
-    <div ref={containerRef} className="glass-card mb-4 relative">
+    <div ref={containerRef} className="glass-card mb-3 relative">
       {/* Compact bar */}
-      <div className="flex flex-wrap items-center gap-6 p-3 text-xs text-slate-400">
+      <div className="flex flex-wrap items-center gap-4 px-3 py-2 text-xs text-slate-400">
         <button
           onClick={() => !providerError && setExpanded((s) => !s)}
           className="flex items-center gap-2 hover:text-slate-200 transition-colors"

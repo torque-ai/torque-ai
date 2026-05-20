@@ -7,7 +7,6 @@ import { getRelevantModel } from '../utils/providerModels';
 import { STATUS_ICONS } from '../constants';
 import { format as dateFnsFormat } from 'date-fns';
 import ProjectSelector from '../components/ProjectSelector';
-import StatCard from '../components/StatCard';
 import TaskSubmitForm from '../components/TaskSubmitForm';
 import HealthBar from '../components/HealthBar';
 import ActivityPanel from '../components/ActivityPanel';
@@ -525,6 +524,12 @@ function formatCount(value) {
   return asCount(value).toLocaleString();
 }
 
+function formatTrendPercent(value) {
+  if (value === undefined || value === null) return null;
+  if (value === 0) return 'flat vs yesterday';
+  return `${value > 0 ? '+' : ''}${value}% vs yesterday`;
+}
+
 function getCountByStatus(countByStatus, status) {
   return asCount(countByStatus?.[status]);
 }
@@ -762,7 +767,7 @@ const TaskCard = memo(function TaskCard({
           onOpenDrawer?.(task.id);
         }
       }}
-      className={`bg-slate-700/60 border ${isPinned ? 'border-amber-500/40' : 'border-slate-600/30'} rounded-lg ${compact ? 'p-2 mb-1' : 'p-3 mb-2'} cursor-pointer hover:bg-slate-600/60 hover:border-slate-500/50 transition-all ${flash ? 'animate-flash-update' : ''}`}
+      className={`bg-slate-700/60 border ${isPinned ? 'border-amber-500/40' : 'border-slate-600/30'} rounded-lg ${compact ? 'p-1.5 mb-1' : 'p-2.5 mb-1.5'} cursor-pointer hover:bg-slate-600/60 hover:border-slate-500/50 transition-all ${flash ? 'animate-flash-update' : ''}`}
     >
       <div className={`flex items-start gap-2 ${compact ? 'mb-1' : 'mb-2'}`}>
         <button
@@ -1109,9 +1114,9 @@ const BoardColumn = memo(function BoardColumn({
   }, [tasks, sortKey, pinnedIds]);
 
   return (
-    <div className={collapsed ? 'w-12 shrink-0' : 'flex-1 min-w-0 md:min-w-[240px] md:max-w-[300px]'}>
+    <div className={collapsed ? 'w-12 shrink-0' : 'flex-1 min-w-0 md:min-w-[220px] md:max-w-[280px]'}>
       <div
-        className={`flex items-center gap-2 mb-3 px-1 ${collapsed ? 'flex-col cursor-pointer select-none' : ''}`}
+        className={`flex items-center gap-2 mb-2 px-1 ${collapsed ? 'flex-col cursor-pointer select-none' : ''}`}
         onClick={collapsed ? onToggle : undefined}
         title={collapsed ? `Expand ${label}` : undefined}
         role={collapsed ? 'button' : undefined}
@@ -1156,7 +1161,7 @@ const BoardColumn = memo(function BoardColumn({
         )}
       </div>
       {!collapsed && (
-        <div role="list" aria-label={label} className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-2 min-h-[400px] max-h-[calc(100vh-320px)] overflow-y-auto">
+        <div role="list" aria-label={label} className="bg-slate-800/30 border border-slate-700/30 rounded-lg p-1.5 min-h-[320px] max-h-[calc(100vh-250px)] overflow-y-auto">
           {displayTasks.map((task) => (
             <TaskCard
               key={task.id}
@@ -1223,7 +1228,7 @@ const FocusTaskRow = memo(function FocusTaskRow({ task, reason, onOpenDrawer }) 
     <button
       type="button"
       onClick={() => onOpenDrawer?.(task.id)}
-      className="grid w-full grid-cols-[92px_minmax(0,1fr)_116px] items-center gap-3 border-t border-slate-700/60 px-0 py-2 text-left text-xs transition-colors first:border-t-0 hover:bg-slate-800/70 focus:bg-slate-800/70"
+      className="grid w-full grid-cols-[86px_minmax(0,1fr)_108px] items-center gap-2 border-t border-slate-700/60 px-0 py-1.5 text-left text-xs transition-colors first:border-t-0 hover:bg-slate-800/70 focus:bg-slate-800/70"
       aria-label={`Open task ${shortId}: ${displayDescription || reason}`}
       title={displayDescription || shortId}
     >
@@ -1251,10 +1256,10 @@ const OperatorBrief = memo(function OperatorBrief({ brief, focusTasks, onOpenDra
   return (
     <section
       aria-label="Command Center briefing"
-      className={`mb-4 overflow-hidden rounded-lg border border-slate-700 bg-slate-900/70 ${tone.glow}`}
+      className={`mb-3 overflow-hidden rounded-lg border border-slate-700 bg-slate-900/70 ${tone.glow}`}
     >
-      <div className={`border-l-4 ${tone.rail} p-4`}>
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+      <div className={`border-l-4 ${tone.rail} p-3`}>
+        <div className={`grid gap-3 ${focusTasks.length > 0 ? 'xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]' : ''}`}>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full ${tone.dot}`} />
@@ -1263,58 +1268,116 @@ const OperatorBrief = memo(function OperatorBrief({ brief, focusTasks, onOpenDra
                 {brief.scopeLabel}
               </span>
             </div>
-            <h2 className="mt-2 text-xl font-semibold text-white">{brief.title}</h2>
-            <p className="mt-1 max-w-3xl text-sm text-slate-400">{brief.detail}</p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className={`rounded-full border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs font-medium ${tone.text}`}>
+            <h2 className="mt-1.5 text-lg font-semibold text-white">{brief.title}</h2>
+            <p className="mt-0.5 max-w-3xl text-xs text-slate-400">{brief.detail}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className={`rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-xs font-medium ${tone.text}`}>
                 Next: {brief.nextAction}
               </span>
               {brief.chips.map((chip) => (
-                <span key={chip} className="rounded-full border border-slate-700 bg-slate-800/60 px-2.5 py-1 text-xs text-slate-400">
+                <span key={chip} className="rounded-full border border-slate-700 bg-slate-800/60 px-2 py-0.5 text-xs text-slate-400">
                   {chip}
                 </span>
               ))}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-3">
-            {brief.metrics.map((metric) => (
-              <div key={metric.label} className="min-w-0 border-l border-slate-700/70 pl-3">
-                <p className="text-[11px] font-medium uppercase text-slate-500">{metric.label}</p>
-                <p className="mt-1 truncate text-lg font-semibold text-white" title={String(metric.value)}>
-                  {metric.value}
-                </p>
-                <p className="mt-0.5 truncate text-xs text-slate-500" title={metric.subtext}>{metric.subtext}</p>
+          {focusTasks.length > 0 && (
+            <div className="min-w-0 border-t border-slate-700/70 pt-2 xl:border-l xl:border-t-0 xl:pl-3 xl:pt-0">
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase text-slate-500">Live Signals</p>
+                <span className="text-xs text-slate-600">{focusTasks.length} in scope</span>
               </div>
-            ))}
-          </div>
+              <div>
+                {focusTasks.slice(0, 2).map(({ task, reason }) => (
+                  <FocusTaskRow
+                    key={task.id}
+                    task={task}
+                    reason={reason}
+                    onOpenDrawer={onOpenDrawer}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-
-        {focusTasks.length > 0 && (
-          <div className="mt-4 border-t border-slate-700/70 pt-3">
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <p className="text-xs font-semibold uppercase text-slate-500">Live Signals</p>
-              <span className="text-xs text-slate-600">{focusTasks.length} in scope</span>
-            </div>
-            <div>
-              {focusTasks.slice(0, 4).map(({ task, reason }) => (
-                <FocusTaskRow
-                  key={task.id}
-                  task={task}
-                  reason={reason}
-                  onOpenDrawer={onOpenDrawer}
-                />
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </section>
   );
 });
 
+const CompactMetricStrip = memo(function CompactMetricStrip({
+  effectiveOverview,
+  countByStatus,
+  qualityStats,
+  todayTrend,
+}) {
+  const today = effectiveOverview?.today || {};
+  const running = getCountByStatus(countByStatus, 'running');
+  const queued = getCountByStatus(countByStatus, 'queued');
+  const completed = asCount(today.completed);
+  const failedToday = asCount(today.failed);
+  const successRate = asCount(today.successRate ?? today.success_rate);
+  const totalToday = asCount(today.total);
+  const pendingApproval = getCountByStatus(countByStatus, 'pending_approval');
+  const pendingSwitch = getCountByStatus(countByStatus, 'pending_provider_switch');
+  const failedInScope = getCountByStatus(countByStatus, 'failed');
+  const trendLabel = formatTrendPercent(todayTrend);
+  const qualityScore = qualityStats?.overall?.avgScore;
+
+  const metrics = [
+    {
+      label: 'Today',
+      value: formatCount(totalToday),
+      detail: trendLabel || `${formatCount(successRate)}% success`,
+    },
+    {
+      label: 'Success',
+      value: `${formatCount(successRate)}%`,
+      detail: qualityScore != null ? `Q:${Math.round(qualityScore)}` : 'quality pending',
+    },
+    {
+      label: 'Completed',
+      value: formatCount(completed),
+      detail: `${formatCount(failedToday)} failed today`,
+    },
+    {
+      label: 'Running',
+      value: formatCount(running),
+      detail: `${formatCount(queued)} queued`,
+    },
+    {
+      label: 'Gates',
+      value: formatCount(pendingApproval + pendingSwitch),
+      detail: `${formatCount(pendingApproval)} approval, ${formatCount(pendingSwitch)} switch`,
+    },
+    {
+      label: 'Failed',
+      value: formatCount(failedInScope),
+      detail: 'in current scope',
+    },
+  ];
+
+  return (
+    <section
+      aria-label="Command Center metrics"
+      className="mb-2 grid grid-cols-2 gap-y-1 rounded-lg border border-slate-700 bg-slate-900/55 px-2 py-1.5 sm:grid-cols-3 xl:grid-cols-6"
+    >
+      {metrics.map((metric) => (
+        <div key={metric.label} className="min-w-0 border-l border-slate-700/70 px-2 first:border-l-0 first:pl-0">
+          <p className="text-[10px] font-medium uppercase text-slate-500">{metric.label}</p>
+          <div className="flex min-w-0 items-baseline gap-1.5">
+            <p className="shrink-0 text-sm font-semibold text-white" title={String(metric.value)}>{metric.value}</p>
+            <p className="truncate text-[11px] text-slate-500" title={metric.detail}>{metric.detail}</p>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+});
+
 const RUNNING_LOG_VISIBLE_ROWS = 10;
-const RUNNING_LOG_ROW_HEIGHT_PX = 44;
+const RUNNING_LOG_ROW_HEIGHT_PX = 40;
 const RUNNING_LOG_DIVIDER_HEIGHT_PX = 1;
 const RUNNING_LOG_MAX_HEIGHT_PX = (RUNNING_LOG_VISIBLE_ROWS * RUNNING_LOG_ROW_HEIGHT_PX)
   + ((RUNNING_LOG_VISIBLE_ROWS - 1) * RUNNING_LOG_DIVIDER_HEIGHT_PX);
@@ -1325,15 +1388,15 @@ const RunningLog = memo(function RunningLog({ tasks, selectedProject, onOpenDraw
   )), [tasks]);
 
   return (
-    <section className="mb-6 rounded-lg border border-slate-700 bg-slate-800/40">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 px-4 py-3">
+    <section className="mb-4 rounded-lg border border-slate-700 bg-slate-800/40">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 px-3 py-2">
         <div>
           <h3 className="text-sm font-semibold text-white">Running Log</h3>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <p className="text-xs text-slate-500">
             {selectedProject ? selectedProject : 'No project selected'}
           </p>
         </div>
-        <span className="rounded-full bg-slate-700/70 px-2.5 py-1 text-xs font-medium text-slate-300">
+        <span className="rounded-full bg-slate-700/70 px-2 py-0.5 text-xs font-medium text-slate-300">
           {logTasks.length} task{logTasks.length === 1 ? '' : 's'}
         </span>
       </div>
@@ -1354,7 +1417,7 @@ const RunningLog = memo(function RunningLog({ tasks, selectedProject, onOpenDraw
             className="overflow-y-auto"
             style={{ maxHeight: `${RUNNING_LOG_MAX_HEIGHT_PX}px` }}
           >
-            <ul role="list" aria-label="Running Log" className="min-w-[920px] divide-y divide-slate-700/70">
+            <ul role="list" aria-label="Running Log" className="min-w-[820px] divide-y divide-slate-700/70">
               {logTasks.map((task) => {
                 const model = getRelevantModel(task.provider, task.model);
                 const providerLabel = `${task.provider || 'provider'}${model ? ` · ${model}` : ''}`;
@@ -1366,7 +1429,7 @@ const RunningLog = memo(function RunningLog({ tasks, selectedProject, onOpenDraw
                     <button
                       type="button"
                       onClick={() => onOpenDrawer?.(task.id)}
-                      className="grid h-11 w-full grid-cols-[78px_118px_minmax(300px,1fr)_146px_130px_112px] items-center gap-3 px-4 py-2 text-left text-xs transition-colors hover:bg-slate-700/40 focus:bg-slate-700/40"
+                      className="grid h-10 w-full grid-cols-[66px_104px_minmax(240px,1fr)_128px_116px_96px] items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-slate-700/40 focus:bg-slate-700/40"
                       title={displayDescription}
                       aria-label={`Open ${getStatusLabel(task.status)} task: ${displayDescription}`}
                     >
@@ -2082,26 +2145,104 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
     ? Math.round(((todayTotal - yesterdayTotal) / yesterdayTotal) * 100)
     : null;
 
+  const taskActivitySection = (activityData.length > 0 || activityDaily.length > 0) ? (
+    <div className="mt-4 rounded-lg border border-slate-700 bg-slate-800 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-sm font-medium text-white">Task Activity</h3>
+        <div className="flex rounded-lg bg-slate-700/50 p-0.5">
+          <button
+            onClick={() => setPersistedActivityView('daily')}
+            className={`px-3 py-1 text-xs rounded-md transition-colors ${activityView === 'daily' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+          >
+            Daily
+          </button>
+          <button
+            onClick={() => setPersistedActivityView('hourly')}
+            className={`px-3 py-1 text-xs rounded-md transition-colors ${activityView === 'hourly' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
+          >
+            Hourly
+          </button>
+        </div>
+      </div>
+      <div role="img" aria-label="Task activity over time">
+        {activityView === 'hourly' ? (
+          <SVGLineChart
+            data={activityData} xKey="date" height={150} smooth showLegend
+            yDomain={[0, undefined]}
+            formatX={(d) => {
+              const dt = new Date(d);
+              return dt.getHours() === 0 ? `${dt.getMonth() + 1}/${dt.getDate()}` : '';
+            }}
+            formatTooltip={(v, _name, entry) => {
+              const dt = new Date(entry?.date || '');
+              return isNaN(dt.getTime()) ? `${v}` : `${v} at ${dt.getMonth() + 1}/${dt.getDate()} ${dt.getHours()}:00`;
+            }}
+            lines={[
+              { dataKey: 'completed', color: '#10b981', name: 'Completed' },
+              { dataKey: 'failed', color: '#ef4444', name: 'Failed' },
+            ]}
+          />
+        ) : (
+          <SVGLineChart
+            data={activityDaily} xKey="date" height={150} smooth showLegend
+            yDomain={[0, undefined]}
+            formatX={(d) => {
+              const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T12:00:00' : d);
+              return `${dt.getMonth() + 1}/${dt.getDate()}`;
+            }}
+            lines={[
+              { dataKey: 'completed', color: '#10b981', name: 'Completed', dot: true },
+              { dataKey: 'failed', color: '#ef4444', name: 'Failed', dot: true },
+            ]}
+          />
+        )}
+      </div>
+    </div>
+  ) : null;
+
+  const needsAttentionSection = (stuckTasks && stuckTasks.total_needs_attention > 0) ? (
+    <div className="mt-4">
+      <div className="mb-2 flex items-center gap-2">
+        <span aria-hidden="true" className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+        <h3 className="font-medium text-amber-400 text-sm">Needs Attention</h3>
+        <span className="bg-amber-600/40 text-amber-300 text-xs px-2 py-0.5 rounded-full font-medium">
+          {stuckTasks.total_needs_attention}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
+        {stuckTasks.long_running?.tasks?.slice(0, 3).map((t) => (
+          <NeedsAttentionCard key={t.id} task={t} reason="Running >30m" onOpenDrawer={onOpenDrawer} />
+        ))}
+        {stuckTasks.pending_approval?.tasks?.slice(0, 3).map((t) => (
+          <NeedsAttentionCard key={t.id} task={t} reason="Pending approval" onOpenDrawer={onOpenDrawer} />
+        ))}
+        {stuckTasks.pending_switch?.tasks?.slice(0, 2).map((t) => (
+          <NeedsAttentionCard key={t.id} task={t} reason="Pending switch" onOpenDrawer={onOpenDrawer} />
+        ))}
+      </div>
+    </div>
+  ) : null;
+
   if (loading) {
     return (
       <div className="flex">
         <div className={mainContentClassName}>
-          <div className="p-6">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <div className="p-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
               {[...Array(4)].map((_, i) => (
-                <div key={i} className="glass-card p-4 animate-pulse">
+                <div key={i} className="glass-card p-3 animate-pulse">
                   <div className="h-3 w-20 bg-slate-700 rounded mb-2" />
                   <div className="h-6 w-12 bg-slate-700 rounded" />
                 </div>
               ))}
             </div>
-            <div className="flex gap-4">
+            <div className="flex gap-3">
               {[...Array(4)].map((_, i) => (
-                <div key={i} className="flex-1 min-w-[240px]">
-                  <div className="h-4 w-16 bg-slate-700 rounded mb-3 animate-pulse" />
-                  <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-2 min-h-[400px]">
+                <div key={i} className="flex-1 min-w-[220px]">
+                  <div className="h-4 w-16 bg-slate-700 rounded mb-2 animate-pulse" />
+                  <div className="bg-slate-800/30 border border-slate-700/30 rounded-lg p-1.5 min-h-[320px]">
                     {[...Array(3)].map((_, j) => (
-                      <div key={j} className="bg-slate-700/40 rounded-lg p-3 mb-2 animate-pulse">
+                      <div key={j} className="bg-slate-700/40 rounded-lg p-2.5 mb-1.5 animate-pulse">
                         <div className="h-3 w-full bg-slate-600 rounded mb-2" />
                         <div className="h-2 w-2/3 bg-slate-600 rounded" />
                       </div>
@@ -2120,10 +2261,10 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
   return (
     <div className="flex">
       <div className={mainContentClassName}>
-        <div className="p-6">
+        <div className="p-4">
       <LoopControlBar
         {...factoryLoopControl}
-        className="mb-4"
+        className="mb-3"
       />
 
       {/* Stale data warning */}
@@ -2175,45 +2316,6 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
         focusTasks={focusTasks}
         onOpenDrawer={onOpenDrawer}
       />
-
-      <section className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-4">
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-amber-300">Attention</p>
-          <p className="mt-2 text-2xl font-semibold text-white">
-            {stuckTasks?.total_needs_attention || stuckRunningTasks.length || 0}
-          </p>
-          <p className="mt-1 truncate text-xs text-amber-200/80">
-            Long-running, approvals, and switches
-          </p>
-        </div>
-        <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-orange-300">Manual Gates</p>
-          <p className="mt-2 text-2xl font-semibold text-white">
-            {(Number(countByStatus.pending_approval) || 0) + (Number(countByStatus.pending_provider_switch) || 0)}
-          </p>
-          <p className="mt-1 truncate text-xs text-orange-200/80">
-            {Number(countByStatus.pending_approval) || 0} approval, {Number(countByStatus.pending_provider_switch) || 0} switch
-          </p>
-        </div>
-        <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-cyan-300">Active Work</p>
-          <p className="mt-2 text-2xl font-semibold text-white">
-            {(Number(countByStatus.running) || 0) + (Number(countByStatus.queued) || 0)}
-          </p>
-          <p className="mt-1 truncate text-xs text-cyan-200/80">
-            {Number(countByStatus.running) || 0} running, {Number(countByStatus.queued) || 0} queued
-          </p>
-        </div>
-        <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-violet-300">Loop State</p>
-          <p className="mt-2 truncate text-lg font-semibold text-white">
-            {factoryLoopControl.selectedProject?.name || 'No project'}
-          </p>
-          <p className="mt-1 truncate text-xs text-violet-200/80">
-            {factoryLoopControl.loopStatus?.loop_state || factoryLoopControl.selectedProject?.loop_state || 'Idle'}
-          </p>
-        </div>
-      </section>
 
       {/* Toolbar: density toggle + bulk actions */}
       <div className="flex flex-wrap items-center justify-between gap-y-2 mb-3">
@@ -2370,124 +2472,13 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
         />
       )}
 
+      <CompactMetricStrip
+        effectiveOverview={effectiveOverview}
+        countByStatus={countByStatus}
+        qualityStats={qualityStats}
+        todayTrend={todayTrend}
+      />
       <HealthBar />
-
-      {/* Stats row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        {/* Today summary: count + success rate + quality merged */}
-        <div className="stat-gradient-blue rounded-xl p-4 shadow-md card-hover">
-          <p className="text-sm font-medium text-white/80">Today</p>
-          <div className="flex items-baseline gap-2">
-            <p className="text-2xl font-bold text-white">{todayTotal}</p>
-            {todayTrend !== undefined && todayTrend !== null && (
-              <span className="text-sm font-medium text-white/90">
-                {todayTrend > 0 ? '\u2191' : todayTrend < 0 ? '\u2193' : '\u2192'}{' '}
-                {Math.abs(todayTrend)}%
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-3 mt-1.5 text-xs text-white/60">
-            <span>{effectiveOverview?.today?.successRate || 0}% success</span>
-            {qualityStats?.overall?.avgScore != null && (
-              <span>Q:{qualityStats.overall.avgScore}</span>
-            )}
-          </div>
-        </div>
-        <StatCard
-          label="Running"
-          value={effectiveOverview?.active?.running || 0}
-          gradient={effectiveOverview?.active?.running > 0 ? 'cyan' : undefined}
-        />
-        <StatCard
-          label="Queued"
-          value={effectiveOverview?.active?.queued || 0}
-        />
-        <StatCard
-          label="Completed (24h)"
-          value={effectiveOverview?.today?.completed || 0}
-          subtext={`${effectiveOverview?.today?.failed || 0} failed`}
-        />
-      </div>
-
-      {/* Task Activity chart */}
-      {(activityData.length > 0 || activityDaily.length > 0) && (
-        <div className="bg-slate-800 rounded-lg border border-slate-700 p-4 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-white font-medium">Task Activity</h3>
-            <div className="flex bg-slate-700/50 rounded-lg p-0.5">
-              <button
-                onClick={() => setPersistedActivityView('daily')}
-                className={`px-3 py-1 text-xs rounded-md transition-colors ${activityView === 'daily' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
-              >
-                Daily
-              </button>
-              <button
-                onClick={() => setPersistedActivityView('hourly')}
-                className={`px-3 py-1 text-xs rounded-md transition-colors ${activityView === 'hourly' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
-              >
-                Hourly
-              </button>
-            </div>
-          </div>
-          <div role="img" aria-label="Task activity over time">
-            {activityView === 'hourly' ? (
-              <SVGLineChart
-                data={activityData} xKey="date" height={220} smooth showLegend
-                yDomain={[0, undefined]}
-                formatX={(d) => {
-                  const dt = new Date(d);
-                  return dt.getHours() === 0 ? `${dt.getMonth() + 1}/${dt.getDate()}` : '';
-                }}
-                formatTooltip={(v, _name, entry) => {
-                  const dt = new Date(entry?.date || '');
-                  return isNaN(dt.getTime()) ? `${v}` : `${v} at ${dt.getMonth() + 1}/${dt.getDate()} ${dt.getHours()}:00`;
-                }}
-                lines={[
-                  { dataKey: 'completed', color: '#10b981', name: 'Completed' },
-                  { dataKey: 'failed', color: '#ef4444', name: 'Failed' },
-                ]}
-              />
-            ) : (
-              <SVGLineChart
-                data={activityDaily} xKey="date" height={220} smooth showLegend
-                yDomain={[0, undefined]}
-                formatX={(d) => {
-                  const dt = new Date(typeof d === 'string' && d.length === 10 ? d + 'T12:00:00' : d);
-                  return `${dt.getMonth() + 1}/${dt.getDate()}`;
-                }}
-                lines={[
-                  { dataKey: 'completed', color: '#10b981', name: 'Completed', dot: true },
-                  { dataKey: 'failed', color: '#ef4444', name: 'Failed', dot: true },
-                ]}
-              />
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Needs Attention section */}
-      {stuckTasks && stuckTasks.total_needs_attention > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-3">
-            <span aria-hidden="true" className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
-            <h3 className="font-medium text-amber-400 text-sm">Needs Attention</h3>
-            <span className="bg-amber-600/40 text-amber-300 text-xs px-2 py-0.5 rounded-full font-medium">
-              {stuckTasks.total_needs_attention}
-            </span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
-            {stuckTasks.long_running?.tasks?.slice(0, 3).map((t) => (
-              <NeedsAttentionCard key={t.id} task={t} reason="Running >30m" onOpenDrawer={onOpenDrawer} />
-            ))}
-            {stuckTasks.pending_approval?.tasks?.slice(0, 3).map((t) => (
-              <NeedsAttentionCard key={t.id} task={t} reason="Pending approval" onOpenDrawer={onOpenDrawer} />
-            ))}
-            {stuckTasks.pending_switch?.tasks?.slice(0, 2).map((t) => (
-              <NeedsAttentionCard key={t.id} task={t} reason="Pending switch" onOpenDrawer={onOpenDrawer} />
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Empty state */}
       {viewMode === 'board' && allTasks.length === 0 && !staleData && (
@@ -2538,7 +2529,7 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
           onOpenDrawer={onOpenDrawer}
         />
       ) : (
-        <div className="flex flex-col md:flex-row gap-4 overflow-x-auto pb-4">
+        <div className="flex flex-col md:flex-row gap-3 overflow-x-auto pb-3">
           {STATUS_COLUMNS.filter((col) => !hiddenCols.has(col.id)).map((col) => (
             <BoardColumn
               key={col.id}
@@ -2567,6 +2558,8 @@ export default function CommandCenter({ tasks: liveTasks, onOpenDrawer, hostActi
           ))}
         </div>
       )}
+      {needsAttentionSection}
+      {taskActivitySection}
       </div>
       </div>
       <ActivityPanel events={activityLog} isOpen={activityOpen} onToggle={toggleActivityPanel} />

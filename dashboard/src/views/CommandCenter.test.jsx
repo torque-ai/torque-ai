@@ -254,11 +254,13 @@ describe('CommandCenter', () => {
     expect(skeleton).toBeInTheDocument();
   });
 
-  it('renders stat cards after loading', async () => {
+  it('renders compact metrics after loading', async () => {
     renderWithProviders(<CommandCenter />, { route: '/' });
     await waitFor(() => {
-      expect(screen.getByText('Today')).toBeInTheDocument();
-      // Running/Queued/Completed appear in both stat cards and board columns
+      const metrics = screen.getByRole('region', { name: 'Command Center metrics' });
+      expect(within(metrics).getByText('Today')).toBeInTheDocument();
+      expect(within(metrics).getByText('Success')).toBeInTheDocument();
+      expect(within(metrics).getByText('Gates')).toBeInTheDocument();
       expect(screen.getAllByText('Running').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Queued').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Completed').length).toBeGreaterThanOrEqual(1);
@@ -299,7 +301,7 @@ describe('CommandCenter', () => {
       expect(screen.getAllByText('Queued').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Running').length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('Completed').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText('Failed')).toBeInTheDocument();
+      expect(screen.getAllByText('Failed').length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -426,9 +428,9 @@ describe('CommandCenter', () => {
     const log = await screen.findByRole('list', { name: 'Running Log' });
     const scrollbox = screen.getByRole('region', { name: 'Running Log tasks' });
     expect(scrollbox).toHaveClass('overflow-y-auto');
-    expect(scrollbox).toHaveStyle({ maxHeight: '449px' });
+    expect(scrollbox).toHaveStyle({ maxHeight: '409px' });
     expect(within(log).getAllByRole('listitem')).toHaveLength(11);
-    expect(within(log).getAllByRole('button')[0]).toHaveClass('h-11');
+    expect(within(log).getAllByRole('button')[0]).toHaveClass('h-10');
   });
 
   it('renders short informative descriptions for factory-generated running log rows', async () => {
