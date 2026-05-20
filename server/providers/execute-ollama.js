@@ -467,7 +467,7 @@ async function executeOllamaTask(task) {
   const { acquireHostLock } = require('./host-mutex');
   let releaseHostLock = null;
   if (selectedHostId) {
-    releaseHostLock = await acquireHostLock(selectedHostId);
+    releaseHostLock = await acquireHostLock(selectedHostId, { taskId });
   }
 
   logger.info(`[Ollama] Starting task ${taskId} with model ${ollamaModel} on ${ollamaHost}`);

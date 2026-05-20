@@ -3128,7 +3128,10 @@ async function executeOllamaTaskWithAgentic(task) {
       let waitedForHostLock = false;
       const hostLockWaitMarker = setImmediate(() => { waitedForHostLock = true; });
       try {
-        releaseHostLock = await acquireHostLock(selectedHostId);
+        releaseHostLock = await acquireHostLock(selectedHostId, {
+          signal: abortController.signal,
+          taskId,
+        });
       } finally {
         globalThis.clearImmediate?.(hostLockWaitMarker);
       }

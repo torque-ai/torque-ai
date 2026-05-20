@@ -1,8 +1,20 @@
 'use strict';
 
-const { acquireHostLock } = require('../providers/host-mutex');
+const {
+  acquireHostLock,
+  getHostLockSnapshot,
+  _resetHostLocksForTests,
+} = require('../providers/host-mutex');
 
 describe('host-mutex', () => {
+  beforeEach(() => {
+    _resetHostLocksForTests();
+  });
+
+  afterEach(() => {
+    _resetHostLocksForTests();
+  });
+
   it('serializes concurrent operations on the same host', async () => {
     const order = [];
 
@@ -77,5 +89,85 @@ describe('host-mutex', () => {
     release1();
     await p2;
     expect(secondStarted).toBe(true);
+  });
+
+  it('removes an aborted waiter without blocking later waiters', async () => {
+    const release1 = await acquireHostLock('abort-wait-host', { taskId: 'holder' });
+    const controller = new AbortController();
+    const abortedWaiter = acquireHostLock('abort-wait-host', {
+      taskId: 'waiter',
+      signal: controller.signal,
+    });
+
+    await new Promise(resolve => setImmediate(resolve));
+    expect(getHostLockSnapshot('abort-wait-host')).toEqual(expect.objectContaining({
+      holder: expect.objectContaining({ taskId: 'holder' }),
+      queueLength: 1,
+    }));
+
+    controller.abort();
+    await expect(abortedWaiter).rejects.toMatchObject({
+      name: 'AbortError',
+      code: 'HOST_LOCK_ABORTED',
+    });
+    expect(getHostLockSnapshot('abort-wait-host')).toEqual(expect.objectContaining({
+      holder: expect.objectContaining({ taskId: 'holder' }),
+      queueLength: 0,
+    }));
+
+    let thirdStarted = false;
+    const third = acquireHostLock('abort-wait-host', { taskId: 'third' }).then(release3 => {
+      thirdStarted = true;
+      release3();
+    });
+
+    expect(thirdStarted).toBe(false);
+    release1();
+    await third;
+    expect(thirdStarted).toBe(true);
+    expect(getHostLockSnapshot('abort-wait-host')).toEqual({
+      holder: null,
+      queueLength: 0,
+      waiters: [],
+    });
+  });
+
+  it('rejects immediately when the signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(acquireHostLock('pre-aborted-host', {
+      taskId: 'pre-aborted',
+      signal: controller.signal,
+    })).rejects.toMatchObject({
+      name: 'AbortError',
+      code: 'HOST_LOCK_ABORTED',
+    });
+
+    expect(getHostLockSnapshot('pre-aborted-host')).toEqual({
+      holder: null,
+      queueLength: 0,
+      waiters: [],
+    });
+  });
+
+  it('makes release idempotent and advances the queue once', async () => {
+    const order = [];
+    const release1 = await acquireHostLock('idempotent-release-host', { taskId: 'first' });
+    const second = acquireHostLock('idempotent-release-host', { taskId: 'second' }).then(release2 => {
+      order.push('second');
+      release2();
+    });
+
+    release1();
+    release1();
+    await second;
+
+    expect(order).toEqual(['second']);
+    expect(getHostLockSnapshot('idempotent-release-host')).toEqual({
+      holder: null,
+      queueLength: 0,
+      waiters: [],
+    });
   });
 });

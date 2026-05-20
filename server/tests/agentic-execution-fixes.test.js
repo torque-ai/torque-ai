@@ -2308,7 +2308,11 @@ describe('providers/execution agentic fixes', () => {
 
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(hostMutexMock.acquireHostLock).toHaveBeenCalledWith('host-1');
+    expect(hostMutexMock.acquireHostLock).toHaveBeenCalledWith('host-1', expect.objectContaining({
+      taskId: 'task-ollama-waiting',
+      signal: expect.any(Object),
+    }));
+    expect(hostMutexMock.acquireHostLock.mock.calls[0][1].signal.aborted).toBe(false);
     expect(workerSpy).not.toHaveBeenCalled();
     expect(runningProcesses.get('task-ollama-waiting')).toEqual(expect.objectContaining({
       provider: 'ollama',
