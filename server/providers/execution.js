@@ -82,7 +82,16 @@ const AGENTIC_CLOUD_TO_CODEX_FALLBACKS = new Set(['google-ai', 'groq', 'openrout
 const FREE_AGENTIC_TOOL_EVIDENCE_PROVIDERS = new Set(['cerebras', 'google-ai', 'groq', 'openrouter', 'ollama-cloud', 'ollama']);
 const PROPOSAL_APPLY_MODE = 'proposal_apply';
 const PROPOSAL_MODE_READ_TOOLS = new Set(['read_file', 'list_directory', 'search_files']);
-const FACTORY_INTERNAL_STRUCTURED_KINDS = new Set(['architect_cycle', 'plan_generation', 'verify_review']);
+const FACTORY_INTERNAL_STRUCTURED_KINDS = new Set([
+  'architect_cycle',
+  'architect_json',
+  'replan_decompose',
+  'replan_rewrite',
+  'plan_generation',
+  'plan_quality_review',
+  'verify_review',
+  'retrospective_generation',
+]);
 const OPENROUTER_FALLBACK_SCORE_LIMIT = 8;
 const READ_ONLY_PLAN_TITLE_RE = /^(?:verify|confirm|inspect|audit|review|scout|survey|check)\b/i;
 const MUTATING_PLAN_TITLE_RE = /\b(?:fix|repair|recover|retry|implement|update|change|modify|edit|add|create|write|replace|remove|delete|refactor)\b/i;
@@ -629,8 +638,20 @@ function taskLikelyRequiresFileChanges(task) {
 
 function isFactoryInternalStructuredTask(task, metadata = null) {
   const safeMetadata = metadata || normalizeTaskMetadata(task);
-  return safeMetadata.factory_internal === true
-    && FACTORY_INTERNAL_STRUCTURED_KINDS.has(String(safeMetadata.kind || '').trim().toLowerCase());
+  const metadataKind = String(safeMetadata.kind || '').trim().toLowerCase();
+  if (safeMetadata.factory_internal === true && FACTORY_INTERNAL_STRUCTURED_KINDS.has(metadataKind)) {
+    return true;
+  }
+
+  const tags = normalizeTaskTags(task?.tags);
+  if (!tags.includes('factory:internal')) {
+    return false;
+  }
+  return tags.some((tag) => {
+    if (typeof tag !== 'string' || !tag.startsWith('factory:') || tag.includes('=')) return false;
+    const tagKind = tag.slice('factory:'.length).trim().toLowerCase();
+    return FACTORY_INTERNAL_STRUCTURED_KINDS.has(tagKind);
+  });
 }
 
 function normalizeTaskTags(value) {

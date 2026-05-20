@@ -433,7 +433,10 @@ async function submitFactoryInternalTask({
     ...(context_stuff !== undefined ? { context_stuff } : {}),
     ...(context_depth !== undefined ? { context_depth } : {}),
     ...(study_context !== undefined ? { study_context } : {}),
-    ...(resolvedKind === 'plan_generation' ? { disable_decomposition: true } : {}),
+    // Factory-internal prompts are structured control-plane calls, not project
+    // implementation tasks. Auto-decomposition can turn one architect/review
+    // prompt into bogus file-edit subtasks.
+    disable_decomposition: true,
     ...(Array.isArray(files) ? { files } : {}),
     timeout_minutes: timeout_minutes ?? 10,
     version_intent: 'internal',

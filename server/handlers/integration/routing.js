@@ -474,18 +474,15 @@ function extractSmartSubmitInputs(args) {
   };
 }
 
-function isFactoryPlanGenerationSubmission({ tags, taskMetadata } = {}) {
-  const kind = typeof taskMetadata?.kind === 'string'
-    ? taskMetadata.kind.trim().toLowerCase()
-    : '';
-  if (kind === 'plan_generation') {
+function isFactoryInternalStructuredSubmission({ tags, taskMetadata } = {}) {
+  if (taskMetadata?.factory_internal === true) {
     return true;
   }
 
   const tagList = Array.isArray(tags)
     ? tags
     : (typeof tags === 'string' ? [tags] : []);
-  return tagList.some((tag) => String(tag || '').trim() === 'factory:plan_generation');
+  return tagList.some((tag) => String(tag || '').trim() === 'factory:internal');
 }
 
 async function resolveModificationRouting(task, files, routingResult, opts) {
@@ -738,7 +735,7 @@ async function handleSmartSubmitTask(args) {
     __sessionId,
   } = inputs;
   let effectiveRoutingTemplate = routing_template || null;
-  const isFactoryPlanGeneration = isFactoryPlanGenerationSubmission({
+  const isFactoryInternalStructured = isFactoryInternalStructuredSubmission({
     tags,
     taskMetadata: userTaskMetadata,
   });
@@ -1102,8 +1099,8 @@ async function handleSmartSubmitTask(args) {
   // AUTO-DECOMPOSE: Use task-decomposition module to decide whether to split
   // shouldDecompose checks provider class (agentic/guided/prompt-only), complexity,
   // and task patterns — replaces the old inline C# and JS/TS decomposition blocks.
-  const decomposeDecision = disable_decomposition === true
-    ? { decompose: false, type: null, reason: 'Decomposition disabled by caller' }
+  const decomposeDecision = (disable_decomposition === true || isFactoryInternalStructured)
+    ? { decompose: false, type: null, reason: disable_decomposition === true ? 'Decomposition disabled by caller' : 'Factory-internal structured task' }
     : shouldDecompose(
         { task_description: task, complexity, files },
         routingResult
@@ -1505,7 +1502,7 @@ async function handleSmartSubmitTask(args) {
   // explicit provider override.
   const testTaskPattern = /\b(write|create|add|generate|replace .+ with)\b.{0,30}\b(tests?|specs?|\.test\.|\.spec\.)/i;
   const explicitTestTaskPattern = /\b(?:test|testing)\s+task\b/i;
-  const isTestTask = !isFactoryPlanGeneration && !hasExplicitProviderOverride &&
+  const isTestTask = !isFactoryInternalStructured && !hasExplicitProviderOverride &&
     (testTaskPattern.test(task) || explicitTestTaskPattern.test(task));
   const routingModel = model || routingResult?.model || taskModel || null;
   const selectedProviderSupportsTests = providerSupportsRepoWriteTasks(selectedProvider, routingModel);
@@ -1532,7 +1529,7 @@ async function handleSmartSubmitTask(args) {
     taskModel = sparkEnabled ? CODEX_SPARK_MODEL : null;
     logger.info(`[SmartRouting] Test task already on Codex → clearing requested local model${sparkEnabled ? ' and assigning Spark model' : ''}`);
   }
-  if (!isFactoryPlanGeneration) {
+  if (!isFactoryInternalStructured) {
     const modBefore = selectedProvider;
     const modificationRoutingModel = isTestTask && selectedProvider === 'codex' ? taskModel : model;
     const modResult = await resolveModificationRouting(task, files, routingResult, {

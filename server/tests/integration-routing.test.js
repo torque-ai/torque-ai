@@ -1224,6 +1224,40 @@ describe('integration routing handlers', () => {
       expect(textOf(result)).not.toContain('Codex Spark');
     });
 
+    it('does not let modification heuristics override factory architect routing', async () => {
+      mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({
+        provider: 'ollama',
+        complexity: 'normal',
+        reason: 'Factory inherited provider',
+        chain: [
+          { provider: 'ollama', model: null },
+        ],
+      }));
+      vi.spyOn(fs.promises, 'readFile').mockResolvedValue(makeLineCountText(400));
+
+      const result = await routing.handleSmartSubmitTask({
+        task: 'You are the Architect for a software factory. Prioritize the backlog item that says refactor src/engine/protocols/stp.ts and return JSON only.',
+        files: ['src/engine/protocols/stp.ts'],
+        working_directory: testWorkDir,
+        tags: ['factory:internal', 'factory:architect_cycle'],
+        task_metadata: {
+          kind: 'architect_cycle',
+          factory_internal: true,
+          project_id: 'project-1',
+        },
+      });
+
+      const task = taskFromResult(result);
+      expect(task.provider).toBe('ollama');
+      expect(task.metadata.kind).toBe('architect_cycle');
+      expect(task.metadata.routing_decision_trace || []).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ stage: 'modification' }),
+        ])
+      );
+      expect(textOf(result)).not.toContain('Codex Spark');
+    });
+
     it('routes modifications to claude-cli when Codex is disabled', async () => {
       setMockDbConfig({ codex_enabled: '0' });
       mockDb.analyzeTaskForRouting.mockReturnValueOnce(baseRoutingResult({

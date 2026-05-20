@@ -379,6 +379,30 @@ describe('submitFactoryInternalTask', () => {
     });
   });
 
+  it('passes disable_decomposition for architect_cycle so SmartRouting cannot split internal architect prompts', async () => {
+    const { submitFactoryInternalTask } = loadSubject();
+    mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'architect-task-1' });
+
+    await submitFactoryInternalTask({
+      task: 'You are the Architect for a software factory. Read the context and return JSON only.',
+      working_directory: '/repo',
+      kind: 'architect_cycle',
+      project_id: 'project-42',
+    });
+
+    expect(mockHandleSmartSubmitTask).toHaveBeenCalledWith(expect.objectContaining({
+      disable_decomposition: true,
+      tags: expect.arrayContaining([
+        'factory:internal',
+        'factory:architect_cycle',
+      ]),
+      task_metadata: expect.objectContaining({
+        factory_internal: true,
+        kind: 'architect_cycle',
+      }),
+    }));
+  });
+
   it('bounds oversized internal task descriptions before calling smart submit', async () => {
     const { submitFactoryInternalTask } = loadSubject();
     mockHandleSmartSubmitTask.mockResolvedValue({ task_id: 'oversized-plan-task' });
