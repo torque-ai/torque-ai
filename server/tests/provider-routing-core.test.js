@@ -322,6 +322,7 @@ function createHostManagement(overrides = {}) {
     routeTask: vi.fn(() => null),
     listOllamaHosts: vi.fn(() => []),
     hasHealthyOllamaHost: vi.fn(() => false),
+    hasHealthyOllamaHostIgnoringCapacity: vi.fn(() => false),
     ...overrides,
   };
 }
@@ -420,15 +421,27 @@ describe('provider-routing-core', () => {
       const down = loadCore({ hostManagement: downHostManagement });
 
       expect(down.core.isProviderAvailableForRouting('ollama')).toBe(false);
-      expect(downHostManagement.hasHealthyOllamaHost).toHaveBeenCalled();
+      expect(downHostManagement.hasHealthyOllamaHostIgnoringCapacity).toHaveBeenCalled();
 
       const healthyHostManagement = createHostManagement({
         hasHealthyOllamaHost: vi.fn(() => true),
+        hasHealthyOllamaHostIgnoringCapacity: vi.fn(() => true),
       });
       const healthy = loadCore({ hostManagement: healthyHostManagement });
 
       expect(healthy.core.isProviderAvailableForRouting('ollama')).toBe(true);
-      expect(healthyHostManagement.hasHealthyOllamaHost).toHaveBeenCalled();
+      expect(healthyHostManagement.hasHealthyOllamaHostIgnoringCapacity).toHaveBeenCalled();
+    });
+
+    it('treats an at-capacity healthy Ollama host as routable for queued submission', () => {
+      const atCapacityHostManagement = createHostManagement({
+        hasHealthyOllamaHost: vi.fn(() => false),
+        hasHealthyOllamaHostIgnoringCapacity: vi.fn(() => true),
+      });
+      const atCapacity = loadCore({ hostManagement: atCapacityHostManagement });
+
+      expect(atCapacity.core.isProviderAvailableForRouting('ollama')).toBe(true);
+      expect(atCapacityHostManagement.hasHealthyOllamaHostIgnoringCapacity).toHaveBeenCalled();
     });
 
     it('enriches provider rows with parsed quota patterns and booleans', () => {

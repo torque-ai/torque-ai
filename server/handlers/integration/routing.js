@@ -1806,6 +1806,12 @@ async function handleSmartSubmitTask(args) {
     : [];
   const slotPullQualityTier = tierRoutingResult?.quality_tier
     || (complexity === 'complex' ? 'complex' : (complexity === 'simple' ? 'simple' : 'normal'));
+  const hasLocalLlmSubmissionPath = typeof providerRoutingCore.hasHealthyOllamaHostIgnoringCapacity === 'function'
+    ? providerRoutingCore.hasHealthyOllamaHostIgnoringCapacity()
+    : providerRoutingCore.hasHealthyOllamaHost();
+  const routingMode = codexExhaustionRetry
+    ? 'codex_exhausted_retry'
+    : (codexExhausted ? 'codex_exhausted' : (!hasLocalLlmSubmissionPath ? 'local_offline' : 'normal'));
   const slotPullMetadata = {
     smart_routing: true,
     eligible_providers: normalizedSlotPullEligibleProviders,
@@ -1828,7 +1834,7 @@ async function handleSmartSubmitTask(args) {
     // grepping logs. Persisted as JSON in task metadata.
     routing_decision_trace: routingTrace.length > 0 ? routingTrace : undefined,
     complexity: complexity,
-    routing_mode: codexExhaustionRetry ? 'codex_exhausted_retry' : (codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal')),
+    routing_mode: routingMode,
     codex_exhaustion_retry: codexExhaustionRetry || undefined,
     tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
     _routing_chain: routingChainMetadata,
@@ -1887,7 +1893,7 @@ async function handleSmartSubmitTask(args) {
         // See identical comment in the slot-pull metadata branch above.
         routing_decision_trace: routingTrace.length > 0 ? routingTrace : undefined,
         complexity: complexity,
-        routing_mode: codexExhaustionRetry ? 'codex_exhausted_retry' : (codexExhausted ? 'codex_exhausted' : (!providerRoutingCore.hasHealthyOllamaHost() ? 'local_offline' : 'normal')),
+        routing_mode: routingMode,
         codex_exhaustion_retry: codexExhaustionRetry || undefined,
         tuning_overrides: Object.keys(tuningOverrides).length > 0 ? tuningOverrides : null,
         _routing_chain: routingChainMetadata,

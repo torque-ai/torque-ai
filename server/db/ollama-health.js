@@ -448,6 +448,25 @@ function hasHealthyOllamaHost() {
   return hostManagementFns.hasHealthyOllamaHost();
 }
 
+/**
+ * Check if any enabled healthy Ollama host exists, even if all slots are busy.
+ * Routing uses this to allow queuing behind at-capacity local hosts.
+ * @returns {boolean}
+ */
+function hasHealthyOllamaHostIgnoringCapacity() {
+  const hostManagementFns = _deps.getHostManagementFns();
+  if (!hostManagementFns) {
+    return false;
+  }
+  if (typeof hostManagementFns.hasHealthyOllamaHostIgnoringCapacity === 'function') {
+    return hostManagementFns.hasHealthyOllamaHostIgnoringCapacity();
+  }
+  if (typeof hostManagementFns.hasHealthyOllamaHost === 'function') {
+    return hostManagementFns.hasHealthyOllamaHost();
+  }
+  return false;
+}
+
 module.exports = {
   init,
   OLLAMA_HEALTH_CHECK_TIMEOUT_MS,
@@ -461,4 +480,5 @@ module.exports = {
   invalidateOllamaHealth,
   setOllamaHealthy,
   hasHealthyOllamaHost,
+  hasHealthyOllamaHostIgnoringCapacity,
 };

@@ -302,4 +302,15 @@ describe('db/host/capacity', () => {
 
     expect(hostCapacity.hasHealthyOllamaHost()).toBe(false);
   });
+
+  it('reports a healthy submission path even when every healthy host is at capacity', () => {
+    db.prepare('UPDATE ollama_hosts SET running_tasks = ?, max_concurrent = ? WHERE id = ?').run(1, 1, 'host1');
+
+    expect(hostCapacity.hasHealthyOllamaHost()).toBe(false);
+    expect(hostCapacity.hasHealthyOllamaHostIgnoringCapacity()).toBe(true);
+
+    db.prepare('UPDATE ollama_hosts SET status = ? WHERE id = ?').run('down', 'host1');
+
+    expect(hostCapacity.hasHealthyOllamaHostIgnoringCapacity()).toBe(false);
+  });
 });

@@ -1235,10 +1235,13 @@ function isProviderAvailableForRouting(provider) {
   if (!providerName) return false;
   const providerConfig = getProvider(providerName);
   if (providerName === 'ollama') {
+    const hasLocalPath = typeof ollamaHealth.hasHealthyOllamaHostIgnoringCapacity === 'function'
+      ? ollamaHealth.hasHealthyOllamaHostIgnoringCapacity()
+      : ollamaHealth.hasHealthyOllamaHost();
     return Boolean(
       providerConfig
       && providerConfig.enabled
-      && ollamaHealth.hasHealthyOllamaHost()
+      && hasLocalPath
       && isProviderHealthy(providerName)
     );
   }

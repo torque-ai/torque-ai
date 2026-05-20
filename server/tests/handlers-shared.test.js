@@ -34,6 +34,7 @@ const providerRoutingCore = {
 
 const hostManagement = {
   hasHealthyOllamaHost: vi.fn(),
+  hasHealthyOllamaHostIgnoringCapacity: vi.fn(),
 };
 
 let shared;
@@ -132,11 +133,13 @@ beforeEach(() => {
   providerRoutingCore.isProviderAvailableForRouting.mockReset();
   providerRoutingCore.listProviders.mockReset();
   hostManagement.hasHealthyOllamaHost.mockReset();
+  hostManagement.hasHealthyOllamaHostIgnoringCapacity.mockReset();
 
   providerRoutingCore.isCodexExhausted.mockReturnValue(false);
   providerRoutingCore.isProviderAvailableForRouting.mockReturnValue(false);
   providerRoutingCore.listProviders.mockReturnValue([]);
   hostManagement.hasHealthyOllamaHost.mockReturnValue(true);
+  hostManagement.hasHealthyOllamaHostIgnoringCapacity.mockReturnValue(true);
   shared = loadShared();
 });
 
@@ -1034,6 +1037,7 @@ describe('handlers/shared.js utilities', () => {
     it('returns a NO_HOSTS_AVAILABLE error when codex is exhausted and Ollama is offline', () => {
       providerRoutingCore.isCodexExhausted.mockReturnValue(true);
       hostManagement.hasHealthyOllamaHost.mockReturnValue(false);
+      hostManagement.hasHealthyOllamaHostIgnoringCapacity.mockReturnValue(false);
       providerRoutingCore.listProviders.mockReturnValue([]);
 
       const result = shared.checkProviderAvailability();
@@ -1042,9 +1046,19 @@ describe('handlers/shared.js utilities', () => {
       expectError(result.error, shared.ErrorCodes.NO_HOSTS_AVAILABLE.code, 'No providers available');
     });
 
+    it('returns null when Ollama is healthy but currently at capacity', () => {
+      providerRoutingCore.isCodexExhausted.mockReturnValue(true);
+      hostManagement.hasHealthyOllamaHost.mockReturnValue(false);
+      hostManagement.hasHealthyOllamaHostIgnoringCapacity.mockReturnValue(true);
+      providerRoutingCore.listProviders.mockReturnValue([]);
+
+      expect(shared.checkProviderAvailability()).toBeNull();
+    });
+
     it('returns null when a non-Codex fallback provider is available', () => {
       providerRoutingCore.isCodexExhausted.mockReturnValue(true);
       hostManagement.hasHealthyOllamaHost.mockReturnValue(false);
+      hostManagement.hasHealthyOllamaHostIgnoringCapacity.mockReturnValue(false);
       providerRoutingCore.listProviders.mockReturnValue([
         { provider: 'codex', enabled: true },
         { provider: 'claude-cli', enabled: true },
@@ -1058,6 +1072,7 @@ describe('handlers/shared.js utilities', () => {
     it('returns null for an intentional rate-limited Codex retry', () => {
       providerRoutingCore.isCodexExhausted.mockReturnValue(true);
       hostManagement.hasHealthyOllamaHost.mockReturnValue(false);
+      hostManagement.hasHealthyOllamaHostIgnoringCapacity.mockReturnValue(false);
       providerRoutingCore.listProviders.mockReturnValue([]);
 
       expect(shared.checkProviderAvailability({ allowCodexExhaustionRetry: true })).toBeNull();

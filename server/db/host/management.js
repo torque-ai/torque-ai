@@ -490,6 +490,7 @@ const {
   recordHostHealthCheck,
   disableStaleHosts,
   hasHealthyOllamaHost,
+  hasHealthyOllamaHostIgnoringCapacity,
 } = hostCapacity;
 
 // fetchModelsFromHost + fetchHostModelsSync — canonical implementation in host-benchmarking.js
@@ -1125,6 +1126,7 @@ function createHostManagement({ db: dbInstance, taskCore, projectConfigCore }) {
     recordHostHealthCheck,
     disableStaleHosts,
     hasHealthyOllamaHost,
+    hasHealthyOllamaHostIgnoringCapacity,
     fetchHostModelsSync,
     ensureModelsLoaded,
     setHostTierHint,
@@ -1207,6 +1209,7 @@ module.exports = {
   recordHostHealthCheck,
   disableStaleHosts,
   hasHealthyOllamaHost,
+  hasHealthyOllamaHostIgnoringCapacity,
   fetchHostModelsSync,
   ensureModelsLoaded,
   setHostTierHint,

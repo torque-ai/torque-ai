@@ -908,7 +908,12 @@ function checkProviderAvailability(options = {}) {
   if (options.hasExplicitProvider) return null;
   const providerRoutingCore = require('../db/provider/routing-core');
   const hostManagement = require('../db/host/management');
-  if (!providerRoutingCore.isCodexExhausted() || hostManagement.hasHealthyOllamaHost()) return null;
+  const hasLocalLlmSubmissionPath = hostManagement.hasHealthyOllamaHost()
+    || (
+      typeof hostManagement.hasHealthyOllamaHostIgnoringCapacity === 'function'
+      && hostManagement.hasHealthyOllamaHostIgnoringCapacity()
+    );
+  if (!providerRoutingCore.isCodexExhausted() || hasLocalLlmSubmissionPath) return null;
 
   if (typeof providerRoutingCore.listProviders === 'function') {
     try {

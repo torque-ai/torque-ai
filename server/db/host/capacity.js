@@ -490,6 +490,23 @@ function hasHealthyOllamaHost() {
   return row !== undefined;
 }
 
+/**
+ * Check if any enabled healthy Ollama host exists, regardless of current slot
+ * capacity. Submission routing uses this to distinguish "queue behind the
+ * busy host" from "no local LLM path exists".
+ *
+ * @returns {boolean}
+ */
+function hasHealthyOllamaHostIgnoringCapacity() {
+  const row = db.prepare(`
+    SELECT 1 FROM ollama_hosts
+    WHERE enabled = 1
+      AND status = 'healthy'
+    LIMIT 1
+  `).get();
+  return row !== undefined;
+}
+
 module.exports = {
   setDb,
   setHostFns,
@@ -504,4 +521,5 @@ module.exports = {
   recordHostHealthCheck,
   disableStaleHosts,
   hasHealthyOllamaHost,
+  hasHealthyOllamaHostIgnoringCapacity,
 };

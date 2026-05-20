@@ -366,6 +366,23 @@ describe('Smart Routing — Codex Exhaustion Gate & Local-First Routing', () => 
       expect(result).toBeTruthy();
     });
 
+    it('does NOT reject when the local LLM is healthy but currently at capacity', async () => {
+      setCodexExhausted();
+      insertHost({ enabled: true, status: 'healthy', running_tasks: 1, max_concurrent: 1 });
+
+      const result = await mod.handleSmartSubmitTask({
+        task: 'Create a utility function to format dates',
+        working_directory: testDir,
+      });
+
+      expect(result.isError).not.toBe(true);
+      const task = extractTaskFromResult(result);
+      expect(task).toBeTruthy();
+      const meta = typeof task.metadata === 'string' ? JSON.parse(task.metadata) : (task.metadata || {});
+      expect(task.status).toBe('queued');
+      expect(task.provider || meta.intended_provider).toBe('ollama');
+    });
+
     it('does NOT reject when override_provider is set', async () => {
       setCodexExhausted();
       clearHosts(); // Both down
