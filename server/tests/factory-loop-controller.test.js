@@ -1171,6 +1171,52 @@ Edit server/factory/plan-executor.js and make the requested behavior change. Kee
     expect(decisions.find((d) => d.action === 'stale_source_plan_pointer_cleared_before_replan')).toBeTruthy();
   });
 
+  it('does not restore a rejected source plan after PLAN marks the replan item planned', async () => {
+    const { project, workItem, planPath } = registerPlanProject();
+    fs.writeFileSync(planPath, '# Oversized legacy source plan\n\nStep 0: keep retrying the original document.\n');
+    const plannedReplan = factoryIntake.updateWorkItem(workItem.id, {
+      status: 'planned',
+      reject_reason: 'pre_written_plan_rejected_by_quality_gate',
+      origin_json: {
+        source_plan_path: planPath,
+        last_rejection_reason: 'pre_written_plan_rejected_by_quality_gate',
+        last_gate_feedback: 'Plan is too large; generate a replacement plan.',
+      },
+    });
+    const batchId = `factory-${project.id}-${workItem.id}`;
+    const instance = factoryLoopInstances.createInstance({
+      project_id: project.id,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+    });
+    factoryLoopInstances.updateInstance(instance.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      work_item_id: workItem.id,
+      batch_id: batchId,
+      paused_at_stage: null,
+    });
+    factoryHealth.updateProject(project.id, {
+      loop_state: LOOP_STATES.EXECUTE,
+      loop_batch_id: batchId,
+      loop_paused_at_stage: null,
+    });
+
+    await loopController._internalForTests.handlePlanExecuteTransition({
+      project,
+      instance: factoryLoopInstances.getInstance(instance.id),
+      currentState: LOOP_STATES.EXECUTE,
+      previousState: LOOP_STATES.EXECUTE,
+      instance_id: instance.id,
+      transitionWorkItem: plannedReplan,
+    });
+
+    const decisions = listDecisionRows(db, project.id);
+    expect(decisions.find((d) => d.action === 'pre_written_plan_quality_rejected_before_execute')).toBeFalsy();
+    const after = factoryIntake.getWorkItem(workItem.id);
+    expect(after.origin?.source_plan_path).toBe(planPath);
+    expect(after.origin?.plan_path).not.toBe(planPath);
+  });
+
   it('keeps pure suppression available when config.execute_mode is suppress', async () => {
     const { project, workItem, planPath } = registerPlanProject({
       config: { execute_mode: 'suppress' },

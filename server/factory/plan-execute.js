@@ -300,6 +300,33 @@ function createPlanExecuteStage(deps = {}) {
     }
   }
 
+  function sameResolvedPlanPath(left, right) {
+    if (!left || !right) return false;
+    try {
+      const leftResolved = path.resolve(String(left));
+      const rightResolved = path.resolve(String(right));
+      if (process.platform === 'win32') {
+        return leftResolved.toLowerCase() === rightResolved.toLowerCase();
+      }
+      return leftResolved === rightResolved;
+    } catch (_err) {
+      return String(left) === String(right);
+    }
+  }
+
+  function shouldPreserveSourcePlanPointerForGeneratedReplan(workItem, origin) {
+    if (!workItem || workItem.source !== 'plan_file') return false;
+    if (!origin?.source_plan_path || typeof origin.source_plan_path !== 'string') return false;
+    if (!['needs_replan', 'planned'].includes(String(workItem.status || ''))) return false;
+
+    const evidence = [
+      workItem.reject_reason,
+      origin.last_rejection_reason,
+      origin.last_gate_feedback,
+    ].filter(Boolean).join('\n');
+    return /(?:pre_written_plan_rejected_by_quality_gate|stale_source_plan_before_replan)/i.test(evidence);
+  }
+
   function restoreMissingPlanFilePathFromIntake(project, instance, workItem, stage) {
     if (!project?.id || !workItem?.id || workItem.source !== 'plan_file') {
       return workItem;
@@ -308,15 +335,36 @@ function createPlanExecuteStage(deps = {}) {
     const origin = workItem.origin && typeof workItem.origin === 'object'
       ? workItem.origin
       : (parseJsonObject(workItem.origin_json) || {});
-    if (origin.plan_path && typeof origin.plan_path === 'string') {
-      return workItem;
+
+    if (shouldPreserveSourcePlanPointerForGeneratedReplan(workItem, origin)) {
+      if (
+        origin.plan_path
+        && sameResolvedPlanPath(origin.plan_path, origin.source_plan_path)
+      ) {
+        const nextOrigin = { ...origin };
+        delete nextOrigin.plan_path;
+        const updated = factoryIntake.updateWorkItem(workItem.id, {
+          origin_json: nextOrigin,
+        });
+        if (instance?.id) {
+          rememberSelectedWorkItem(instance.id, updated);
+          updateInstanceAndSync(instance.id, { work_item_id: updated.id });
+        }
+        logger.info('Skipped restoring rejected source plan for generated replan', {
+          project_id: project.id,
+          work_item_id: updated.id,
+          source_plan_path: origin.source_plan_path,
+          stage,
+        });
+        return updated;
+      }
+
+      if (!origin.plan_path) {
+        return workItem;
+      }
     }
 
-    if (
-      workItem.status === 'needs_replan'
-      && origin.source_plan_path
-      && typeof origin.source_plan_path === 'string'
-    ) {
+    if (origin.plan_path && typeof origin.plan_path === 'string') {
       return workItem;
     }
 

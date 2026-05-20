@@ -7352,6 +7352,7 @@ module.exports = {
     handlePrioritizeTransition,
     executeSenseStage,
     executePlanStage,
+    handlePlanExecuteTransition,
     healAlreadyShippedWorkItem,
     recordFactoryIdleIfExhausted,
     clearFactoryIdleForPendingWork,
