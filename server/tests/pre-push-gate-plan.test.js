@@ -103,6 +103,7 @@ describe('pre-push gate planner', () => {
     expect(plan.mode).toBe('affected');
     expect(plan.run_server).toBe(true);
     expect(plan.server_args).toEqual([
+      'tests/diffusion-handlers.test.js',
       'tests/provider-lane-policy-by-kind.test.js',
       'tests/scout-provider-resolver.test.js',
     ]);

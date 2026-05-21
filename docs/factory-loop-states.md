@@ -201,6 +201,7 @@ Frequently-emitted actions, by stage:
 | EXECUTE | `plan_generation_worktree_created` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id` |
 | EXECUTE | `plan_generation_worktree_creation_failed` | `terminal` | `error`, `batch_id` |
 | EXECUTE | `plan_generation_retry_unusable_output` | `recovery-rule` (rule: `plan_generation_unusable_output`) | `work_item_id`, `provider` |
+| EXECUTE | `stale_plan_generation_task_ignored_for_materialized_plan` | `benign` | `work_item_id`, `generation_task_id`, `task_status`, `plan_path` |
 | EXECUTE | `source_plan_file_missing_superseded` | `benign` | `work_item_id`, `prior_status`, `next_status`, `reason`, `missing_plan_paths` |
 | EXECUTE | `plan_generation_provider_fallback_submitted` | `benign` | `work_item_id`, `failed_provider`, `fallback_provider`, `generation_task_id` |
 | EXECUTE | `started_execution` | `benign` | `from_state`, `to_state`, `reason`, `batch_id`, `work_item_id` |

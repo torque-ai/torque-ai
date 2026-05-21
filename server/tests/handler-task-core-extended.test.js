@@ -68,7 +68,12 @@ describe('handler:task-core (extended)', () => {
   it('handleSubmitTask blocks when no providers are available', async () => {
     mockSubmissionDefaults();
     vi.spyOn(providerRoutingCore, 'isCodexExhausted').mockReturnValue(true);
+    vi.spyOn(providerRoutingCore, 'listProviders').mockReturnValue([
+      { provider: 'codex', enabled: true },
+      { provider: 'ollama', enabled: true },
+    ]);
     vi.spyOn(hostManagement, 'hasHealthyOllamaHost').mockReturnValue(false);
+    vi.spyOn(hostManagement, 'hasHealthyOllamaHostIgnoringCapacity').mockReturnValue(false);
 
     const result = await handlers.handleSubmitTask(withProject({ task: 'Run checks', auto_route: false }));
 
