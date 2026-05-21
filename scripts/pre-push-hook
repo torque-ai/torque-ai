@@ -1374,6 +1374,28 @@ if ! [[ "$GATE_SERVER_SHARDS" =~ ^[0-9]+$ ]] || [ "$GATE_SERVER_SHARDS" -lt 1 ];
   echo "[pre-push] TORQUE_GATE_SHARDS=$GATE_SERVER_SHARDS is not a positive integer; defaulting to 1"
   GATE_SERVER_SHARDS=1
 fi
+
+cap_gate_server_shards_for_targeted_tests() {
+  if [ "$GATE_RUN_SERVER" != "1" ] || [ "$GATE_SERVER_SHARDS" -le 1 ]; then
+    return 0
+  fi
+  if [ -z "${GATE_SERVER_TEST_ARGS:-}" ]; then
+    return 0
+  fi
+
+  # The planner emits SAFE_PATH-filtered, space-free, shell-quoted test paths.
+  # Counting the expanded words is enough to keep Vitest's --shard denominator
+  # within the selected file count without changing the actual argv later.
+  set -- $GATE_SERVER_TEST_ARGS
+  local target_count="$#"
+  if [ "$target_count" -gt 0 ] && [ "$GATE_SERVER_SHARDS" -gt "$target_count" ]; then
+    echo "[pre-push] Server phase sharding capped to $target_count targeted test file(s) (requested $GATE_SERVER_SHARDS)."
+    GATE_SERVER_SHARDS="$target_count"
+  fi
+}
+
+cap_gate_server_shards_for_targeted_tests
+
 if [ "$GATE_SERVER_SHARDS" -gt 1 ]; then
   echo "[pre-push] Server phase sharding requested: $GATE_SERVER_SHARDS parallel shards (TORQUE_GATE_SHARDS)"
 fi

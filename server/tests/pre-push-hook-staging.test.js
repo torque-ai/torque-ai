@@ -312,6 +312,38 @@ printf 'remote=%s\\n' "$GATE_SERVER_SHARDS"
     expect(result.stdout).toContain('remote=4');
   });
 
+  it('caps requested server shards to the targeted server test count', () => {
+    const bashCheck = spawnSync('bash', ['--version'], { encoding: 'utf8' });
+    if (bashCheck.error || bashCheck.status !== 0) return;
+
+    const src = readHook();
+    const start = src.indexOf('cap_gate_server_shards_for_targeted_tests() {');
+    const end = src.indexOf('\ncap_gate_server_shards_for_targeted_tests', start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+
+    const helperBlock = src.slice(start, end);
+    const script = `${helperBlock}
+GATE_RUN_SERVER=1
+GATE_SERVER_SHARDS=4
+GATE_SERVER_TEST_ARGS="'tests/a.test.js' 'tests/b.test.js' 'eslint-rules/c.test.js'"
+cap_gate_server_shards_for_targeted_tests
+printf 'targeted=%s\\n' "$GATE_SERVER_SHARDS"
+
+GATE_RUN_SERVER=1
+GATE_SERVER_SHARDS=4
+GATE_SERVER_TEST_ARGS=""
+cap_gate_server_shards_for_targeted_tests
+printf 'full=%s\\n' "$GATE_SERVER_SHARDS"
+`;
+
+    const result = spawnSync('bash', ['-s'], { encoding: 'utf8', input: script });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('Server phase sharding capped to 3 targeted test file(s) (requested 4).');
+    expect(result.stdout).toContain('targeted=3');
+    expect(result.stdout).toContain('full=4');
+  });
+
   it('caps dashboard vitest workers from VITEST_MAX_WORKERS', () => {
     const configPath = path.resolve(__dirname, '..', '..', 'dashboard', 'vitest.config.js');
     const src = fs.readFileSync(configPath, 'utf8');
