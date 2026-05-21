@@ -16,6 +16,7 @@ HOOKS_SRC_DIR="${REPO_ROOT}/scripts"
 # worktree (where .git is a file, not a directory). Hooks live on the
 # common dir, so they apply to pushes from any worktree.
 HOOKS_DST_DIR="$(git rev-parse --git-common-dir)/hooks"
+QUIET="${INSTALL_GIT_HOOKS_QUIET:-0}"
 
 # Hooks we track. Each entry is "<source-filename>:<installed-hook-name>".
 HOOKS=(
@@ -51,6 +52,6 @@ for entry in "${HOOKS[@]}"; do
   installed=$((installed + 1))
 done
 
-if [ "$installed" -eq 0 ] && [ "$skipped" -gt 0 ]; then
+if [ "$installed" -eq 0 ] && [ "$skipped" -gt 0 ] && [ "$QUIET" != "1" ]; then
   echo "[install-git-hooks] all hooks up to date (${skipped} already installed)"
 fi

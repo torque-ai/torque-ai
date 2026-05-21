@@ -140,6 +140,15 @@ maybe_source_coord_lock() {
   fi
 }
 
+sync_tracked_git_hooks() {
+  local installer="${repo_root}/scripts/install-git-hooks.sh"
+  if [ ! -f "$installer" ]; then
+    return 0
+  fi
+
+  INSTALL_GIT_HOOKS_QUIET="${INSTALL_GIT_HOOKS_QUIET:-1}" bash "$installer"
+}
+
 wait_for_matching_pre_push_gate() {
   if ! declare -F repo_coord_lock_path >/dev/null 2>&1; then
     return 1
@@ -223,6 +232,7 @@ if [ -z "$local_ref" ]; then
 fi
 
 maybe_source_coord_lock
+sync_tracked_git_hooks
 
 max_ref_refreshes="${TORQUE_PUSH_REF_REFRESH_LIMIT:-8}"
 case "$max_ref_refreshes" in ''|*[!0-9]*) max_ref_refreshes=8 ;; esac

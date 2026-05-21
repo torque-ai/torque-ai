@@ -33,6 +33,15 @@ function makeFakeGitEnv(options = {}) {
   fs.mkdirSync(repo, { recursive: true });
   fs.mkdirSync(fakeBin, { recursive: true });
   fs.mkdirSync(state, { recursive: true });
+  if (options.installHooksScript) {
+    const scriptsDir = path.join(repo, 'scripts');
+    fs.mkdirSync(scriptsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(scriptsDir, 'install-git-hooks.sh'),
+      options.installHooksScript,
+      { mode: 0o755 },
+    );
+  }
 
   const gitPath = path.join(fakeBin, process.platform === 'win32' ? 'git.cmd' : 'git');
   const bashGitPath = path.join(fakeBin, 'git');
@@ -141,6 +150,7 @@ exit 64
     root,
     repo,
     fakeBin,
+    state,
     env,
     logPath: path.join(state, 'git.log'),
     cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
@@ -270,6 +280,26 @@ describe('torque-push wrapper', () => {
       expect(result.stderr).toContain('[pre-push] COALESCED:');
       expect(result.stderr).not.toContain('cannot lock ref');
       expect(result.stdout).toContain('treating as success');
+    } finally {
+      fake.cleanup();
+    }
+  });
+
+  it('refreshes tracked git hooks before running a main push', () => {
+    const fake = makeFakeGitEnv({
+      remoteBefore: OLD_SHA,
+      installHooksScript: `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "\${INSTALL_GIT_HOOKS_QUIET:-unset}" > "$FAKE_STATE/install-hooks-called"
+`,
+    });
+    try {
+      const result = runWrapper(fake);
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(fs.readFileSync(path.join(fake.state, 'install-hooks-called'), 'utf8')).toBe('1\n');
+      const calls = fs.readFileSync(fake.logPath, 'utf8');
+      expect(calls.match(/^push$/gm)?.length || 0).toBe(1);
     } finally {
       fake.cleanup();
     }
