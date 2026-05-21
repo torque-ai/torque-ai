@@ -1381,7 +1381,7 @@ function handleAddWorkflowTask(args) {
 
   // Guard: do not add tasks to terminal workflows.
   // cancelled workflows are definitively stopped and cannot be extended.
-  // completed/failed workflows may be extended to run follow-up tasks (intentional re-open).
+  // completed/failed/partial workflows may be extended to run follow-up tasks (intentional re-open).
   if (workflow.status === 'cancelled') {
     return makeError(
       ErrorCodes.INVALID_STATUS_TRANSITION,
@@ -1580,8 +1580,8 @@ function handleAddWorkflowTask(args) {
     }
   }
 
-  // Re-open completed/failed workflows when new tasks are added (extends the workflow)
-  const workflowWasTerminal = ['completed', 'failed'].includes(workflow.status);
+  // Re-open completed/failed/partial workflows when new tasks are added (extends the workflow)
+  const workflowWasTerminal = ['completed', 'failed', 'completed_with_errors'].includes(workflow.status);
   if (workflowWasTerminal) {
     workflowEngine.updateWorkflow(args.workflow_id, { status: 'running', completed_at: null });
   }
@@ -1590,10 +1590,10 @@ function handleAddWorkflowTask(args) {
   // not leave the workflow with stale task totals.
   workflowEngine.updateWorkflowCounts(args.workflow_id);
 
-  // If workflow is running or completed, auto-start the new task when possible
+  // If workflow is running or terminal-but-extendable, auto-start the new task when possible
   // (completed workflows get extended when new tasks are added mid-review)
   let actualStatus = hasDependencies ? 'blocked' : 'pending';
-  const workflowActive = ['running', 'completed', 'failed'].includes(workflow.status);
+  const workflowActive = ['running', 'completed', 'failed', 'completed_with_errors'].includes(workflow.status);
   if (workflowActive) {
     const terminalStates = ['completed', 'failed', 'cancelled', 'skipped'];
     if (hasDependencies) {

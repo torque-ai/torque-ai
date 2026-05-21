@@ -555,6 +555,44 @@ describe('workflow-advanced handlers', () => {
       expect(result.error_code).toBe('INVALID_STATUS_TRANSITION');
     });
 
+    it('reopens completed_with_errors workflows', () => {
+      const tasks = [
+        { id: 'task-a', status: 'completed', workflow_node_id: 'A' },
+        { id: 'task-b', status: 'failed', workflow_node_id: 'B' },
+      ];
+      vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
+        id: 'wf-1',
+        name: 'Partial WF',
+        status: 'completed_with_errors',
+        context: { acknowledged_tasks: ['task-b'] }
+      });
+      vi.spyOn(workflowEngine, 'getWorkflowTasks').mockReturnValue(tasks);
+      vi.spyOn(workflowEngine, 'getWorkflowDependencies').mockReturnValue([]);
+
+      const updateStatusSpy = vi.spyOn(taskCore, 'updateTaskStatus').mockImplementation(() => {});
+      const updateWorkflowSpy = vi.spyOn(workflowEngine, 'updateWorkflow').mockReturnValue(undefined);
+      vi.spyOn(workflowEngine, 'updateWorkflowCounts').mockReturnValue({
+        total_tasks: 2,
+        completed_tasks: 1,
+        failed_tasks: 0,
+        skipped_tasks: 0,
+      });
+      vi.spyOn(taskManager, 'startTask').mockImplementation(() => {});
+
+      const result = handlers.handleReopenWorkflow({ workflow_id: 'wf-1' });
+
+      expect(result.isError).toBeFalsy();
+      expect(updateStatusSpy).toHaveBeenCalledWith('task-b', 'pending', expect.any(Object));
+      expect(updateStatusSpy).not.toHaveBeenCalledWith('task-a', expect.anything(), expect.anything());
+      expect(updateWorkflowSpy).toHaveBeenCalledWith('wf-1', expect.objectContaining({
+        status: 'running',
+        completed_at: null,
+        context: { acknowledged_tasks: [] },
+      }));
+      expect(textOf(result)).toContain('Workflow Reopened');
+      expect(textOf(result)).toContain('**Tasks Reset:** 1');
+    });
+
     it('returns INVALID_PARAM when workflow has no tasks', () => {
       vi.spyOn(workflowEngine, 'getWorkflow').mockReturnValue({
         id: 'wf-1', name: 'Empty', status: 'failed'

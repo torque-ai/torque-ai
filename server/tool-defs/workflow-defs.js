@@ -826,13 +826,13 @@ const tools = [
   },
   {
     name: 'reopen_workflow',
-    description: 'Reopen a failed/cancelled workflow by resetting ALL failed/cancelled/skipped tasks at once and restarting execution. Broader than retry_workflow_from (which targets one task + its downstream).',
+    description: 'Reopen a failed/cancelled/completed_with_errors workflow by resetting ALL failed/cancelled/skipped tasks at once and restarting execution. Broader than retry_workflow_from (which targets one task + its downstream).',
     inputSchema: {
       type: 'object',
       properties: {
         workflow_id: {
           type: 'string',
-          description: 'Workflow ID to reopen (must be in failed or cancelled state)'
+          description: 'Workflow ID to reopen (must be in failed, cancelled, or completed_with_errors state)'
         }
       },
       required: ['workflow_id']
@@ -864,7 +864,7 @@ const tools = [
       properties: {
         status: {
           type: 'string',
-          enum: ['pending', 'running', 'completed', 'failed', 'cancelled', 'paused'],
+          enum: ['pending', 'running', 'completed', 'completed_with_errors', 'failed', 'cancelled', 'paused'],
           description: 'Filter by status'
         },
         template_id: {

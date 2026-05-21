@@ -844,6 +844,30 @@ describe('server/handlers/workflow-handlers', () => {
       expect(ctx.db.__tasks.get('task-b').status).toBe('queued');
       expect(textOf(result)).toContain('**Status:** queued');
     });
+
+    it('reopens completed_with_errors workflows when follow-up tasks are added', async () => {
+      seedWorkflow(ctx.db, {
+        id: 'wf-1',
+        status: 'completed_with_errors',
+        completed_at: '2026-03-08T10:00:00.000Z',
+      });
+      ctx.uuid.__setIds('task-follow-up');
+
+      const result = ctx.handlers.handleAddWorkflowTask({
+        workflow_id: 'wf-1',
+        node_id: 'follow-up',
+        task_description: 'Re-open this workflow',
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(ctx.db.updateWorkflow).toHaveBeenCalledWith('wf-1', {
+        status: 'running',
+        completed_at: null,
+      });
+      expect(ctx.taskManager.startTask).toHaveBeenCalledWith('task-follow-up');
+      expect(ctx.db.getWorkflow('wf-1').status).toBe('running');
+      expect(textOf(result)).toContain('**Status:** running');
+    });
   });
 
   describe('handleCloneWorkflow', () => {

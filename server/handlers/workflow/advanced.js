@@ -464,6 +464,7 @@ function handleRetryWorkflowFrom(args) {
   };
 }
 
+const REOPENABLE_WORKFLOW_STATUSES = new Set(['failed', 'cancelled', 'completed_with_errors']);
 const REOPEN_RESETTABLE_TASK_STATUSES = new Set(['failed', 'cancelled', 'skipped']);
 const REOPEN_REACTIVATABLE_TASK_STATUSES = new Set([
   'pending',
@@ -511,7 +512,7 @@ function buildReopenResetFields(task) {
 
 
 /**
- * Reopen a failed or cancelled workflow by resetting ALL non-completed tasks
+ * Reopen a failed/cancelled/partially completed workflow by resetting ALL non-completed tasks
  * (failed + cancelled + skipped) and restarting execution.
  *
  * Unlike retry_workflow_from (which targets one task and its downstream
@@ -520,8 +521,9 @@ function buildReopenResetFields(task) {
  * retry would require calling retry_workflow_from once per failure.
  *
  * Guards:
- * - Only allows workflows in `failed` or `cancelled` state (not `running` or
- *   `completed`). Running workflows go through the restart guard path.
+ * - Only allows workflows in `failed`, `cancelled`, or `completed_with_errors`
+ *   state (not `running` or `completed`). Running workflows go through the
+ *   restart guard path.
  * - Preserves `completed` tasks (does not reset them).
  * - Restores `blocked` vs `pending` per each task's live dependency state —
  *   if a prerequisite is still non-completed the task stays blocked.
@@ -530,10 +532,10 @@ function handleReopenWorkflow(args) {
   const { workflow, error: wfErr } = requireWorkflow(args.workflow_id);
   if (wfErr) return wfErr;
 
-  if (!['failed', 'cancelled'].includes(workflow.status)) {
+  if (!REOPENABLE_WORKFLOW_STATUSES.has(workflow.status)) {
     return makeError(
       ErrorCodes.INVALID_STATUS_TRANSITION,
-      `Cannot reopen workflow with status '${workflow.status}'. Only failed or cancelled workflows can be reopened.`
+      `Cannot reopen workflow with status '${workflow.status}'. Only failed, cancelled, or completed_with_errors workflows can be reopened.`
     );
   }
 
