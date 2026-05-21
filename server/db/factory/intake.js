@@ -46,7 +46,17 @@ const REJECT_REASONS = Object.freeze(new Set([
 // reserved for operator action and scout-proven-impossibility only).
 const CLOSED_STATUSES = new Set(['completed', 'rejected', 'shipped', 'shipped_stale', 'unactionable', 'needs_review', 'superseded', 'escalation_exhausted']);
 const TERMINAL_ESCALATION_KINDS = new Set(['chain_exhausted', 'no_provider_chain']);
-const SUCCESS_REJECT_REASON_CLEAR_STATUSES = new Set(['completed', 'shipped', 'shipped_stale']);
+// Top-level reject_reason is the current blocker signal. Historical rejection
+// context stays in origin_json.last_rejection_* so recovered active items do
+// not keep looking blocked on factory dashboards or readiness checks.
+const REJECT_REASON_CLEAR_STATUSES = new Set([
+  'planned',
+  'executing',
+  'verifying',
+  'completed',
+  'shipped',
+  'shipped_stale',
+]);
 const PRIORITY_LEVELS = Object.freeze({
   low: 30,
   default: 50,
@@ -262,7 +272,7 @@ function updateWorkItem(id, updates) {
   const normalizedUpdates = { ...(updates || {}) };
   if (
     normalizedUpdates.status !== undefined
-    && SUCCESS_REJECT_REASON_CLEAR_STATUSES.has(normalizedUpdates.status)
+    && REJECT_REASON_CLEAR_STATUSES.has(normalizedUpdates.status)
   ) {
     normalizedUpdates.reject_reason = null;
   }

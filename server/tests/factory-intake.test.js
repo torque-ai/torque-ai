@@ -179,6 +179,43 @@ describe('factory intake', () => {
     expect(shipped.reject_reason).toBeNull();
   });
 
+  test('updateWorkItem clears stale reject_reason when re-entering active execution statuses', () => {
+    for (const status of ['planned', 'executing', 'verifying']) {
+      const item = factoryIntake.createWorkItem({
+        project_id: project.id,
+        title: `Recover request as ${status}`,
+      });
+      factoryIntake.updateWorkItem(item.id, {
+        status: 'needs_replan',
+        reject_reason: 'generated_plan_missing_after_worktree_prepare',
+        origin_json: {
+          last_rejection_reason: 'generated_plan_missing_after_worktree_prepare',
+        },
+      });
+
+      const recovered = factoryIntake.updateWorkItem(item.id, { status });
+
+      expect(recovered.status).toBe(status);
+      expect(recovered.reject_reason).toBeNull();
+      expect(recovered.origin.last_rejection_reason).toBe('generated_plan_missing_after_worktree_prepare');
+    }
+  });
+
+  test('updateWorkItem preserves reject_reason while item still needs replan', () => {
+    const item = factoryIntake.createWorkItem({
+      project_id: project.id,
+      title: 'Keep current blocker visible',
+    });
+
+    const replan = factoryIntake.updateWorkItem(item.id, {
+      status: 'needs_replan',
+      reject_reason: 'generated_plan_missing_after_worktree_prepare',
+    });
+
+    expect(replan.status).toBe('needs_replan');
+    expect(replan.reject_reason).toBe('generated_plan_missing_after_worktree_prepare');
+  });
+
   test('rejectWorkItem sets status to rejected and stores reason', () => {
     const item = factoryIntake.createWorkItem({
       project_id: project.id,
