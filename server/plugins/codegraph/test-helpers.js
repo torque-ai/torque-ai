@@ -1,27 +1,12 @@
 'use strict';
 
-const childProcess = require('child_process');
-// server/tests/worker-setup.js stubs child_process git calls globally. Use the
-// saved real exec directly for fixture repos without mutating the shared module.
-const execFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { gitSync, cleanupRepo } = require('../../tests/git-test-utils');
 
 function git(cwd, args) {
-  // windowsHide:true prevents a console window per call (a 2085-file repo
-  // would otherwise pop 2085 cmd.exe windows and lock up the desktop).
-  execFileSync('git', args, {
-    cwd,
-    windowsHide: true,
-    stdio: ['ignore', 'ignore', 'pipe'],
-    env: {
-      ...process.env,
-      GIT_TERMINAL_PROMPT: '0',
-      GIT_OPTIONAL_LOCKS: '0',
-      GIT_CONFIG_NOSYSTEM: '1',
-    },
-  });
+  gitSync(args, { cwd });
 }
 
 function setupTinyRepo(prefix = 'cg-') {
@@ -30,12 +15,12 @@ function setupTinyRepo(prefix = 'cg-') {
   fs.writeFileSync(path.join(dir, 'b.js'), 'function beta() { return 1; }\n');
   git(dir, ['init', '--quiet']);
   git(dir, ['add', '.']);
-  git(dir, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'init']);
+  git(dir, ['commit', '-q', '-m', 'init', '--no-gpg-sign']);
   return dir;
 }
 
 function destroyTinyRepo(dir) {
-  if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  cleanupRepo(dir);
 }
 
 module.exports = { setupTinyRepo, destroyTinyRepo, git };
