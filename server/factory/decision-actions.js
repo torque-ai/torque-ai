@@ -385,6 +385,11 @@ const DECISION_ACTIONS = {
     classifier: 'benign',
     outcome: ['next_state', 'next_status', 'work_item_id', 'plan_path_cleared'],
   },
+  generated_plan_restored_after_worktree_prepare: {
+    stage: 'EXECUTE',
+    classifier: 'benign',
+    outcome: ['restored_plan_path', 'worktree_path'],
+  },
   execute_exception: {
     stage: 'EXECUTE',
     classifier: 'recovery-rule',

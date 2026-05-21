@@ -222,6 +222,7 @@ Frequently-emitted actions, by stage:
 | EXECUTE | `factory_worktree_reuse_dirty_preserved` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `baseRef`, `threshold`, `commits_behind`, `stale_files`, `reuse_context`, `fallback_suffix` |
 | EXECUTE | `execute_batch_worktree_reuse_skipped` | `benign` | `factory_worktree_id`, `worktree_id`, `worktree_path`, `branch`, `batch_id`, `active_work_item_id`, `requested_work_item_id` |
 | EXECUTE | `generated_plan_missing_routed_to_needs_replan` | `benign` | `next_state`, `next_status`, `work_item_id`, `plan_path_cleared` |
+| EXECUTE | `generated_plan_restored_after_worktree_prepare` | `benign` | `restored_plan_path`, `worktree_path` |
 | EXECUTE | `execute_exception` | `recovery-rule` (rule: `execute_exception_unclassified`) | `work_item_id`, `error` |
 | EXECUTE | `execute_wait_owner_completed` | `benign` | `owning_task_id`, `owning_status` |
 | EXECUTE | `execute_zero_diff_short_circuit` | `recovery-rule` (rule: `execute_zero_diff_short_circuit`) | `work_item_id`, `reason` |
