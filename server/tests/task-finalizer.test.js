@@ -834,6 +834,111 @@ describe('task-finalizer', () => {
     }));
   });
 
+  it('preserves dirty import companions reachable from scoped source companions', async () => {
+    const dbBundle = createTaskDb({
+      provider: 'codex',
+      working_directory: 'C:/repo/.worktrees/feature',
+      task_description: [
+        'Plan: Add SNMP v3 auth, trap configuration, and getState test cases',
+        'Task 1: Add SNMPv3 authentication tests to `tests/engine/protocols/snmp.test.ts`',
+      ].join('\n'),
+      metadata: JSON.stringify({
+        file_paths: [
+          'tests/engine/protocols/snmp.test.ts',
+        ],
+      }),
+      tags: [
+        'factory:batch_id=factory-a3df749a-7869-486f-9896-64d38d25d39b-2563',
+        'factory:work_item_id=2563',
+        'factory:plan_task_number=1',
+      ],
+    });
+    const { db } = dbBundle;
+    const restoreFactoryWorktreeFiles = vi.fn();
+    const sourceByPath = {
+      'tests/engine/protocols/snmp.test.ts': [
+        "import { SnmpProtocol } from '../../../src/engine/protocols/snmp';",
+        "import { describe, it } from 'vitest';",
+      ].join('\n'),
+      'src/engine/protocols/snmp.ts': [
+        "import type { SnmpMessage } from '../types';",
+        "import { helper } from './snmp-helpers';",
+        'export class SnmpProtocol {}',
+      ].join('\n'),
+      'src/engine/types.ts': 'export interface SnmpMessage { version?: 3 }',
+      'src/engine/protocols/ospf.ts': 'export class OspfProtocol {}',
+    };
+    const handleAutoVerifyRetry = vi.fn(async (ctx) => {
+      expect(ctx.filesModified).toEqual([
+        'tests/engine/protocols/snmp.test.ts',
+        'src/engine/protocols/snmp.ts',
+        'src/engine/types.ts',
+      ]);
+    });
+    const logFactoryDecision = vi.fn();
+    const scopedFinalizer = finalizer.createTaskFinalizer({
+      db,
+      safeUpdateTaskStatus: vi.fn((...args) => db.updateTaskStatus(...args)),
+      sanitizeTaskOutput: (value) => value || '',
+      extractModifiedFiles: vi.fn(() => []),
+      getActualModifiedFilesForFactoryHygiene: vi.fn(() => [
+        'tests/engine/protocols/snmp.test.ts',
+        'src/engine/protocols/snmp.ts',
+        'src/engine/types.ts',
+        'src/engine/protocols/ospf.ts',
+      ]),
+      readFactoryWorktreeFileForHygiene: vi.fn((_workingDirectory, filePath) => sourceByPath[filePath] || null),
+      restoreFactoryWorktreeFiles,
+      handleRetryLogic: vi.fn(),
+      handleSafeguardChecks: vi.fn(),
+      handleFuzzyRepair: vi.fn(),
+      handleAutoValidation: vi.fn(),
+      handleBuildTestStyleCommit: vi.fn(),
+      handleAutoVerifyRetry,
+      handleProviderFailover: vi.fn(),
+      handlePostCompletion: vi.fn(),
+      logFactoryDecision,
+    });
+
+    const result = await scopedFinalizer.finalizeTask(dbBundle.taskId, {
+      exitCode: 0,
+      output: 'Updated SNMP tests, implementation, and shared message types',
+      errorOutput: '',
+      filesModified: [
+        'tests/engine/protocols/snmp.test.ts',
+        'src/engine/protocols/snmp.ts',
+        'src/engine/types.ts',
+        'src/engine/protocols/ospf.ts',
+      ],
+    });
+
+    const storedTask = dbBundle.getStoredTask();
+    expect(result.finalized).toBe(true);
+    expect(storedTask.status).toBe('completed');
+    expect(storedTask.files_modified).toEqual([
+      'tests/engine/protocols/snmp.test.ts',
+      'src/engine/protocols/snmp.ts',
+      'src/engine/types.ts',
+    ]);
+    expect(restoreFactoryWorktreeFiles).toHaveBeenCalledWith(
+      'C:/repo/.worktrees/feature',
+      ['src/engine/protocols/ospf.ts'],
+    );
+    expect(handleAutoVerifyRetry).toHaveBeenCalledTimes(1);
+    expect(logFactoryDecision).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'restored_unscoped_worktree_changes',
+      work_item_id: '2563',
+      outcome: expect.objectContaining({
+        restored_files: ['src/engine/protocols/ospf.ts'],
+        allowed_files: expect.arrayContaining([
+          'tests/engine/protocols/snmp.test.ts',
+          'src/engine/protocols/snmp.ts',
+          'src/engine/types.ts',
+        ]),
+      }),
+    }));
+  });
+
   it('does not trust provider-reported dirty files as factory worktree scope', async () => {
     const dbBundle = createTaskDb({
       provider: 'codex',

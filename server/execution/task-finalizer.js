@@ -537,6 +537,148 @@ function expandAllowedFactoryDirtyFilesForTestCompanions(allowedFiles, dirtyFile
   return expanded;
 }
 
+const FACTORY_IMPORT_COMPANION_EXTENSIONS = [
+  '.ts',
+  '.tsx',
+  '.mts',
+  '.cts',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
+  '.json',
+];
+
+function isRelativeFactoryImportSpecifier(specifier) {
+  return typeof specifier === 'string' && /^\.{1,2}(?:\/|$)/.test(specifier.trim());
+}
+
+function normalizeFactoryRelativeImport(baseDir, specifier) {
+  const cleanSpecifier = String(specifier || '').trim().replace(/[?#].*$/, '');
+  if (!isRelativeFactoryImportSpecifier(cleanSpecifier)) return null;
+
+  const segments = `${baseDir ? `${baseDir}/` : ''}${cleanSpecifier}`.split('/');
+  const normalized = [];
+  for (const segment of segments) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') {
+      if (normalized.length === 0) return null;
+      normalized.pop();
+      continue;
+    }
+    normalized.push(segment);
+  }
+  return normalizeFactoryGitPath(normalized.join('/'));
+}
+
+function getFactoryPathDir(filePath) {
+  const normalized = normalizeFactoryGitPath(filePath);
+  const parts = normalized.split('/').filter(Boolean);
+  parts.pop();
+  return parts.join('/');
+}
+
+function resolveFactoryRelativeImportCandidates(importerPath, specifier) {
+  const base = normalizeFactoryRelativeImport(getFactoryPathDir(importerPath), specifier);
+  if (!base) return [];
+
+  const candidates = new Set();
+  candidates.add(base);
+  if (/\.[^/.]+$/u.test(base)) {
+    const withoutExtension = base.replace(/\.[^/.]+$/u, '');
+    for (const extension of FACTORY_IMPORT_COMPANION_EXTENSIONS) {
+      candidates.add(`${withoutExtension}${extension}`);
+    }
+  } else {
+    for (const extension of FACTORY_IMPORT_COMPANION_EXTENSIONS) {
+      candidates.add(`${base}${extension}`);
+      candidates.add(`${base}/index${extension}`);
+    }
+  }
+  return Array.from(candidates).map(normalizeFactoryGitPath).filter(Boolean);
+}
+
+function extractFactoryRelativeImportSpecifiers(source) {
+  const specifiers = new Set();
+  const text = typeof source === 'string' ? source : '';
+  const patterns = [
+    /\b(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s*)?['"]([^'"]+)['"]/g,
+    /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+    /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+  ];
+
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      if (isRelativeFactoryImportSpecifier(match[1])) {
+        specifiers.add(match[1].trim());
+      }
+    }
+  }
+  return Array.from(specifiers);
+}
+
+function readFactoryWorktreeFileForHygiene(workingDirectory, filePath, taskId = 'unknown') {
+  const normalizedFile = normalizeFactoryGitPath(filePath);
+  if (!normalizedFile) return null;
+
+  if (typeof getDeps().readFactoryWorktreeFileForHygiene === 'function') {
+    try {
+      const content = getDeps().readFactoryWorktreeFileForHygiene(workingDirectory, normalizedFile);
+      return typeof content === 'string' ? content : null;
+    } catch (err) {
+      logger.debug(`[finalizer] Factory hygiene file read failed for ${taskId}:${normalizedFile}: ${err.message}`);
+      return null;
+    }
+  }
+
+  if (!workingDirectory) return null;
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const root = path.resolve(workingDirectory);
+    const candidate = path.resolve(root, ...normalizedFile.split('/'));
+    const relative = path.relative(root, candidate);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
+
+    const stat = fs.statSync(candidate);
+    if (!stat.isFile() || stat.size > 1024 * 1024) return null;
+    return fs.readFileSync(candidate, 'utf8');
+  } catch (err) {
+    logger.debug(`[finalizer] Factory hygiene file read failed for ${taskId}:${normalizedFile}: ${err.message}`);
+    return null;
+  }
+}
+
+function expandAllowedFactoryDirtyFilesForImportCompanions(workingDirectory, allowedFiles, dirtyFiles, taskId = 'unknown') {
+  const expanded = new Set(allowedFiles || []);
+  const dirtySet = new Set((Array.isArray(dirtyFiles) ? dirtyFiles : []).map(normalizeFactoryGitPath).filter(Boolean));
+  if (dirtySet.size === 0 || expanded.size === 0) return expanded;
+
+  const queue = Array.from(expanded);
+  const visited = new Set();
+  const maxVisits = Math.max(20, dirtySet.size + expanded.size + 10);
+
+  while (queue.length > 0 && visited.size < maxVisits) {
+    const file = normalizeFactoryGitPath(queue.shift());
+    if (!file || visited.has(file)) continue;
+    visited.add(file);
+
+    const source = readFactoryWorktreeFileForHygiene(workingDirectory, file, taskId);
+    if (!source) continue;
+
+    for (const specifier of extractFactoryRelativeImportSpecifiers(source)) {
+      for (const candidate of resolveFactoryRelativeImportCandidates(file, specifier)) {
+        if (!dirtySet.has(candidate) || expanded.has(candidate)) continue;
+        expanded.add(candidate);
+        queue.push(candidate);
+      }
+    }
+  }
+
+  return expanded;
+}
+
 function readTrackedDirtyFilesForFactoryHygiene(task) {
   const workingDirectory = typeof task?.working_directory === 'string'
     ? task.working_directory.trim()
@@ -638,10 +780,16 @@ function sanitizeFactoryPlanWorktreeDirtyFiles(ctx) {
   const dirtyFiles = readTrackedDirtyFilesForFactoryHygiene(task);
   if (dirtyFiles.length === 0) return;
 
-  const expandedAllowedFiles = expandAllowedFactoryDirtyFilesForTestCompanions(allowedFiles, dirtyFiles);
+  let expandedAllowedFiles = expandAllowedFactoryDirtyFilesForTestCompanions(allowedFiles, dirtyFiles);
+  expandedAllowedFiles = expandAllowedFactoryDirtyFilesForImportCompanions(
+    task.working_directory,
+    expandedAllowedFiles,
+    dirtyFiles,
+    task.id || ctx.taskId,
+  );
   const companionFiles = Array.from(expandedAllowedFiles).filter(file => !allowedFiles.has(file));
   if (companionFiles.length > 0) {
-    logger.info(`[finalizer] Task ${ctx.taskId}: preserving ${companionFiles.length} scoped test companion file(s) before verification`);
+    logger.info(`[finalizer] Task ${ctx.taskId}: preserving ${companionFiles.length} scoped companion file(s) before verification`);
   }
 
   const staleFiles = dirtyFiles.filter(file => !isAllowedFactoryDirtyFile(file, expandedAllowedFiles));
