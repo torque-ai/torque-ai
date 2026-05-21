@@ -56,6 +56,10 @@ const RULES = {
     severity: 'hard', scope: 'task',
     description: 'Test-runner validation commands must not target config or metadata files such as .torque-remote.json.',
   },
+  task_avoids_csharp_same_operand_comparisons: {
+    severity: 'hard', scope: 'task',
+    description: 'C# test plans must not ask workers to compare the same variable to itself (for example `value >= value`); use distinct variables with equal values to avoid CS1718 under TreatWarningsAsErrors.',
+  },
   task_avoids_vague_phrases: {
     severity: 'hard', scope: 'task', minHits: 1,
     description: 'Avoid vague phrases ("improve", "update", "clean up", "refactor accordingly") unless accompanied by a concrete file path, function name, or symbol.',
@@ -99,6 +103,8 @@ const GREP_TARGET_RE = /\bsearch_files\b|\bgrep\b/i;
 const VALIDATION_COMMAND_TARGET_RE = /\b(?:npx\s+vitest(?:\s+run)?|vitest(?:\s+run)?|pytest|python\s+-m\s+pytest|npm(?:\s+--prefix\s+\S+)?\s+(?:run\s+)?test\s+--)\s+[`'"]?([A-Za-z0-9_.][A-Za-z0-9_./\\-]*)(?=[`'"\s]|$)/i;
 const TEST_RUNNER_TARGET_RE = /\b(?:npx\s+vitest(?:\s+run)?|vitest(?:\s+run)?|pytest|python\s+-m\s+pytest|npm(?:\s+--prefix\s+\S+)?\s+(?:run\s+)?test\s+--)\s+[`'"]?([A-Za-z0-9_.][A-Za-z0-9_./\\-]*)(?=[`'"\s]|$)/gi;
 const CONFIG_FILE_TEST_TARGET_RE = /(?:^|[\\/])(?:\.torque-remote\.json|\.env(?:\.[^\\/]+)?|package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig(?:\.[^\\/]+)?\.json|vite\.config\.[cm]?[jt]s|vitest\.config\.[cm]?[jt]s)$/i;
+const CSHARP_PLAN_CONTEXT_RE = /\.(?:cs|csproj)\b|\bdotnet\s+(?:build|test)\b|\b(?:C#|NUnit|xUnit|MSTest)\b|\bAssert\.(?:IsTrue|IsFalse|That|AreEqual|Less|Greater|LessOrEqual|GreaterOrEqual)\b/i;
+const CSHARP_SAME_OPERAND_COMPARISON_RE = /\b([A-Za-z_][A-Za-z0-9_]*)\b\s*(<=|>=|==|!=|<|>)\s*\b\1\b/g;
 const ACCEPTANCE_RE = /\b(npx vitest|dotnet test|pytest|python\s+[A-Za-z0-9_./\\-]+\.py|npm(?:\s+--prefix\s+\S+)?\s+(?:run\s+)?test|git\s+diff\s+--check|assert|expect|acceptance criteria\s*:|validation\s*:|ensure\s+(?:it\s+|that\s+)?(?:outputs|reports|passes|includes)|must\s+(?:pass|return|include|not\s+include|not\s+read|call|not\s+call)|should\s+(?:pass|report|produce|exist|include|not\s+include))\b/i;
 const PLAN_PATH_EXTENSIONS = 'csproj|fsproj|vbproj|targets|props|cjs|cs|css|go|html|java|js|json|jsx|md|mjs|psm1|ps1|py|rb|resx|rs|sh|sln|sql|ts|tsx|txt|xaml|axaml|xml|ya?ml';
 const PLAN_PATH_EXTENSION_BOUNDARY = '(?=$|[^A-Za-z0-9])';
@@ -226,6 +232,22 @@ function findConfigFileTestTargets(text) {
     }
   }
   return [...new Set(targets)];
+}
+
+function findCsharpSameOperandComparisons(text) {
+  const value = String(text || '');
+  if (!CSHARP_PLAN_CONTEXT_RE.test(value)) {
+    return [];
+  }
+
+  const snippets = [];
+  CSHARP_SAME_OPERAND_COMPARISON_RE.lastIndex = 0;
+  for (const match of value.matchAll(CSHARP_SAME_OPERAND_COMPARISON_RE)) {
+    const start = Math.max(0, match.index - 24);
+    const end = Math.min(value.length, match.index + match[0].length + 24);
+    snippets.push(value.slice(start, end).replace(/\s+/g, ' ').trim());
+  }
+  return [...new Set(snippets)];
 }
 
 function findTorqueRemoteCommands(text) {
@@ -633,6 +655,15 @@ function runDeterministicRules(planMarkdown, options = {}) {
         rule: 'task_avoids_config_file_test_targets',
         taskNumber: task.number,
         detail: `Task ${task.number} uses a test runner against config/metadata file target(s): ${configFileTestTargets.join(', ')}. Use a focused source/test file, repo script, or schema/lint command instead.`,
+      });
+    }
+
+    const sameOperandComparisons = findCsharpSameOperandComparisons(task.body);
+    if (sameOperandComparisons.length > 0) {
+      hardFails.push({
+        rule: 'task_avoids_csharp_same_operand_comparisons',
+        taskNumber: task.number,
+        detail: `Task ${task.number} asks for C# same-operand comparison(s): ${sameOperandComparisons.join('; ')}. Use two distinct variables with equal values for equality/equivalence cases so TreatWarningsAsErrors does not turn CS1718 into a build failure.`,
       });
     }
 

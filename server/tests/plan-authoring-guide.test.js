@@ -51,6 +51,12 @@ describe('plan-authoring-guide', () => {
     expect(guide).toContain('factory execution already runs in an isolated worktree');
   });
 
+  it('composeGuide warns C# plans away from same-variable comparisons', () => {
+    const guide = composeGuide();
+    expect(guide).toContain('C# test plans must not ask workers to compare the same variable to itself');
+    expect(guide).toContain('CS1718');
+  });
+
   it('renderRuleList sorts rules by key for stable output', () => {
     const fakeRules = {
       z_rule: { severity: 'hard', description: 'Zeta.' },

@@ -281,6 +281,37 @@ Edit .torque-remote.json only to correct the remote host metadata. Acceptance cr
     expect(hardFails.find(f => f.rule === 'task_avoids_config_file_test_targets')).toBeUndefined();
   });
 
+  it('rejects C# same-operand comparison assertions that become CS1718 under TreatWarningsAsErrors', () => {
+    const plan = `## Task 1: Add FixedPoint comparison tests
+
+Edit \`simtests/FixedPointTests.cs\` to add NUnit coverage for FixedPoint comparison operators. Acceptance criteria: assert \`negative < zero\`, \`zero < positive\`, \`positive >= positive\`, \`negative <= negative\`, and \`!(positive < positive)\` while covering equal-value pairs.`;
+    const { hardFails } = runDeterministicRules(plan);
+    const fail = hardFails.find(f => f.rule === 'task_avoids_csharp_same_operand_comparisons');
+
+    expect(fail).toBeTruthy();
+    expect(fail.taskNumber).toBe(1);
+    expect(fail.detail).toContain('positive >= positive');
+    expect(fail.detail).toContain('CS1718');
+  });
+
+  it('allows C# equal-value comparisons when distinct variables are used', () => {
+    const plan = `## Task 1: Add FixedPoint comparison tests
+
+Edit \`simtests/FixedPointTests.cs\` to add NUnit coverage for FixedPoint comparison operators. Acceptance criteria: assert \`negative < zero\`, \`zero < positive\`, \`equalLeft >= equalRight\`, \`equalLeft <= equalRight\`, and \`!(equalLeft < equalRight)\` while covering equal-value pairs with distinct variables.`;
+    const { hardFails } = runDeterministicRules(plan);
+
+    expect(hardFails.find(f => f.rule === 'task_avoids_csharp_same_operand_comparisons')).toBeUndefined();
+  });
+
+  it('does not apply the C# same-operand guard outside C# plan context', () => {
+    const plan = `## Task 1: Add TypeScript counter tests
+
+Edit \`tests/counter.test.ts\` to add focused TypeScript coverage around idempotent counter reads. Acceptance criteria: expect \`count >= count\` to stay true after a no-op read and run npx vitest tests/counter.test.ts.`;
+    const { hardFails } = runDeterministicRules(plan);
+
+    expect(hardFails.find(f => f.rule === 'task_avoids_csharp_same_operand_comparisons')).toBeUndefined();
+  });
+
   it('rejects edit-style tasks that target missing repository files', () => withTempRepo((repoPath) => {
     fs.mkdirSync(path.join(repoPath, 'server', 'db'), { recursive: true });
     fs.writeFileSync(path.join(repoPath, 'server', 'db', 'workflow-engine.js'), 'module.exports = {};\n');
