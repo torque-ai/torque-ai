@@ -1,6 +1,7 @@
 'use strict';
 
 const decisionLog = require('./decision-log');
+const { getDecisionActor } = require('./decision-actors');
 
 // Frozen enum of valid auto-ship reasons. New auto-ship paths must add a
 // reason value here BEFORE calling emitAutoShipped — runtime validation
@@ -48,11 +49,12 @@ function emitAutoShipped({
   };
 
   const defaultReasoning = `Auto-shipped at ${stage} (reason=${reason}, confidence=${confidence}). Shipped-detector found matching commits on main.`;
+  const actor = getDecisionActor(decisionStage) || 'auto-recovery';
 
   return decisionLog.logDecision({
     project_id,
     stage: decisionStage,
-    actor: 'factory-loop',
+    actor,
     action: 'auto_shipped',
     reasoning: reasoning || defaultReasoning,
     inputs: { reason },

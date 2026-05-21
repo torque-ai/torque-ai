@@ -175,6 +175,33 @@ describe('factory shipped detector', () => {
     expect(result.signals.title_tokens).not.toContain('and');
   });
 
+  it('does not auto-ship a new protocol test suite from generic title tokens and old commits', () => {
+    const refs = [
+      'tests/engine/protocols/aaa.test.ts',
+      'src/engine/protocols/aaa.ts',
+      'tests/cli/cli-v2.3.test.ts',
+      'tests/engine/protocols/acl.test.ts',
+    ];
+    writeRepoFiles(repoRoot, refs.slice(1));
+    const runGitLog = vi.fn().mockReturnValue([
+      'feat(factory): plan task 1 - Create MSTP protocol unit test suite',
+      'feat(factory): plan task 1 - Add AAA TACACS and RADIUS fallback assertions to cli-v2.3 suite',
+    ]);
+    const detector = createShippedDetector({ repoRoot, runGitLog });
+
+    const result = detector.detectShipped({
+      title: 'Create AAA protocol unit test suite',
+      content: createPlanContent('Create AAA protocol unit test suite', refs),
+    });
+
+    expect(result.signals.title_tokens).toEqual(['aaa']);
+    expect(runGitLog).not.toHaveBeenCalled();
+    expect(result.signals.file_reference_total).toBe(4);
+    expect(result.signals.existing_file_count).toBe(3);
+    expect(result.signals.file_existence_ratio).toBe(0.75);
+    expect(result.shipped).toBe(false);
+  });
+
   // Regression: live samplegame bug 2026-04-28. The architect kept regenerating
   // identical "samplegame-typed-lan-startup-failure-reasons" plans because the
   // shipped detector was scoring 0.6+ token overlap against unrelated merge

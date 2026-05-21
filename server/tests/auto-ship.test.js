@@ -49,7 +49,7 @@ describe('emitAutoShipped', () => {
     expect(recorded.length).toBe(1);
     expect(recorded[0].action).toBe('auto_shipped');
     expect(recorded[0].stage).toBe('prioritize');
-    expect(recorded[0].actor).toBe('factory-loop');
+    expect(recorded[0].actor).toBe('architect');
     expect(recorded[0].confidence).toBe(1);
     expect(recorded[0].outcome.reason).toBe('at_prioritize');
     expect(recorded[0].outcome.work_item_id).toBe('wi-7');
@@ -152,6 +152,7 @@ describe('emitAutoShipped', () => {
     expect(recorded[0].reasoning).toMatch(/Auto-shipped at VERIFY/);
     expect(recorded[0].reasoning).toMatch(/reason=at_verify_fail/);
     expect(recorded[0].reasoning).toMatch(/confidence=high/);
+    expect(recorded[0].actor).toBe('verifier');
   });
 
   it('preserves caller-provided reasoning override', () => {
