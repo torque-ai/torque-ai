@@ -10,7 +10,7 @@ const FILE_PATH_EXTENSIONS = 'csproj|fsproj|vbproj|targets|props|cjs|cs|css|go|h
 const FILE_PATH_RE = new RegExp(
   '(?:^|[\\s"\'`(])((?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\\\/])+[A-Za-z0-9_.-]+\\.(?:'
     + FILE_PATH_EXTENSIONS
-    + '))(?=$|[\\s"\'`),:])',
+    + '))(?=$|[\\s"\'`),:.;])',
   'gim',
 );
 const EXECUTION_MODES = new Set(['live', 'suppress', 'pending_approval']);
