@@ -731,7 +731,7 @@ describe('factory loop-controller EXECUTE modes', () => {
     });
   });
 
-  it('routes missing generated plan files back to replan after worktree preparation', async () => {
+  it('restores missing generated plan files after worktree preparation', async () => {
     const { project, workItem, planPath } = registerPlanProject();
     const generatedPlanPath = path.join(path.dirname(planPath), 'auto-generated', 'generated-after-reclaim.md');
     fs.mkdirSync(path.dirname(generatedPlanPath), { recursive: true });
@@ -744,6 +744,11 @@ describe('factory loop-controller EXECUTE modes', () => {
     loopController.setWorktreeRunnerForTests({
       createForBatch: vi.fn(async () => {
         fs.rmSync(generatedPlanPath, { force: true });
+        fs.mkdirSync(path.join(worktreePath, 'server', 'factory'), { recursive: true });
+        fs.writeFileSync(
+          path.join(worktreePath, 'server', 'factory', 'plan-executor.js'),
+          '// worktree fixture for restored generated plan test\n'
+        );
         fs.mkdirSync(worktreePath, { recursive: true });
         return {
           id: 'vc-generated-missing',
@@ -752,23 +757,29 @@ describe('factory loop-controller EXECUTE modes', () => {
           baseBranch: 'main',
         };
       }),
+      verify: vi.fn(async () => ({
+        passed: true,
+        output: 'ok',
+        durationMs: 12,
+      })),
       abandon: vi.fn(async () => null),
     });
 
     await advanceSupervisedPlanProject(project.id);
     const executeAdvance = await loopController.advanceLoopForProject(project.id);
 
-    expect(executeAdvance.new_state).toBe(LOOP_STATES.PRIORITIZE);
+    expect(executeAdvance.new_state).toBe(LOOP_STATES.VERIFY);
     expect(executeAdvance.paused_at_stage).toBeNull();
-    expect(routingModule.handleSmartSubmitTask).not.toHaveBeenCalled();
+    expect(routingModule.handleSmartSubmitTask).toHaveBeenCalledTimes(1);
     const updated = factoryIntake.getWorkItem(generatedWorkItem.id);
     expect(updated).toMatchObject({
-      status: 'needs_replan',
-      reject_reason: 'generated_plan_missing_after_worktree_prepare',
+      status: 'verifying',
     });
-    expect(updated.origin.plan_path).toBeUndefined();
+    expect(updated.origin.plan_path).toContain(`${path.sep}exec-worktree-after-reclaim${path.sep}`);
+    expect(fs.existsSync(updated.origin.plan_path)).toBe(true);
     const decisions = listDecisionRows(db, project.id);
-    expect(decisions.find((row) => row.action === 'generated_plan_missing_routed_to_needs_replan')).toBeTruthy();
+    expect(decisions.find((row) => row.action === 'generated_plan_restored_after_worktree_prepare')).toBeTruthy();
+    expect(decisions.find((row) => row.action === 'generated_plan_missing_routed_to_needs_replan')).toBeFalsy();
   });
 
   it('ignores a stale instance batch before choosing the EXECUTE worktree', async () => {
