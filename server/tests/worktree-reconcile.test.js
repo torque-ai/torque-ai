@@ -461,6 +461,35 @@ describe('reconcileProject', () => {
     expect(fs.existsSync(orphanDir)).toBe(false);
   });
 
+  it('unlinks shared node_modules before reclaiming an orphan worktree', () => {
+    const project = makeProject();
+    const orphanDir = makeWorktreeDir(project.path, 'feat-factory-201-orphan-with-deps');
+    const sharedNodeModules = path.join(project.path, 'node_modules');
+    const sentinel = path.join(sharedNodeModules, 'vitest', 'package.json');
+    fs.mkdirSync(path.dirname(sentinel), { recursive: true });
+    fs.writeFileSync(sentinel, '{"name":"vitest"}\n', 'utf8');
+    fs.symlinkSync(sharedNodeModules, path.join(orphanDir, 'node_modules'), 'junction');
+
+    const result = reclaimDir({
+      repoPath: project.path,
+      worktreePath: orphanDir,
+      branch: 'feat/factory-201-orphan-with-deps',
+    });
+
+    expect(result.success).toBe(true);
+    expect(fs.existsSync(orphanDir)).toBe(false);
+    expect(fs.existsSync(sentinel)).toBe(true);
+    expect(result.attempts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        step: 'unlink_dependency_links',
+        ok: true,
+        removed: expect.arrayContaining([
+          expect.objectContaining({ packageDir: '.', path: path.join(orphanDir, 'node_modules') }),
+        ]),
+      }),
+    ]));
+  });
+
   it('leaves user-named dirs alone when they have no DB row', () => {
     const project = makeProject();
     const userDir = makeWorktreeDir(project.path, 'my-side-project');

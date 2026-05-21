@@ -713,6 +713,28 @@ describe('version-control worktree manager', () => {
     expect(manager.getWorktree('wt-cleanup')).toBeNull();
   });
 
+  it('unlinks shared node_modules before cleanupWorktree removes the worktree', () => {
+    const repoPath = makeRepoRoot();
+    const worktreePath = path.join(repoPath, '.worktrees', 'feat-cleanup-deps');
+    const sharedNodeModules = path.join(repoPath, 'node_modules');
+    const sentinel = path.join(sharedNodeModules, 'vitest', 'package.json');
+    fs.mkdirSync(path.dirname(sentinel), { recursive: true });
+    fs.writeFileSync(sentinel, '{"name":"vitest"}\n', 'utf8');
+    insertWorktree({
+      id: 'wt-cleanup-deps',
+      repo_path: repoPath,
+      worktree_path: worktreePath,
+      branch: 'feat/cleanup-deps',
+    });
+    fs.symlinkSync(sharedNodeModules, path.join(worktreePath, 'node_modules'), 'junction');
+
+    const result = manager.cleanupWorktree('wt-cleanup-deps');
+
+    expect(result.removed).toBe(true);
+    expect(fs.existsSync(path.join(worktreePath, 'node_modules'))).toBe(false);
+    expect(fs.existsSync(sentinel)).toBe(true);
+  });
+
   it('falls back to forceRmSync when git worktree remove --force hits a Windows file lock', () => {
     // Regression for task 65072ba9-6b7b-4886-937b-d6fb665db468 (2026-05-03):
     // a freshly-failed codex EXECUTE left the worktree dir locked by AV

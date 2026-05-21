@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { unlinkWorktreeNodeModulesLinks } = require('./worktree-link-cleanup');
 
 const PACKAGE_DIRS = ['', 'server', 'dashboard'];
 const DEPENDENCY_FIELDS = [
@@ -369,7 +370,12 @@ function removeTargetNodeModules(targetNodeModules, worktreeRoot) {
 
   const stat = fs.lstatSync(resolvedTarget);
   if (stat.isSymbolicLink()) {
-    fs.unlinkSync(resolvedTarget);
+    const result = unlinkWorktreeNodeModulesLinks(worktreeRoot, {
+      packageDirs: [path.relative(worktreeRoot, path.dirname(resolvedTarget))],
+    });
+    if (!result.ok) {
+      throw new Error(`could not unlink node_modules link: ${result.errors.map((entry) => entry.error).join(' | ')}`);
+    }
     return;
   }
   fs.rmSync(resolvedTarget, { recursive: true, force: true });

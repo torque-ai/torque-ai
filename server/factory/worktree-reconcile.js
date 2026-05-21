@@ -5,6 +5,7 @@ const path = require('path');
 const childProcess = require('child_process');
 
 const logger = require('../logger').child({ component: 'worktree-reconcile' });
+const { unlinkWorktreeNodeModulesLinks } = require('../utils/worktree-link-cleanup');
 
 const DEFAULT_WORKTREE_DIR = '.worktrees';
 const FACTORY_LEAF_PREFIX = 'feat-factory-';
@@ -571,6 +572,24 @@ function forceRmDir(dir, options = {}) {
 // \\?\ prefixing) + prune + branch delete.
 function reclaimDir({ repoPath, worktreePath, branch }) {
   const attempts = [];
+
+  const unlinkResult = unlinkWorktreeNodeModulesLinks(worktreePath);
+  attempts.push({
+    step: 'unlink_dependency_links',
+    ok: unlinkResult.ok,
+    removed: unlinkResult.removed,
+    err: unlinkResult.ok ? null : unlinkResult.errors.map((entry) => entry.error).join(' | '),
+  });
+  if (!unlinkResult.ok) {
+    return {
+      success: false,
+      worktreePath,
+      branch: branch || null,
+      quarantined: false,
+      quarantinePath: null,
+      attempts,
+    };
+  }
 
   // Attempt 1: git-aware removal. Handles the case where .git/worktrees
   // still has a stale entry even if the physical dir is gone.

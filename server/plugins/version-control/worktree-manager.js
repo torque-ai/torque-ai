@@ -6,6 +6,7 @@ const { createHash, randomUUID } = require('crypto');
 const childProcess = require('child_process');
 
 const logger = require('../../logger').child({ component: 'worktree-manager' });
+const { unlinkWorktreeNodeModulesLinks } = require('../../utils/worktree-link-cleanup');
 
 const DEFAULT_BASE_BRANCH = 'main';
 const DEFAULT_WORKTREE_DIR = '.worktrees';
@@ -1160,6 +1161,12 @@ function createWorktree(repoPath, featureName, options = {}) {
 
     removeArgs.push(existing.worktree_path);
     if (worktreePathExists) {
+      const unlinkResult = unlinkWorktreeNodeModulesLinks(existing.worktree_path);
+      if (!unlinkResult.ok) {
+        const message = unlinkResult.errors.map((entry) => entry.error).join(' | ');
+        warnings.push(`could not unlink shared node_modules before cleanup: ${message}`);
+        throw new Error(`could not unlink shared node_modules before cleanup: ${message}`);
+      }
       try {
         runGit(existing.repo_path, removeArgs);
       } catch (error) {
@@ -1186,6 +1193,11 @@ function createWorktree(repoPath, featureName, options = {}) {
           throw error;
         }
         try {
+          const retryUnlinkResult = unlinkWorktreeNodeModulesLinks(existing.worktree_path);
+          if (!retryUnlinkResult.ok) {
+            const message = retryUnlinkResult.errors.map((entry) => entry.error).join(' | ');
+            throw new Error(`could not unlink shared node_modules before force cleanup: ${message}`);
+          }
           forceRmSync(existing.worktree_path);
           warnings.push(
             isNotWorkingTree
