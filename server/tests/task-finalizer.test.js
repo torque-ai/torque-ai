@@ -748,6 +748,83 @@ describe('task-finalizer', () => {
       .toEqual(expect.objectContaining({ outcome: 'no_change' }));
   });
 
+  it('does not trust provider-reported dirty files as factory worktree scope', async () => {
+    const dbBundle = createTaskDb({
+      provider: 'codex',
+      working_directory: 'C:/repo/.worktrees/feature',
+      task_description: [
+        'Plan: Add NAT overload port exhaustion tests',
+        'Task 1: Create NAT overload port exhaustion test suite',
+      ].join('\n'),
+      metadata: JSON.stringify({
+        file_paths: [
+          'src/engine/protocols/nat.ts',
+          'tests/engine/protocols/nat-port-exhaustion.test.ts',
+        ],
+      }),
+      tags: [
+        'factory:batch_id=factory-a3df749a-7869-486f-9896-64d38d25d39b-2529',
+        'factory:work_item_id=2529',
+        'factory:plan_task_number=1',
+      ],
+    });
+    const { db } = dbBundle;
+    const restoreFactoryWorktreeFiles = vi.fn();
+    const handleAutoVerifyRetry = vi.fn(async (ctx) => {
+      expect(ctx.filesModified).toEqual([
+        'src/engine/protocols/nat.ts',
+        'tests/engine/protocols/nat-port-exhaustion.test.ts',
+      ]);
+    });
+    const scopedFinalizer = finalizer.createTaskFinalizer({
+      db,
+      safeUpdateTaskStatus: vi.fn((...args) => db.updateTaskStatus(...args)),
+      sanitizeTaskOutput: (value) => value || '',
+      extractModifiedFiles: vi.fn(() => [
+        'src/engine/protocols/nat.ts',
+        'tests/engine/protocols/nat-port-exhaustion.test.ts',
+        'tests/engine/protocols/acl.test.ts',
+      ]),
+      getActualModifiedFilesForFactoryHygiene: vi.fn(() => [
+        'src/engine/protocols/nat.ts',
+        'tests/engine/protocols/acl.test.ts',
+      ]),
+      restoreFactoryWorktreeFiles,
+      handleRetryLogic: vi.fn(),
+      handleSafeguardChecks: vi.fn(),
+      handleFuzzyRepair: vi.fn(),
+      handleAutoValidation: vi.fn(),
+      handleBuildTestStyleCommit: vi.fn(),
+      handleAutoVerifyRetry,
+      handleProviderFailover: vi.fn(),
+      handlePostCompletion: vi.fn(),
+    });
+
+    const result = await scopedFinalizer.finalizeTask(dbBundle.taskId, {
+      exitCode: 0,
+      output: 'Updated NAT tests; note acl.test.ts was already modified',
+      errorOutput: '',
+      filesModified: [
+        'src/engine/protocols/nat.ts',
+        'tests/engine/protocols/nat-port-exhaustion.test.ts',
+        'tests/engine/protocols/acl.test.ts',
+      ],
+    });
+
+    const storedTask = dbBundle.getStoredTask();
+    expect(result.finalized).toBe(true);
+    expect(storedTask.status).toBe('completed');
+    expect(storedTask.files_modified).toEqual([
+      'src/engine/protocols/nat.ts',
+      'tests/engine/protocols/nat-port-exhaustion.test.ts',
+    ]);
+    expect(restoreFactoryWorktreeFiles).toHaveBeenCalledWith(
+      'C:/repo/.worktrees/feature',
+      ['tests/engine/protocols/acl.test.ts'],
+    );
+    expect(handleAutoVerifyRetry).toHaveBeenCalledTimes(1);
+  });
+
   it('schedules retry after factory no-file-change reclassification', async () => {
     const dbBundle = createTaskDb({
       provider: 'codex',

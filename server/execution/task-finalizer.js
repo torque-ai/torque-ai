@@ -416,13 +416,12 @@ function collectFactoryTaskAllowedFiles(ctx) {
     if (normalized) allowed.add(normalized);
   };
 
-  for (const file of Array.isArray(ctx?.filesModified) ? ctx.filesModified : []) {
-    add(file);
-  }
   for (const file of collectMetadataFileList(metadata, [
     'target_files',
     'targetFiles',
     'files',
+    'file_paths',
+    'filePaths',
     'files_modified',
     'filesModified',
     'plan_target_files',
