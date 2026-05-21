@@ -624,15 +624,6 @@ async function handleAutoVerifyRetry(ctx) {
 
   logger.info(`[auto-verify] Task ${taskId}: verify failed (exit ${verifyExitCode}), verifyOutput length=${verifyOutput.length}`);
 
-  if (factoryPlanTask) {
-    logger.info(`[auto-verify] Task ${taskId}: factory plan task verify failed — marking failed instead of accepting provider success`);
-    ctx.status = 'failed';
-    ctx.code = verifyExitCode || 1;
-    ctx.errorOutput = (ctx.errorOutput || '') +
-      `\n\n[auto-verify] Factory plan task verification failed:\n${(verifyOutput || '').slice(-6000)}`;
-    return;
-  }
-
   // Concurrent workflow sibling check: if this task is part of a workflow and other
   // tasks are still running/queued, verify failures are likely from concurrent
   // interference — other tasks modifying files in parallel. Don't fail the task;
@@ -715,6 +706,15 @@ async function handleAutoVerifyRetry(ctx) {
     }
   } catch (scopedErr) {
     logger.info(`[auto-verify] Task ${taskId}: scoped check error (${scopedErr.message}), falling through to retry logic`);
+  }
+
+  if (factoryPlanTask) {
+    logger.info(`[auto-verify] Task ${taskId}: factory plan task verify failed — marking failed instead of accepting provider success`);
+    ctx.status = 'failed';
+    ctx.code = verifyExitCode || 1;
+    ctx.errorOutput = (ctx.errorOutput || '') +
+      `\n\n[auto-verify] Factory plan task verification failed:\n${(verifyOutput || '').slice(-6000)}`;
+    return;
   }
 
   // Provider-succeeded guard: when the provider completed successfully (raw exit

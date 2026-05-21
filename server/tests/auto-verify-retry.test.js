@@ -745,7 +745,7 @@ describe('handleAutoVerifyRetry — failure and retry behavior', () => {
     mockRunVerifyCommand.mockResolvedValue(
       makeVerifyResult({ error: 'src/foo.ts(10,5): error TS2339: Property foo does not exist' }),
     );
-    const ctx = makeCtx({
+    const ctx = makeCtxWithModifiedFiles({
       proc: { rawExitCode: 0 },
       task: makeTask({
         tags: ['factory:work_item_id=2191', 'factory:plan_task_number=3', 'project:test-project'],
@@ -757,6 +757,28 @@ describe('handleAutoVerifyRetry — failure and retry behavior', () => {
     expect(ctx.status).toBe('failed');
     expect(ctx.code).toBe(1);
     expect(ctx.errorOutput).toContain('Factory plan task verification failed');
+    expect(mockDb.createTask).not.toHaveBeenCalled();
+  });
+
+  it('keeps factory plan tasks completed when verify failures are unrelated baseline errors', async () => {
+    const db = createMockDb({ initialConfig: { verify_command: 'npx tsc --noEmit' } });
+    const { handleAutoVerifyRetry, db: mockDb } = loadModuleWithMocks({ db });
+    mockRunVerifyCommand.mockResolvedValue(
+      makeVerifyResult({ error: 'src/baseline.ts(10,5): error TS2339: Existing baseline failure' }),
+    );
+    const ctx = makeCtx({
+      filesModified: ['src/task-change.ts'],
+      proc: { rawExitCode: 0 },
+      task: makeTask({
+        tags: ['factory:work_item_id=2191', 'factory:plan_task_number=3', 'project:test-project'],
+      }),
+    });
+
+    await handleAutoVerifyRetry(ctx);
+
+    expect(ctx.status).toBe('completed');
+    expect(ctx.errorOutput).toBe('');
+    expect(ctx.output).toContain('pre-existing errors');
     expect(mockDb.createTask).not.toHaveBeenCalled();
   });
 
