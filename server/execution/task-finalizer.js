@@ -453,6 +453,90 @@ function isAllowedFactoryDirtyFile(filePath, allowedFiles) {
   return false;
 }
 
+function isFactoryPlanTestPath(filePath) {
+  try {
+    const { isPlanTestPath } = require('../factory/shared/scope-search');
+    return isPlanTestPath(normalizeFactoryGitPath(filePath));
+  } catch {
+    return /(?:^|\/)(?:tests?|__tests__)\//i.test(normalizeFactoryGitPath(filePath))
+      || /\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(normalizeFactoryGitPath(filePath));
+  }
+}
+
+function getFactoryPathBasename(filePath) {
+  const normalized = normalizeFactoryGitPath(filePath);
+  return normalized.split('/').filter(Boolean).pop() || '';
+}
+
+function getFactoryPathStem(filePath) {
+  const basename = getFactoryPathBasename(filePath);
+  return basename.replace(/(?:\.d)?\.[^.]+$/i, '');
+}
+
+function getFactoryTestCompanionStem(filePath) {
+  return getFactoryPathStem(filePath)
+    .replace(/(?:^|[._-])(?:test|tests|spec)$/i, '')
+    .replace(/(?:Test|Tests|Spec)$/u, '');
+}
+
+function countSharedMeaningfulPathSegments(leftPath, rightPath) {
+  const ignored = new Set([
+    'app',
+    'apps',
+    'client',
+    'clients',
+    'core',
+    'lib',
+    'libs',
+    'package',
+    'packages',
+    'server',
+    'src',
+    'test',
+    'tests',
+    '__tests__',
+  ]);
+  const left = new Set(normalizeFactoryGitPath(leftPath).toLowerCase().split('/').slice(0, -1).filter(segment => segment && !ignored.has(segment)));
+  const right = new Set(normalizeFactoryGitPath(rightPath).toLowerCase().split('/').slice(0, -1).filter(segment => segment && !ignored.has(segment)));
+  let shared = 0;
+  for (const segment of left) {
+    if (right.has(segment)) shared += 1;
+  }
+  return shared;
+}
+
+function isLikelyFactoryTestImplementationCompanion(testFile, dirtyFile) {
+  const normalizedTest = normalizeFactoryGitPath(testFile);
+  const normalizedDirty = normalizeFactoryGitPath(dirtyFile);
+  if (!normalizedTest || !normalizedDirty) return false;
+  if (!isFactoryPlanTestPath(normalizedTest) || isFactoryPlanTestPath(normalizedDirty)) return false;
+
+  const testStem = getFactoryTestCompanionStem(normalizedTest).toLowerCase();
+  const dirtyStem = getFactoryPathStem(normalizedDirty).toLowerCase();
+  if (!testStem || testStem !== dirtyStem) return false;
+
+  if (/^(?:src|lib|server|client|app|apps|packages|plugins|core|engine)\//i.test(normalizedDirty)) {
+    return true;
+  }
+
+  return countSharedMeaningfulPathSegments(normalizedTest, normalizedDirty) >= 1;
+}
+
+function expandAllowedFactoryDirtyFilesForTestCompanions(allowedFiles, dirtyFiles) {
+  const expanded = new Set(allowedFiles || []);
+  const tests = Array.from(expanded).filter(isFactoryPlanTestPath);
+  if (tests.length === 0) return expanded;
+
+  for (const dirtyFile of dirtyFiles || []) {
+    const normalizedDirty = normalizeFactoryGitPath(dirtyFile);
+    if (!normalizedDirty || expanded.has(normalizedDirty)) continue;
+    if (tests.some(testFile => isLikelyFactoryTestImplementationCompanion(testFile, normalizedDirty))) {
+      expanded.add(normalizedDirty);
+    }
+  }
+  return expanded;
+}
+
 function readTrackedDirtyFilesForFactoryHygiene(task) {
   const workingDirectory = typeof task?.working_directory === 'string'
     ? task.working_directory.trim()
@@ -554,7 +638,13 @@ function sanitizeFactoryPlanWorktreeDirtyFiles(ctx) {
   const dirtyFiles = readTrackedDirtyFilesForFactoryHygiene(task);
   if (dirtyFiles.length === 0) return;
 
-  const staleFiles = dirtyFiles.filter(file => !isAllowedFactoryDirtyFile(file, allowedFiles));
+  const expandedAllowedFiles = expandAllowedFactoryDirtyFilesForTestCompanions(allowedFiles, dirtyFiles);
+  const companionFiles = Array.from(expandedAllowedFiles).filter(file => !allowedFiles.has(file));
+  if (companionFiles.length > 0) {
+    logger.info(`[finalizer] Task ${ctx.taskId}: preserving ${companionFiles.length} scoped test companion file(s) before verification`);
+  }
+
+  const staleFiles = dirtyFiles.filter(file => !isAllowedFactoryDirtyFile(file, expandedAllowedFiles));
   if (staleFiles.length === 0) return;
 
   restoreFactoryWorktreeFiles(task.working_directory, staleFiles);
@@ -564,10 +654,10 @@ function sanitizeFactoryPlanWorktreeDirtyFiles(ctx) {
     .filter(file => file && !staleSet.has(file));
   ctx.factoryWorktreeHygiene = {
     restoredFiles: staleFiles,
-    allowedFiles: Array.from(allowedFiles),
+    allowedFiles: Array.from(expandedAllowedFiles),
   };
   logger.info(`[finalizer] Task ${ctx.taskId}: restored ${staleFiles.length} unscoped factory worktree file(s) before verification`);
-  logFactoryWorktreeHygieneDecision(ctx, staleFiles, allowedFiles);
+  logFactoryWorktreeHygieneDecision(ctx, staleFiles, expandedAllowedFiles);
 }
 
 function augmentFactoryFilesModifiedFromGitStatus(ctx) {
