@@ -190,6 +190,7 @@ const BENIGN_FLOW_ACTION_EXACT = new Set([
   'parked_codex_unavailable', // WI parked because codex quota unavailable
   'marked_for_failover_routing', // WI marked for provider failover routing
   'plan_quality_attempt_window_escalated', // PRIORITIZE escalated repeated plan-quality rejection attempts before another loop
+  'needs_replan_cooldown_wait', // PRIORITIZE found only cooling needs_replan items; wait without treating intake as empty
 
   // ── PLAN ────────────────────────────────────────────────────────────────────
   'pre_written_plan_quality_passed',

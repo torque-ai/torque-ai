@@ -112,6 +112,11 @@ const DECISION_ACTIONS = {
     classifier: 'b-side-reject',
     outcome: ['work_item_id', 'priority', 'work_item_status', 'work_item_source', 'plan_path', 'previous_status', 'next_status', 'attempt_count', 'reason_shape'],
   },
+  needs_replan_cooldown_wait: {
+    stage: 'PRIORITIZE',
+    classifier: 'benign',
+    outcome: ['reason', 'from_state', 'to_state', 'cooling_count', 'next_ready_ms', 'cooling_work_item_ids'],
+  },
 
   // ─── PLAN ─────────────────────────────────────────────────────────────────
 
