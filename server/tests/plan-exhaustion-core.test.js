@@ -8,6 +8,17 @@ describe('plan exhaustion primitives', () => {
     expect(classifyFailure({ error_output: 'AssertionError: expected true' }).class).toBe('deterministic');
   });
 
+  it('does not classify incidental file line numbers as quota exhaustion', () => {
+    const { classifyFailure } = require('../validation/failure-classifier');
+    const output = [
+      'tests/engine/simulation-engine.test.ts:429: engine.scheduleEvent(...)',
+      'tests/engine/simulation-engine.test.ts:430: engine.scheduleEvent(...)',
+      'Error: EPERM: operation not permitted, mkdir node_modules/.vite-temp',
+    ].join('\n');
+
+    expect(classifyFailure({ error_output: output }).class).not.toBe('budget_exhausted');
+  });
+
   it('evaluates merge policies', () => {
     const { evaluateMergeJoin } = require('../execution/parallel-merge');
     expect(evaluateMergeJoin('wait_all', [

@@ -7,6 +7,7 @@ const path = require('path');
 const {
   RAW_DEFAULT_VERIFY_COMMAND,
   defaultVerifyCommandForProject,
+  normalizeVitestConfigLoaderForWorktree,
   normalizeRootScopedRequirePaths,
   normalizeVerifyCommandForTestLane,
   wrapVerifyCommandForTestLane,
@@ -22,6 +23,14 @@ function makeProjectWithLauncher() {
 function decodeWrappedCommand(command) {
   const match = command.match(/--command-base64\s+([A-Za-z0-9+/=]+)/);
   return match ? Buffer.from(match[1], 'base64').toString('utf8') : null;
+}
+
+function makeManagedWorktreeWithTsVitestConfig() {
+  const repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'torque-worktree-vitest-'));
+  const projectPath = path.join(repoPath, '.worktrees', 'feat-example');
+  fs.mkdirSync(projectPath, { recursive: true });
+  fs.writeFileSync(path.join(projectPath, 'vitest.config.ts'), "export default {};\n");
+  return projectPath;
 }
 
 describe('factory test lane verify command wrapping', () => {
@@ -88,5 +97,24 @@ describe('factory test lane verify command wrapping', () => {
 
     expect(normalizeVerifyCommandForTestLane(raw)).toBe(raw);
     expect(decodeWrappedCommand(command)).toBe(raw);
+  });
+
+  test('uses runner config loading for TypeScript vitest configs in managed worktrees', () => {
+    const projectPath = makeManagedWorktreeWithTsVitestConfig();
+    const raw = 'npx vitest run tests/engine/protocols/cdp.test.ts';
+
+    expect(normalizeVitestConfigLoaderForWorktree(raw, { projectPath })).toBe(
+      'npx vitest run tests/engine/protocols/cdp.test.ts --configLoader runner'
+    );
+    expect(wrapVerifyCommandForTestLane(raw, { projectPath })).toBe(
+      'npx vitest run tests/engine/protocols/cdp.test.ts --configLoader runner'
+    );
+  });
+
+  test('does not duplicate an explicit vitest config loader', () => {
+    const projectPath = makeManagedWorktreeWithTsVitestConfig();
+    const raw = 'npx vitest run tests/engine/protocols/cdp.test.ts --configLoader runner';
+
+    expect(normalizeVitestConfigLoaderForWorktree(raw, { projectPath })).toBe(raw);
   });
 });

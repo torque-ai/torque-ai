@@ -53,8 +53,38 @@ function normalizeVerifyCommandForTestLane(command) {
   return `cd server && ${rewritten}`;
 }
 
+function hasVitestConfigLoader(command) {
+  return /(?:^|\s)--config(?:L|-l)oader(?:=|\s)/.test(String(command || ''));
+}
+
+function isManagedWorktreePath(projectPath) {
+  return /[\\/]\.worktrees[\\/][^\\/]+$/i.test(String(projectPath || ''));
+}
+
+function hasTypescriptVitestConfig(projectPath) {
+  if (!projectPath || typeof projectPath !== 'string') return false;
+  try {
+    return fs.existsSync(path.join(projectPath, 'vitest.config.ts'))
+      || fs.existsSync(path.join(projectPath, 'vitest.config.mts'))
+      || fs.existsSync(path.join(projectPath, 'vitest.config.cts'));
+  } catch (_err) {
+    return false;
+  }
+}
+
+function normalizeVitestConfigLoaderForWorktree(command, { projectPath } = {}) {
+  const text = String(command || '').trim();
+  if (!text) return text;
+  if (hasShellControlOperator(text)) return text;
+  if (!/^(?:npx\s+)?vitest\s+run\b/.test(text)) return text;
+  if (hasVitestConfigLoader(text)) return text;
+  if (!isManagedWorktreePath(projectPath)) return text;
+  if (!hasTypescriptVitestConfig(projectPath)) return text;
+  return `${text} --configLoader runner`;
+}
+
 function wrapVerifyCommandForTestLane(command, { projectPath } = {}) {
-  const normalized = String(command || '').trim();
+  const normalized = normalizeVitestConfigLoaderForWorktree(command, { projectPath });
   if (!normalized) return normalized;
   if (!hasTestLaneLauncher(projectPath)) return normalized;
   if (isAlreadyLaneCommand(normalized) || isRemoteVerifyCommand(normalized)) return normalized;
@@ -72,6 +102,7 @@ module.exports = {
   hasTestLaneLauncher,
   isAlreadyLaneCommand,
   isRemoteVerifyCommand,
+  normalizeVitestConfigLoaderForWorktree,
   normalizeRootScopedRequirePaths,
   normalizeVerifyCommandForTestLane,
   wrapVerifyCommandForTestLane,

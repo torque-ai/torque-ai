@@ -9,7 +9,7 @@ const RULES = [
   {
     class: 'budget_exhausted',
     confidence: 0.95,
-    pattern: /\b(rate limit|quota|insufficient[_\s-]?quota|token limit|context length|429)\b/i,
+    pattern: /\b(rate limit|quota|insufficient[_\s-]?quota|token limit|context length|too many requests)\b|(?:\b(?:HTTP[/\s]*|status[:\s]*|error[:\s]*)429\b|\(429\)|\b429\b.{0,80}\b(?:too many requests|rate limit|quota)\b|\b(?:too many requests|rate limit|quota)\b.{0,80}\b429\b)/i,
   },
   {
     class: 'transient_infra',
