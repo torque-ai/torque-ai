@@ -56,11 +56,26 @@ function resolveProbeTargetFile(item, projectPath) {
     return { targetFile: explicit, source: 'origin.target_file' };
   }
 
+  let firstNormalized = null;
+  const resolvedRoot = projectPath ? path.resolve(projectPath) : null;
   for (const candidate of collectDescriptionFilePaths(getWorkItemProbeText(item))) {
     const normalized = normalizePlanProjectRelativePath(candidate, projectPath);
-    if (normalized) {
-      return { targetFile: normalized, source: 'description' };
+    if (!normalized) {
+      continue;
     }
+    if (!firstNormalized) {
+      firstNormalized = normalized;
+    }
+    if (resolvedRoot) {
+      const abs = path.resolve(resolvedRoot, normalized);
+      if ((abs === resolvedRoot || abs.startsWith(resolvedRoot + path.sep)) && fs.existsSync(abs)) {
+        return { targetFile: normalized, source: 'description_existing' };
+      }
+    }
+  }
+
+  if (firstNormalized) {
+    return { targetFile: firstNormalized, source: 'description' };
   }
 
   return { targetFile: null, source: null };

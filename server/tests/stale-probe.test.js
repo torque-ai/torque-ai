@@ -65,6 +65,24 @@ describe('stale-probe.probeStaleness', () => {
     );
   });
 
+  it('Gate 1: prefers an existing description path over an earlier create-file target', async () => {
+    writeProjectFile(tmpDir, 'src/engine/protocols/tunnels.ts', 'content');
+    const item = mkScoutItem({
+      title: 'Create L2TP protocol unit test suite in tests/engine/protocols/l2tp.test.ts',
+      description: 'Create tests/engine/protocols/l2tp.test.ts and follow src/engine/protocols/tunnels.ts behavior.',
+      origin: { severity: 'HIGH', variant: 'coverage' },
+    });
+    const gitRunner = vi.fn().mockResolvedValue({ stdout: '' });
+    const out = await probeStaleness(item, { projectPath: tmpDir, gitRunner });
+    expect(out.stale).toBe(false);
+    expect(out.reason).toBe('no_commits_since_scan');
+    expect(gitRunner).toHaveBeenCalledWith(
+      tmpDir,
+      expect.arrayContaining(['src/engine/protocols/tunnels.ts']),
+      expect.objectContaining({ timeoutMs: expect.any(Number) }),
+    );
+  });
+
   it('Gate 1: marks stale missing-tool claims when the tool is already registered', async () => {
     writeProjectFile(
       tmpDir,
