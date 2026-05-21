@@ -172,13 +172,29 @@ describe('auto-recovery-core day-one rules', () => {
     expect(wtCreate.matched_rule).not.toBe('execute_paused_active_worktree_owner');
   });
 
-  it('classifies an unclassified VERIFY_FAIL as verify_fail_unclassified', () => {
+  it('classifies an unclassified VERIFY_FAIL as verify_fail_unclassified with a reject_and_advance fallback', () => {
     const r = classifier.classify({
       stage: 'verify', action: 'worktree_verify_failed',
       reasoning: 'something unusual',
       outcome: { output_preview: 'new failure kind' },
     });
     expect(r.matched_rule).toBe('verify_fail_unclassified');
+    // retry first, then reject_and_advance so a genuinely-broken work item
+    // is set aside and the loop advances unattended instead of escalating
+    // (pauseProject) and wedging an autonomous run.
+    expect(r.suggested_strategies[0]).toBe('retry');
+    expect(r.suggested_strategies).toContain('reject_and_advance');
+    expect(r.suggested_strategies).toContain('escalate');
+  });
+
+  it('reject_and_advance is applicable to category `unknown` so the catch-all chains are pickable', () => {
+    // verify_fail_unclassified and execute_exception_unclassified both
+    // classify as `unknown` and list reject_and_advance. The strategy must
+    // accept `unknown` or that chain entry is silently un-pickable — the
+    // engine would exhaust retry and escalate→pauseProject instead.
+    const rejectAndAdvance = plugin.recoveryStrategies.find((s) => s.name === 'reject_and_advance');
+    expect(rejectAndAdvance).toBeDefined();
+    expect(rejectAndAdvance.applicable_categories).toContain('unknown');
   });
 
   it('classifies VERIFY waiting_for_batch_tasks as transient (not unknown)', () => {

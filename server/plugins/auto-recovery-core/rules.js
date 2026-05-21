@@ -206,12 +206,21 @@ module.exports = [
     suggested_strategies: [],
   },
   {
+    // Catch-all for a VERIFY_FAIL with no more specific rule. The chain is
+    // retry (re-run verify a few times — clears transient infra blips),
+    // then reject_and_advance (a genuine code failure that retries cannot
+    // fix gets the work item rejected so the loop advances unattended),
+    // then escalate. reject_and_advance is essential here: without it the
+    // loop would retry, exhaust, and escalate→pauseProject — wedging an
+    // autonomous run on the first genuinely-broken work item (NetSim,
+    // 2026-05-21). reject_and_advance applies to category `unknown` (see
+    // strategies/reject-and-advance.js).
     name: 'verify_fail_unclassified',
     category: 'unknown',
     priority: 10,
     confidence: 0.3,
     match: { stage: 'verify', action: 'worktree_verify_failed' },
-    suggested_strategies: ['retry', 'escalate'],
+    suggested_strategies: ['retry', 'reject_and_advance', 'escalate'],
   },
   {
     // EXECUTE auto-commit failed after a plan task completed. The task itself
