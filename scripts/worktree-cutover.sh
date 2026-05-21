@@ -78,6 +78,70 @@ torque_api_reachable() {
     || curl -s --max-time "${TORQUE_PROBE_TIMEOUT_SECONDS}" "${TORQUE_API}/api/version" > /dev/null 2>&1
 }
 
+# Returns 0 when the TORQUE PID file exists, its heartbeatAt is recent, and
+# the recorded PID is a live process. TORQUE refreshes heartbeatAt on a 10s
+# timer (server/index.js), so a heartbeat younger than the staleness window
+# is strong proof the process is alive even when a one-off HTTP probe misses.
+torque_pidfile_heartbeat_fresh() {
+  local pid_file="${1:-}"
+  [ -n "$pid_file" ] && [ -f "$pid_file" ] || return 1
+  node - "$pid_file" "${CUTOVER_PIDFILE_HEARTBEAT_MAX_AGE_SECONDS:-60}" <<'EOF'
+const fs = require('fs');
+const pidFile = process.argv[2];
+const maxAgeSec = Number.parseInt(process.argv[3], 10) || 60;
+try {
+  const parsed = JSON.parse(fs.readFileSync(pidFile, 'utf8'));
+  const pid = parsed && parsed.pid;
+  if (!Number.isInteger(pid) || pid <= 0) process.exit(1);
+  const hb = parsed.heartbeatAt ? Date.parse(parsed.heartbeatAt) : NaN;
+  if (!Number.isFinite(hb) || (Date.now() - hb) > maxAgeSec * 1000) process.exit(1);
+  // signal 0 is a liveness probe: ESRCH means the PID is dead. EPERM (or any
+  // other error) means the process exists but is not ours — still alive.
+  try { process.kill(pid, 0); } catch (e) { if (e && e.code === 'ESRCH') process.exit(1); }
+  process.exit(0);
+} catch {
+  process.exit(1);
+}
+EOF
+}
+
+# Robust "is TORQUE running" detection for the cutover's restart decision.
+#
+# A single HTTP probe is not trustworthy here. Under factory load TORQUE's
+# event loop can stall for several seconds (sync import-graph walks, GC,
+# heavy DB ops), and a concurrent restart from another session leaves a
+# brief window where no instance is bound. Either makes one /livez probe
+# miss even though TORQUE is up (or about to be). A false "not running" is
+# the dangerous direction: the cutover then prints "no restart needed" and
+# silently SKIPS the restart barrier (see the final block of this script),
+# leaving the operator on pre-merge code while believing the cutover
+# succeeded — exactly the failure observed 2026-05-21.
+#
+# So probe several times across a window wide enough to ride out a restart
+# down-window or a load spike, and if HTTP still will not answer, fall back
+# to the PID-file heartbeat, which is definitive proof of liveness.
+# Detection is deliberately biased toward "running": a false positive merely
+# routes into the restart path, which has its own loud failure handling,
+# whereas a false negative fails silently.
+detect_torque_running() {
+  local attempts="${CUTOVER_TORQUE_DETECT_ATTEMPTS:-5}"
+  local gap="${CUTOVER_TORQUE_DETECT_GAP_SECONDS:-3}"
+  local i
+  for (( i = 1; i <= attempts; i++ )); do
+    if torque_api_reachable; then
+      return 0
+    fi
+    [ "$i" -lt "$attempts" ] && sleep "$gap"
+  done
+  if torque_pidfile_heartbeat_fresh "${TORQUE_PID_FILE_PATH}"; then
+    echo "  [warn] TORQUE HTTP probe failed ${attempts}x but ${TORQUE_PID_FILE_PATH}" >&2
+    echo "         shows a fresh heartbeat — treating TORQUE as running so the" >&2
+    echo "         restart barrier is not silently skipped." >&2
+    return 0
+  fi
+  return 1
+}
+
 resolve_torque_data_file() {
   local filename="${1:-}"
   if [ -n "${TORQUE_DATA_DIR:-}" ]; then
@@ -774,7 +838,10 @@ if echo "$merge_changed_files" | grep -qE "^dashboard/(src/|package(-lock)?\.jso
 fi
 
 TORQUE_RUNNING=false
-if torque_api_reachable; then
+# Multi-signal detection (retry + PID-heartbeat fallback). A single probe
+# here once produced a false "not running" → the restart barrier was
+# silently skipped and the merge ran on stale code (2026-05-21).
+if detect_torque_running; then
   TORQUE_RUNNING=true
   TORQUE_PRE_RESTART_PID_SIGNATURE=$(read_pid_signature "${TORQUE_PID_FILE_PATH}" 2>/dev/null || true)
   TORQUE_LOG_START_LINE=$(count_file_lines "${TORQUE_LOG_FILE_PATH}")
