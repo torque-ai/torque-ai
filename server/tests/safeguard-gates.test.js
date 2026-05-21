@@ -21,6 +21,7 @@ function makeDeps(overrides = {}) {
     getActualModifiedFiles: vi.fn(() => []),
     runLLMSafeguards: vi.fn(() => ({ passed: true })),
     scopedRollback: vi.fn(() => ({ reverted: [] })),
+    revertScopedFiles: vi.fn(() => ({ reverted: [], skipped: [] })),
     safeUpdateTaskStatus: vi.fn(),
     taskCleanupGuard: new Map(),
     processQueue: vi.fn(),
@@ -82,6 +83,49 @@ describe('safeguard-gates — factory shape (createSafeguardGates)', () => {
     };
     svc.handleSafeguardChecks(ctx);
     expect(ctx.status).toBe('completed');
+    expect(ctx.earlyExit).toBeUndefined();
+  });
+
+  it('cleans stale dirty files and skips edit safeguards for factory internal plan tasks', () => {
+    deps.getActualModifiedFiles.mockReturnValue([
+      'src/engine/protocols/snmp.ts',
+      'tests/engine/protocols/snmp.test.ts',
+    ]);
+    deps.revertScopedFiles.mockReturnValue({
+      reverted: [
+        'src/engine/protocols/snmp.ts',
+        'tests/engine/protocols/snmp.test.ts',
+      ],
+      skipped: [],
+    });
+
+    const ctx = {
+      taskId: 't-plan',
+      status: 'completed',
+      task: {
+        provider: 'claude-cli',
+        working_directory: '/repo/.worktrees/feature',
+        task_description: 'generate a plan for adding SNMP tests',
+        metadata: JSON.stringify({
+          factory_internal: true,
+          kind: 'plan_generation',
+        }),
+      },
+      proc: { output: '# Plan' },
+    };
+
+    svc.handleSafeguardChecks(ctx);
+
+    expect(deps.revertScopedFiles).toHaveBeenCalledWith(
+      '/repo/.worktrees/feature',
+      [
+        'src/engine/protocols/snmp.ts',
+        'tests/engine/protocols/snmp.test.ts',
+      ],
+      'FactoryInternalStaleWorktree',
+    );
+    expect(deps.runLLMSafeguards).not.toHaveBeenCalled();
+    expect(deps.safeUpdateTaskStatus).not.toHaveBeenCalled();
     expect(ctx.earlyExit).toBeUndefined();
   });
 

@@ -22,6 +22,30 @@
 const logger = require('../logger').child({ component: 'safeguard-gates' });
 const { buildResumeContext, prependResumeContextToPrompt } = require('../utils/resume-context');
 
+const FACTORY_INTERNAL_NON_EDITING_KINDS = new Set([
+  'architect_cycle',
+  'plan_generation',
+  'plan_quality_review',
+  'scout',
+  'verify_review',
+]);
+
+function parseTaskMetadata(task) {
+  try {
+    return task?.metadata
+      ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata)
+      : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function isFactoryInternalNonEditingTask(task, metadata) {
+  if (metadata?.factory_internal !== true) return false;
+  const kind = String(metadata.kind || metadata.factory_kind || '').trim().toLowerCase();
+  return FACTORY_INTERNAL_NON_EDITING_KINDS.has(kind);
+}
+
 /**
  * Factory shape — preferred for new code.
  * Closes over `deps` so there is no module-level mutable state.
@@ -40,6 +64,10 @@ function createSafeguardGates(deps = {}) {
   }
   if (deps.scopedRollback === undefined) {
     try { deps.scopedRollback = require('./post-task').scopedRollback; }
+    catch { /* fall through */ }
+  }
+  if (deps.revertScopedFiles === undefined) {
+    try { deps.revertScopedFiles = require('./post-task').revertScopedFiles; }
     catch { /* fall through */ }
   }
   const tm = deps.taskManager || null;
@@ -65,23 +93,33 @@ function createSafeguardGates(deps = {}) {
     // for local LLM output and produce false failures on Codex tasks.
     if (task.provider === 'codex') return;
 
+    const meta = parseTaskMetadata(task);
+
     // Skip safeguard checks for diffusion apply tasks — edits are pre-computed
     // and validated by the compute stage. Safeguards produce false positives on
     // documentation-only or additive changes (e.g., XML doc comments flagged as "stubs").
-    try {
-      const meta = task.metadata ? (typeof task.metadata === 'string' ? JSON.parse(task.metadata) : task.metadata) : {};
-      if (meta.diffusion_role === 'apply') return;
-    } catch (_) { /* non-fatal */ }
+    if (meta.diffusion_role === 'apply') return;
 
     const workingDir = task.working_directory || process.cwd();
     const projectConfig = deps.db.getProjectConfig(task.project || deps.db.getProjectFromPath(workingDir));
     const safeguardsEnabled = !projectConfig || projectConfig.llm_safeguards_enabled !== false;
+    const factoryInternalNonEditing = isFactoryInternalNonEditingTask(task, meta);
     const actuallyModifiedFiles = deps.getActualModifiedFiles(workingDir) || [];
 
     if (!safeguardsEnabled) return;
 
     if (actuallyModifiedFiles.length > 0) {
       logger.info(`[Safeguard] Checking ${actuallyModifiedFiles.length} actually modified files: ${actuallyModifiedFiles.join(', ')}`);
+    }
+
+    if (factoryInternalNonEditing) {
+      if (actuallyModifiedFiles.length > 0 && typeof deps.revertScopedFiles === 'function') {
+        const rollback = deps.revertScopedFiles(workingDir, actuallyModifiedFiles, 'FactoryInternalStaleWorktree');
+        logger.info(
+          `[Safeguard] Factory internal ${meta.kind || 'task'} ${taskId}: cleaned ${rollback.reverted.length} stale dirty file(s) before skipping edit safeguards`
+        );
+      }
+      return;
     }
 
     const expectsGeneratedEdits = /\b(implement|build|create|wire|add|write|generate|make|edit|modify|update|fix)\b/i.test(task.task_description || '');
