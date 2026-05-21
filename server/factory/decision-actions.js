@@ -900,8 +900,18 @@ const DECISION_ACTIONS = {
   // writes exactly one `stage_complete` row per stage tick via the
   // DecisionStore facade — a uniform, structured record of how the tick was
   // disposed. Stage-specific domain decisions ride alongside as the stage's
-  // own catalogued actions (emitted via outcome.extraDecisions). Benign:
-  // it records normal flow, never a fault — recovery skips it.
+  // own catalogued actions (emitted via outcome.extraDecisions).
+  //
+  // `stage_complete` is a NON-CAUSAL SUMMARY: its `disposition` mirrors
+  // whatever the stage already recorded in its own decisions — including
+  // `disposition:'pause'` for a terminal stage failure (e.g. VERIFY_FAIL).
+  // It is therefore NOT unconditionally benign. The auto-recovery engine
+  // EXCLUDES `stage_complete` from its decision-lookup queries
+  // (`latestRealDecisionForProject` / `latestRelevantDecisionForProject` in
+  // server/factory/auto-recovery/engine.js) and classifies the causal
+  // decision instead. `classifier:'benign'` here is the catalog contract
+  // that keeps the audit gate satisfied — the engine never actually
+  // classifies a `stage_complete`, so it cannot misroute a paused one.
   stage_complete: {
     stage: 'ANY',
     classifier: 'benign',

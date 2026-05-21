@@ -395,6 +395,97 @@ describe('auto-recovery engine.tick', () => {
     expect(ran.length).toBe(failureShapes.length);
   });
 
+  it('classifies the causal decision, not the stage_complete summary, for a VERIFY_FAIL pause', async () => {
+    // Regression: NetSim, 2026-05-21. applyOutcome emits a uniform
+    // `stage_complete` SUMMARY decision AFTER the stage's own causal
+    // decisions, so it always has the highest id of the tick. The engine's
+    // "latest real decision" lookup picked it; `stage_complete` is in
+    // BENIGN_FLOW_ACTION_EXACT, so recovery logged auto_recovery_skipped_benign
+    // and skipped — every ~90s for ~2.5h — while the real worktree_verify_failed
+    // decision underneath went unclassified and the project stayed wedged at
+    // VERIFY_FAIL. Fix: the decision-lookup queries skip `stage_complete` so
+    // the engine classifies the CAUSAL decision instead.
+    db.prepare(`INSERT INTO factory_projects
+                (id, status, loop_state, loop_paused_at_stage, loop_last_action_at)
+                VALUES ('p-mask', 'running', 'PAUSED', 'VERIFY_FAIL', '2026-05-21T13:00:00Z')`).run();
+    // Causal decisions, emitted first (lower ids) by the verify stage:
+    db.prepare(`INSERT INTO factory_decisions
+                (project_id, stage, actor, action, reasoning, created_at)
+                VALUES ('p-mask', 'verify', 'verifier', 'verify_retry_task_failed',
+                        'Auto-retry #1 task did not complete.', '2026-05-21T13:00:00Z')`).run();
+    db.prepare(`INSERT INTO factory_decisions
+                (project_id, stage, actor, action, reasoning, created_at)
+                VALUES ('p-mask', 'verify', 'verifier', 'worktree_verify_failed',
+                        'Worktree remote verify FAILED; pausing at VERIFY_FAIL.', '2026-05-21T13:00:00Z')`).run();
+    // The uniform summary, emitted LAST by applyOutcome (highest id):
+    db.prepare(`INSERT INTO factory_decisions
+                (project_id, stage, actor, action, reasoning, created_at, outcome_json)
+                VALUES ('p-mask', 'plan', 'orchestrator', 'stage_complete',
+                        'PLAN completed with disposition=pause', '2026-05-21T13:00:00Z',
+                        '{"disposition":"pause","paused_at_stage":"VERIFY_FAIL","stage_result":{"status":"failed"}}')`).run();
+
+    const ran = [];
+    const engine = createAutoRecoveryEngine({
+      db, logger, eventBus: { emit: () => {} },
+      rules: [{
+        name: 'verify_fail', category: 'transient', priority: 100, confidence: 0.7,
+        match: { stage: 'verify', action: 'worktree_verify_failed' },
+        suggested_strategies: ['retry'],
+      }],
+      strategies: [{
+        name: 'retry', applicable_categories: ['transient'],
+        async run(ctx) { ran.push(ctx.project.id); return { success: true, next_action: 'retry' }; },
+      }],
+      nowMs: () => Date.parse('2026-05-21T16:00:00Z'),
+    });
+
+    await engine.tick();
+
+    // The summary must NOT mask the failure: recovery fires on the causal decision.
+    expect(ran).toEqual(['p-mask']);
+    const skipped = db.prepare(`SELECT COUNT(*) AS c FROM factory_decisions
+                                WHERE action = 'auto_recovery_skipped_benign'`).get().c;
+    expect(skipped).toBe(0);
+    const classified = db.prepare(`SELECT outcome_json FROM factory_decisions
+                                   WHERE actor='auto-recovery' AND action='auto_recovery_classified'
+                                   ORDER BY id DESC LIMIT 1`).get();
+    expect(JSON.parse(classified.outcome_json).matched_rule).toBe('verify_fail');
+  });
+
+  it('still skips benign flow when a stage_complete summary sits atop a benign causal decision', async () => {
+    // The fix must not break the legitimate benign-skip: when a stage
+    // advanced successfully, the causal decision underneath the
+    // `stage_complete` summary is itself benign, so recovery still skips.
+    db.prepare(`INSERT INTO factory_projects
+                (id, status, loop_state, loop_paused_at_stage, loop_last_action_at, auto_recovery_exhausted)
+                VALUES ('p-adv', 'paused', 'PAUSED', 'READY_FOR_VERIFY', '2026-05-21T13:00:00Z', 0)`).run();
+    db.prepare(`INSERT INTO factory_decisions
+                (project_id, stage, actor, action, reasoning, created_at)
+                VALUES ('p-adv', 'execute', 'orchestrator', 'completed_execution',
+                        'plan execution completed', '2026-05-21T13:00:00Z')`).run();
+    db.prepare(`INSERT INTO factory_decisions
+                (project_id, stage, actor, action, reasoning, created_at, outcome_json)
+                VALUES ('p-adv', 'execute', 'orchestrator', 'stage_complete',
+                        'EXECUTE completed with disposition=continue', '2026-05-21T13:00:00Z',
+                        '{"disposition":"continue","next_state":"VERIFY"}')`).run();
+
+    const engine = createAutoRecoveryEngine({
+      db, logger, eventBus: { emit: () => {} },
+      rules: [{ name: 'any', category: 'unknown', priority: 1, match: {}, suggested_strategies: ['retry'] }],
+      strategies: [{
+        name: 'retry', applicable_categories: ['unknown', 'any'],
+        async run() { throw new Error('strategy must NOT run for a benign advance'); },
+      }],
+      nowMs: () => Date.parse('2026-05-21T16:00:00Z'),
+    });
+
+    await engine.tick();
+
+    const skipped = db.prepare(`SELECT COUNT(*) AS c FROM factory_decisions
+                                WHERE action = 'auto_recovery_skipped_benign'`).get().c;
+    expect(skipped).toBe(1);
+  });
+
   it('marks exhausted after MAX_ATTEMPTS and logs _exhausted', async () => {
     db.prepare(`INSERT INTO factory_projects
                 (id, status, loop_state, loop_paused_at_stage, loop_last_action_at, auto_recovery_attempts)

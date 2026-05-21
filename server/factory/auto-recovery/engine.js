@@ -10,12 +10,33 @@ const {
 
 const MAX_ATTEMPTS = 5;
 
+// `stage_complete` is the uniform per-tick SUMMARY decision that
+// applyOutcome (server/factory/stages/apply-outcome.js) writes AFTER the
+// stage's own causal decisions. It is non-causal: its `disposition` only
+// mirrors what the stage already recorded (including `disposition:'pause'`
+// for a terminal stage failure), and — because applyOutcome emits it last —
+// it always has the highest id of the tick. If auto-recovery's "latest real
+// decision" lookup picked it, every paused project would classify the
+// summary wrapper instead of the real failure: a `stage_complete` for a
+// VERIFY_FAIL pause classifies `benign` (it is in BENIGN_FLOW_ACTION_EXACT)
+// and the engine skips recovery forever — observed live on NetSim,
+// 2026-05-21, ~2.5h of no-op `auto_recovery_skipped_benign` ticks. Both
+// decision-lookup queries therefore exclude `stage_complete` so the engine
+// always classifies the CAUSAL decision (worktree_verify_failed,
+// execution_failed, verify_retry_task_failed, …) — which carries the
+// classifier rules recovery actually needs. The causal decision's own
+// benign-ness still drives the benign-skip correctly: a successful advance
+// leaves a benign causal decision underneath, a failure leaves a
+// classifiable one.
+const EXCLUDE_SUMMARY_DECISION = "AND COALESCE(action, '') != 'stage_complete'";
+
 function latestRealDecisionForProject(db, projectId) {
   const row = db.prepare(`
     SELECT id, project_id, stage, actor, action, reasoning,
            inputs_json, outcome_json, confidence, batch_id, created_at
     FROM factory_decisions
     WHERE project_id = ? AND COALESCE(actor, '') != 'auto-recovery'
+      ${EXCLUDE_SUMMARY_DECISION}
     ORDER BY id DESC LIMIT 1
   `).get(projectId);
   if (!row) return null;
@@ -47,7 +68,8 @@ function latestRelevantDecisionForProject(db, project) {
     SELECT id, project_id, stage, actor, action, reasoning,
            inputs_json, outcome_json, confidence, batch_id, created_at
     FROM factory_decisions
-    WHERE project_id = ? AND COALESCE(actor, '') != 'auto-recovery'${scopedWhere}
+    WHERE project_id = ? AND COALESCE(actor, '') != 'auto-recovery'
+      ${EXCLUDE_SUMMARY_DECISION}${scopedWhere}
     ORDER BY id DESC LIMIT 1
   `).get(...params);
   if (!row) return latestRealDecisionForProject(db, project.id);
@@ -168,7 +190,15 @@ const BENIGN_FLOW_ACTION_PREFIXES = [
 ];
 const BENIGN_FLOW_ACTION_EXACT = new Set([
   // ── STAGE LIFECYCLE (ANY) ───────────────────────────────────────────────────
-  'stage_complete',          // applyOutcome's uniform per-tick stage_complete record (stages/ dispatcher contract)
+  // `stage_complete` is a non-causal SUMMARY decision (see
+  // EXCLUDE_SUMMARY_DECISION above): both decision-lookup queries skip it, so
+  // the engine never actually reaches isBenignFlowDecision() with it. It is
+  // kept in this set only to satisfy the decision-actions catalog audit gate,
+  // which requires every `classifier:'benign'` catalog entry to be matched
+  // here. A `stage_complete` with `disposition:'pause'` is NOT benign — the
+  // lookup-skip, not this membership, is what stops it from masking the real
+  // failure decision.
+  'stage_complete',
 
   // ── SENSE ───────────────────────────────────────────────────────────────────
   'scanned_plans',           // SENSE scanned the plans directory
