@@ -22,7 +22,7 @@ const serverConfig = require('../config');
 const { applyStudyContextPrompt } = require('../integrations/codebase-study-engine');
 const { resolveCodexNativeBinary } = require('../execution/codex-native-resolve');
 const { classifyReasoningEffort } = require('../execution/codex-reasoning-effort');
-const { shouldUseOutputCompletionDetection } = require('../execution/completion-policy');
+const { isFactoryStructuredOutputTask, shouldUseOutputCompletionDetection } = require('../execution/completion-policy');
 const {
   buildCombinedProcessOutput,
   hasFailureRejectionSignal,
@@ -681,12 +681,15 @@ function touchFinalizingMarker(taskId, stage) {
  */
 function buildClaudeCliCommand(task, resolvedFileContext, providerConfig) {
     const effectiveTaskDescription = applyStudyContextPrompt(task.task_description, task.metadata);
-    const wrappedDescription = _helpers.wrapWithInstructions(
-      effectiveTaskDescription,
-      'claude-cli',
-      null,
-      { files: task.files, project: task.project, fileContext: resolvedFileContext }
-    );
+    const useRawStructuredPrompt = isFactoryStructuredOutputTask(task?.metadata || task?.task_metadata);
+    const wrappedDescription = useRawStructuredPrompt
+      ? effectiveTaskDescription
+      : _helpers.wrapWithInstructions(
+        effectiveTaskDescription,
+        'claude-cli',
+        null,
+        { files: task.files, project: task.project, fileContext: resolvedFileContext }
+      );
     // Flags for non-interactive autonomous execution:
     // --dangerously-skip-permissions: auto-approve all file writes and commands
     // --disable-slash-commands: prevent model from invoking slash commands
@@ -704,6 +707,9 @@ function buildClaudeCliCommand(task, resolvedFileContext, providerConfig) {
       '--max-turns', '15',         // Limit agentic iterations (matches TORQUE default)
       '-p'
     ];
+    if (useRawStructuredPrompt) {
+      claudeArgs.splice(claudeArgs.length - 1, 0, '--tools', '');
+    }
     const stdinPrompt = wrappedDescription;
 
     let cliPath;

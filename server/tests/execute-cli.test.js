@@ -391,6 +391,25 @@ describe('execute-cli.js', () => {
       expect(result.stdinPrompt).toContain('Analyze architecture');
     });
 
+    it('uses raw prompts and disables tools for factory structured-output tasks', () => {
+      const task = {
+        id: randomUUID(),
+        provider: 'claude-cli',
+        task_description: 'Return ONLY valid JSON.',
+        metadata: JSON.stringify({
+          factory_internal: true,
+          kind: 'architect_cycle',
+        }),
+      };
+
+      const result = mod.buildClaudeCliCommand(task, 'FILECTX', null);
+
+      expect(result.stdinPrompt).toBe('Return ONLY valid JSON.');
+      expect(result.finalArgs).toEqual(expect.arrayContaining(['--tools', '']));
+      expect(result.stdinPrompt).not.toContain('[claude-cli]');
+      expect(result.stdinPrompt).not.toContain('FILECTX');
+    });
+
     it('uses default claude path without provider config', () => {
       const task = {
         id: randomUUID(),

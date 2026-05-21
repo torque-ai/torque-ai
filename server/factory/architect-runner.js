@@ -266,6 +266,79 @@ function normalizeVerifyLearningRow(row) {
   };
 }
 
+function parseArchitectCycleOutput(output, depth = 0) {
+  if (typeof output !== 'string' || !output.trim() || depth > 2) return null;
+  const text = output.trim();
+
+  const tryCandidate = (candidate) => {
+    if (typeof candidate !== 'string' || !candidate.trim()) return null;
+    try {
+      const parsed = JSON.parse(candidate.trim());
+      if (parsed && Array.isArray(parsed.backlog)) {
+        return parsed;
+      }
+      for (const key of ['result', 'output', 'text', 'content']) {
+        if (typeof parsed?.[key] === 'string') {
+          const nested = parseArchitectCycleOutput(parsed[key], depth + 1);
+          if (nested) return nested;
+        }
+      }
+    } catch (_err) {
+      return null;
+    }
+    return null;
+  };
+
+  const direct = tryCandidate(text);
+  if (direct) return direct;
+
+  const candidates = [];
+  const fenceRe = /```(?:json)?\s*([\s\S]*?)```/gi;
+  let fenceMatch;
+  while ((fenceMatch = fenceRe.exec(text)) !== null) {
+    candidates.push(fenceMatch[1]);
+  }
+
+  let inString = false;
+  let escaped = false;
+  let depthCount = 0;
+  let start = -1;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') {
+      if (depthCount === 0) start = i;
+      depthCount += 1;
+    } else if (ch === '}' && depthCount > 0) {
+      depthCount -= 1;
+      if (depthCount === 0 && start >= 0) {
+        candidates.push(text.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+
+  for (const candidate of candidates.reverse()) {
+    const parsed = tryCandidate(candidate);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
 function setSharedFactoryStore(store) {
   sharedFactoryStore = store || null;
 }
@@ -673,15 +746,12 @@ async function runArchitectLLM(prompt, project_id, projectPath) {
     }
     if (task.status === 'completed') {
       const output = task.output || '';
+      const parsed = parseArchitectCycleOutput(output);
+      if (parsed) {
+        return parsed;
+      }
       try {
-        // Extract JSON from output (may be wrapped in markdown code blocks)
-        const jsonMatch = output.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.backlog && Array.isArray(parsed.backlog)) {
-            return parsed;
-          }
-        }
+        JSON.parse(output);
       } catch (parseErr) {
         logger.warn(`[architect-cycle] parse_failed project_id=${project_id} task_id=${taskId}: ${parseErr.message}`);
       }
@@ -1245,6 +1315,7 @@ module.exports = {
     loadActiveVerifyFailureLearnings,
     setSharedFactoryStore,
     normalizeVerifyLearningRow,
+    parseArchitectCycleOutput,
     // Phase Q (2026-04-30): exposed for failure-mode logging tests.
     submitArchitectJsonPrompt,
   },

@@ -4,8 +4,12 @@ const { normalizeMetadata } = require('../utils/normalize-metadata');
 
 const FACTORY_STRUCTURED_OUTPUT_KINDS = new Set([
   'architect_cycle',
+  'architect_json',
   'plan_generation',
   'plan_quality_review',
+  'replan_decompose',
+  'replan_rewrite',
+  'retrospective_generation',
   'scout',
   'verify_review',
 ]);

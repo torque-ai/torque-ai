@@ -31,6 +31,16 @@ describe('completion-policy', () => {
     })).toBe(false);
   });
 
+  it.each(['architect_json', 'replan_decompose', 'replan_rewrite', 'retrospective_generation'])(
+    'treats factory %s as structured output',
+    (kind) => {
+      expect(isFactoryStructuredOutputTask({
+        factory_internal: true,
+        kind,
+      })).toBe(true);
+    },
+  );
+
   it('disables output-completion grace for starvation recovery scouts', () => {
     const metadata = {
       mode: 'scout',

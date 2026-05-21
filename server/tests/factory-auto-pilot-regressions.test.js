@@ -265,6 +265,41 @@ describe('handleAutoVerifyRetry', () => {
 });
 
 describe('runArchitectLLM', () => {
+  it('extracts final architect JSON from Claude tool-use transcripts', () => {
+    const parsed = architectRunner._internalForTests.parseArchitectCycleOutput(`
+I need to inspect the project first.
+
+<tool_use>
+{"id":"explore_1","type":"tool_use","name":"Task","input":{"prompt":"look around"}}
+</tool_use>
+
+Done.
+
+\`\`\`json
+{
+  "reasoning": "LLM reasoning",
+  "backlog": [
+    {
+      "work_item_id": 123,
+      "title": "Recovered backlog item"
+    }
+  ],
+  "flags": []
+}
+\`\`\`
+`);
+
+    expect(parsed).toMatchObject({
+      reasoning: 'LLM reasoning',
+      backlog: [
+        {
+          work_item_id: 123,
+          title: 'Recovered backlog item',
+        },
+      ],
+    });
+  });
+
   it('submits architect work in an isolated worktree with target project metadata', async () => {
     installTaskManagerCache({ startTask: vi.fn() });
 
