@@ -344,6 +344,16 @@ printf 'full=%s\\n' "$GATE_SERVER_SHARDS"
     expect(result.stdout).toContain('full=4');
   });
 
+  it('keeps the sharded server watchdog above normal quiet shards and leaves diagnostics', () => {
+    const src = readHook();
+    expect(src).toMatch(/TORQUE_GATE_SHARD_WATCHDOG_SECS:-600/);
+    expect(src).toMatch(/TORQUE_GATE_SHARD_HEARTBEAT_SECS:-60/);
+    expect(src).toContain('still running; output idle');
+    expect(src).toContain('last output follows');
+    expect(src).toContain('retained shard logs at');
+    expect(src).not.toMatch(/TORQUE_GATE_SHARD_WATCHDOG_SECS:-180/);
+  });
+
   it('caps dashboard vitest workers from VITEST_MAX_WORKERS', () => {
     const configPath = path.resolve(__dirname, '..', '..', 'dashboard', 'vitest.config.js');
     const src = fs.readFileSync(configPath, 'utf8');

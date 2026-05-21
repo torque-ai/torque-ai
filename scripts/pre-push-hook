@@ -1872,17 +1872,36 @@ run_dashboard_phase() {
 # some files" to CPU starvation when 4 × 2 = 8 workers fought ~5 free CPUs.
 #
 # A side watchdog process polls each shard's per-file log mtime and SIGKILLs
-# a shard whose log has been idle for SHARD_WATCHDOG_SECS (default 180).
+# a shard whose log has been idle for SHARD_WATCHDOG_SECS (default 600).
 # Without this, a starved shard's vitest waits forever on its workers and
 # the entire gate hangs invisibly until the dev-side SSH timeout fires.
+# The threshold must stay comfortably above normal shard quiet periods: the
+# Linux remote full server suite has produced healthy shards around 200s, and
+# the dot reporter can be silent while a slow final test file finishes.
 run_server_shards() {
   local n="\$GATE_SERVER_SHARDS"
   local k=0
   local any_failed=0
   local per_shard="\${TORQUE_GATE_PER_SHARD_WORKERS:-1}"
   if [ "\$per_shard" -lt 1 ]; then per_shard=1; fi
-  local watchdog_secs="\${TORQUE_GATE_SHARD_WATCHDOG_SECS:-180}"
-  echo "[serv] [shards] launching \$n shards, VITEST_MAX_WORKERS=\$per_shard per shard, watchdog=\${watchdog_secs}s"
+  local watchdog_secs="\${TORQUE_GATE_SHARD_WATCHDOG_SECS:-600}"
+  case "\$watchdog_secs" in
+    ''|*[!0-9]*|0)
+      echo "[serv] [shards] invalid TORQUE_GATE_SHARD_WATCHDOG_SECS=\$watchdog_secs; using 600"
+      watchdog_secs=600
+      ;;
+  esac
+  local heartbeat_secs="\${TORQUE_GATE_SHARD_HEARTBEAT_SECS:-60}"
+  case "\$heartbeat_secs" in
+    ''|*[!0-9]*|0)
+      echo "[serv] [shards] invalid TORQUE_GATE_SHARD_HEARTBEAT_SECS=\$heartbeat_secs; using 60"
+      heartbeat_secs=60
+      ;;
+  esac
+  if [ "\$heartbeat_secs" -gt "\$watchdog_secs" ]; then
+    heartbeat_secs="\$watchdog_secs"
+  fi
+  echo "[serv] [shards] launching \$n shards, VITEST_MAX_WORKERS=\$per_shard per shard, watchdog=\${watchdog_secs}s heartbeat=\${heartbeat_secs}s"
   local pids=()
   local logs=()
   local watchdog_dir
@@ -1902,28 +1921,41 @@ run_server_shards() {
   done
 
   # Background watchdog — every 30s, check whether each shard's log file
-  # has grown. If a shard has been idle longer than \$watchdog_secs while
-  # its pid is still alive, SIGKILL the shard subshell tree and record
-  # the kill so the gate fails loudly instead of waiting on a hung
-  # vitest. Watchdog exits when every shard pid has exited.
+  # has grown. It emits quiet-shard heartbeats before the kill threshold so
+  # the captured gate artifact explains which shard is still running. If a
+  # shard has been idle longer than \$watchdog_secs while its pid is still
+  # alive, SIGKILL the shard subshell tree and record the kill so the gate
+  # fails loudly instead of waiting on a hung vitest. Watchdog exits when
+  # every shard pid has exited.
   local shard_count=\${#pids[@]}
   (
+    local last_notice=()
+    local i
+    for i in \$(seq 0 \$((shard_count - 1))); do
+      last_notice[\$i]=0
+    done
     while :; do
       sleep 30
       local any_alive=0
-      local i
       for i in \$(seq 0 \$((shard_count - 1))); do
         local pid="\${pids[\$i]}"
         local log="\${logs[\$i]}"
         if kill -0 "\$pid" 2>/dev/null; then
           any_alive=1
-          local mtime now idle
+          local mtime now idle notice_bucket sk
           mtime=\$(stat -c %Y "\$log" 2>/dev/null || echo 0)
           now=\$(date +%s)
           idle=\$((now - mtime))
+          sk=\$((i + 1))
+          notice_bucket=\$((idle / heartbeat_secs))
+          if [ "\$notice_bucket" -gt 0 ] && [ "\${last_notice[\$i]:-0}" -lt "\$notice_bucket" ]; then
+            last_notice[\$i]="\$notice_bucket"
+            echo "[serv] [shards] [watchdog] shard\$sk still running; output idle \${idle}s/\${watchdog_secs}s" >&2
+          fi
           if [ "\$idle" -gt "\$watchdog_secs" ]; then
-            local sk=\$((i + 1))
             echo "[serv] [shards] [watchdog] shard\$sk idle for \${idle}s — SIGKILL (likely resource starvation)" >&2
+            echo "[serv] [shards] [watchdog] shard\$sk last output follows" >&2
+            tail -40 "\$log" 2>/dev/null | sed "s/^/[serv] [shards] [watchdog] shard\$sk tail: /" >&2 || true
             pkill -9 -P "\$pid" 2>/dev/null || true
             kill -9 "\$pid" 2>/dev/null || true
           fi
@@ -1941,7 +1973,11 @@ run_server_shards() {
   # error if it raced ahead.
   kill "\$watchdog_pid" 2>/dev/null || true
   wait "\$watchdog_pid" 2>/dev/null || true
-  rm -rf "\$watchdog_dir" 2>/dev/null || true
+  if [ "\$any_failed" -eq 0 ]; then
+    rm -rf "\$watchdog_dir" 2>/dev/null || true
+  else
+    echo "[serv] [shards] retained shard logs at \$watchdog_dir after failure" >&2
+  fi
   return \$any_failed
 }
 
