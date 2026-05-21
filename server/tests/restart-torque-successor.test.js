@@ -9,6 +9,9 @@ const {
   monitorSuccessorExit,
   writeSuccessorExitDiagnostic,
   tryLoadBetterSqlite3,
+  readRuntimeDependencyNames,
+  findMissingRuntimeDependencies,
+  ensureRuntimeDependenciesUsable,
   waitForFileUnlock,
   ensureBetterSqliteUsable,
   getBetterSqliteBinaryPath,
@@ -36,6 +39,17 @@ function makeFakeBetterSqliteModule(serverDir) {
   const binDir = path.join(pkgDir, 'build', 'Release');
   fs.mkdirSync(binDir, { recursive: true });
   fs.writeFileSync(path.join(binDir, 'better_sqlite3.node'), Buffer.from([0]));
+  return pkgDir;
+}
+
+function makeFakePackageModule(serverDir, name) {
+  const pkgDir = path.join(serverDir, 'node_modules', ...name.split('/'));
+  fs.mkdirSync(pkgDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pkgDir, 'package.json'),
+    JSON.stringify({ name, version: '0.0.0-test', main: 'index.js' }),
+  );
+  fs.writeFileSync(path.join(pkgDir, 'index.js'), 'module.exports = { __fake: true };\n');
   return pkgDir;
 }
 
@@ -285,6 +299,99 @@ describe('tryLoadBetterSqlite3', () => {
       expect(result.loaded).toBe(false);
       expect(typeof result.error).toBe('string');
       expect(result.error.length).toBeGreaterThan(0);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('runtime dependency preflight', () => {
+  it('detects missing declared runtime dependencies', () => {
+    const tmp = mktmp('runtime-deps-missing');
+    try {
+      const serverDir = path.join(tmp, 'server');
+      fs.mkdirSync(serverDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(serverDir, 'package.json'),
+        JSON.stringify({
+          dependencies: {
+            ajv: '^6.14.0',
+            'better-sqlite3': '^12.8.0',
+          },
+        }),
+      );
+      makeFakeBetterSqliteModule(serverDir);
+
+      expect(readRuntimeDependencyNames(serverDir)).toEqual(['ajv', 'better-sqlite3']);
+      expect(findMissingRuntimeDependencies(serverDir)).toEqual(['ajv']);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('runs npm install when a declared runtime dependency is missing', async () => {
+    const tmp = mktmp('runtime-deps-install');
+    try {
+      const serverDir = path.join(tmp, 'server');
+      fs.mkdirSync(serverDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(serverDir, 'package.json'),
+        JSON.stringify({ dependencies: { ajv: '^6.14.0' } }),
+      );
+
+      const fakeNpmScript = path.join(tmp, 'fake-npm.js');
+      const callsPath = path.join(tmp, 'npm-calls.jsonl');
+      fs.writeFileSync(fakeNpmScript, `
+const fs = require('fs');
+const path = require('path');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(callsPath)}, JSON.stringify(args) + '\\n');
+const prefixIndex = args.indexOf('--prefix');
+const serverDir = prefixIndex >= 0 ? args[prefixIndex + 1] : process.cwd();
+const pkgDir = path.join(serverDir, 'node_modules', 'ajv');
+fs.mkdirSync(pkgDir, { recursive: true });
+fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: 'ajv', main: 'index.js' }));
+fs.writeFileSync(path.join(pkgDir, 'index.js'), 'module.exports = {};\\n');
+`);
+      const npm = {
+        command: process.execPath,
+        argsPrefix: [fakeNpmScript],
+      };
+
+      const result = await ensureRuntimeDependenciesUsable(npm, serverDir, process.env, { cwd: tmp });
+
+      expect(result).toEqual({ installed: true, usable: true, missing: [] });
+      const callArgs = JSON.parse(fs.readFileSync(callsPath, 'utf8').trim());
+      expect(callArgs).toEqual(expect.arrayContaining([
+        '--prefix',
+        serverDir,
+        'install',
+        '--include=dev',
+        '--prefer-offline',
+      ]));
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('takes the fast path when declared runtime dependencies resolve', async () => {
+    const tmp = mktmp('runtime-deps-fast');
+    try {
+      const serverDir = path.join(tmp, 'server');
+      fs.mkdirSync(serverDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(serverDir, 'package.json'),
+        JSON.stringify({ dependencies: { ajv: '^6.14.0' } }),
+      );
+      makeFakePackageModule(serverDir, 'ajv');
+      const npm = {
+        command: 'should-never-run',
+        argsPrefix: [],
+      };
+
+      const result = await ensureRuntimeDependenciesUsable(npm, serverDir, process.env, { cwd: tmp });
+
+      expect(result).toEqual({ installed: false, usable: true, missing: [] });
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }

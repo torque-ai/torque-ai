@@ -230,6 +230,63 @@ function runNpm(npm, npmArgs, options) {
   return run(npm.command, [...npm.argsPrefix, ...npmArgs], options);
 }
 
+function readRuntimeDependencyNames(serverDir) {
+  const packagePath = path.join(serverDir, 'package.json');
+  if (!fs.existsSync(packagePath)) return [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+    return Object.keys(parsed?.dependencies || {}).sort();
+  } catch (err) {
+    log(`could not read runtime dependencies from ${packagePath}: ${err.message}`);
+    return [];
+  }
+}
+
+function findMissingRuntimeDependencies(serverDir, dependencyNames = readRuntimeDependencyNames(serverDir)) {
+  const missing = [];
+  for (const name of dependencyNames) {
+    const packageDir = path.join(serverDir, 'node_modules', ...name.split('/'));
+    try {
+      require.resolve(packageDir);
+    } catch {
+      missing.push(name);
+    }
+  }
+  return missing;
+}
+
+async function ensureRuntimeDependenciesUsable(npm, serverDir, env, opts = {}) {
+  const cwd = opts.cwd || serverDir;
+  const missingBefore = findMissingRuntimeDependencies(serverDir);
+  if (missingBefore.length === 0) {
+    log('declared runtime dependencies resolve cleanly');
+    return { installed: false, usable: true, missing: [] };
+  }
+
+  log(`missing runtime dependencies before startup: ${missingBefore.join(', ')}; running npm install`);
+  const installOk = runNpm(
+    npm,
+    ['--prefix', serverDir, 'install', '--include=dev', '--prefer-offline', '--no-audit', '--no-fund'],
+    {
+      cwd,
+      env,
+      label: 'npm install for missing runtime dependencies',
+    },
+  );
+  if (!installOk) {
+    return { installed: false, usable: false, missing: missingBefore };
+  }
+
+  const missingAfter = findMissingRuntimeDependencies(serverDir);
+  if (missingAfter.length === 0) {
+    log('npm install restored declared runtime dependencies');
+    return { installed: true, usable: true, missing: [] };
+  }
+
+  log(`runtime dependencies still missing after npm install: ${missingAfter.join(', ')}`);
+  return { installed: true, usable: false, missing: missingAfter };
+}
+
 const UNLOCK_POLL_BUDGET_MS = Number.parseInt(process.env.RESTART_HELPER_UNLOCK_BUDGET_MS || '30000', 10);
 const UNLOCK_POLL_INTERVAL_MS = Number.parseInt(process.env.RESTART_HELPER_UNLOCK_INTERVAL_MS || '1000', 10);
 const REBUILD_MAX_ATTEMPTS = Number.parseInt(process.env.RESTART_HELPER_REBUILD_ATTEMPTS || '2', 10);
@@ -367,6 +424,10 @@ async function main() {
 
   if (fs.existsSync(path.join(serverDir, 'package.json'))) {
     const npm = npmCommand(process.execPath);
+    const dependencyResult = await ensureRuntimeDependenciesUsable(npm, serverDir, env, { cwd: repoRoot });
+    if (!dependencyResult.usable) {
+      log(`WARNING: runtime dependencies are missing after install attempt: ${dependencyResult.missing.join(', ')}. Spawning server anyway so startup failure is captured in successor.log.`);
+    }
     const result = await ensureBetterSqliteUsable(npm, serverDir, env, { cwd: repoRoot });
     if (!result.usable) {
       // Spawn anyway. A truly broken binary will produce a loud, fast,
@@ -449,6 +510,9 @@ module.exports = {
   writeSuccessorExitDiagnostic,
   monitorSuccessorExit,
   tryLoadBetterSqlite3,
+  readRuntimeDependencyNames,
+  findMissingRuntimeDependencies,
+  ensureRuntimeDependenciesUsable,
   waitForFileUnlock,
   ensureBetterSqliteUsable,
   getBetterSqliteBinaryPath,
