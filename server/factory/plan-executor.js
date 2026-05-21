@@ -6,7 +6,13 @@ const logger = require('../logger').child({ component: 'plan-executor' });
 const { parsePlanFile, extractExplicitVerifyCommand, extractVerifyCommand } = require('./plan-parser');
 const { findHeavyLocalValidationCommand } = require('../utils/heavy-validation-guard');
 
-const FILE_PATH_RE = /(?:^|[\s"'`(])((?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+)(?=$|[\s"'`),:])/gm;
+const FILE_PATH_EXTENSIONS = 'csproj|fsproj|vbproj|targets|props|cjs|cs|css|go|html|java|js|json|jsx|md|mjs|psm1|ps1|py|rb|resx|rs|sh|sln|sql|ts|tsx|txt|xaml|axaml|xml|ya?ml';
+const FILE_PATH_RE = new RegExp(
+  '(?:^|[\\s"\'`(])((?:[A-Za-z]:)?(?:[A-Za-z0-9_.-]+[\\\\/])+[A-Za-z0-9_.-]+\\.(?:'
+    + FILE_PATH_EXTENSIONS
+    + '))(?=$|[\\s"\'`),:])',
+  'gim',
+);
 const EXECUTION_MODES = new Set(['live', 'suppress', 'pending_approval']);
 const LIVE_REUSABLE_STATUSES = new Set(['pending', 'queued', 'running']);
 const APPROVAL_REUSABLE_STATUSES = new Set(['pending_approval', 'pending', 'queued', 'running']);

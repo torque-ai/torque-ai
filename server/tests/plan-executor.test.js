@@ -483,6 +483,28 @@ git commit -m "test: refresh smoke"
     expect(submitMock).toHaveBeenCalledTimes(1);
   });
 
+  it('does NOT treat slash-separated prose as a missing edit target', async () => {
+    const PLAN_PROSE_SLASH = `# X
+
+## Task 1: Fix validation handling
+
+- [ ] **Step 1: update behavior**
+
+\`\`\`text
+Update the validation/error handling behavior without adding any files.
+\`\`\`
+
+- [ ] **Step 2: commit**
+
+\`\`\`bash
+git commit -m "fix: tighten validation handling"
+\`\`\`
+`;
+    fs.writeFileSync(planPath, PLAN_PROSE_SLASH);
+    await exec.execute({ plan_path: planPath, project: 'p', working_directory: dir });
+    expect(submitMock).toHaveBeenCalledTimes(1);
+  });
+
   it('does NOT block when intent is "create" (creating a missing file is legitimate)', async () => {
     // "Create" tasks legitimately reference non-existent paths — that's
     // the whole point of greenfield work. The guard must not catch them.
