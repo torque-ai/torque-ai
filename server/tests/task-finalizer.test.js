@@ -670,6 +670,84 @@ describe('task-finalizer', () => {
     }));
   });
 
+  it('restores unscoped dirty factory worktree files before auto-verify', async () => {
+    const dbBundle = createTaskDb({
+      provider: 'codex',
+      working_directory: 'C:/repo/.worktrees/feature',
+      task_description: [
+        'Plan: Add ACL wildcard mask edge-case tests',
+        'Task 1: Add ACL wildcard mask edge-case test suite covering host, any, and unusual mask patterns',
+        '## Target Files',
+        '- `src/engine/protocols/acl.ts`',
+        '- `tests/engine/protocols/acl.test.ts`',
+      ].join('\n'),
+      tags: [
+        'factory:batch_id=factory-a3df749a-7869-486f-9896-64d38d25d39b-2530',
+        'factory:work_item_id=2530',
+        'factory:plan_task_number=1',
+      ],
+    });
+    const { db } = dbBundle;
+    const restoreFactoryWorktreeFiles = vi.fn();
+    const handleAutoVerifyRetry = vi.fn(async (ctx) => {
+      expect(ctx.filesModified).toEqual(['tests/engine/protocols/acl.test.ts']);
+    });
+    const logFactoryDecision = vi.fn();
+    const scopedFinalizer = finalizer.createTaskFinalizer({
+      db,
+      safeUpdateTaskStatus: vi.fn((...args) => db.updateTaskStatus(...args)),
+      sanitizeTaskOutput: (value) => value || '',
+      extractModifiedFiles: vi.fn(() => ['tests/engine/protocols/acl.test.ts']),
+      getActualModifiedFilesForFactoryHygiene: vi.fn(() => [
+        'tests/engine/protocols/acl.test.ts',
+        'tests/engine/protocols/bgp-route-reflector.test.ts',
+        'tests/engine/protocols/ospf-multi-area.test.ts',
+      ]),
+      restoreFactoryWorktreeFiles,
+      handleRetryLogic: vi.fn(),
+      handleSafeguardChecks: vi.fn(),
+      handleFuzzyRepair: vi.fn(),
+      handleAutoValidation: vi.fn(),
+      handleBuildTestStyleCommit: vi.fn(),
+      handleAutoVerifyRetry,
+      handleProviderFailover: vi.fn(),
+      handlePostCompletion: vi.fn(),
+      logFactoryDecision,
+    });
+
+    const result = await scopedFinalizer.finalizeTask(dbBundle.taskId, {
+      exitCode: 0,
+      output: 'Updated tests/engine/protocols/acl.test.ts',
+      errorOutput: '',
+      filesModified: ['tests/engine/protocols/acl.test.ts'],
+    });
+
+    const storedTask = dbBundle.getStoredTask();
+    expect(result.finalized).toBe(true);
+    expect(storedTask.status).toBe('completed');
+    expect(storedTask.files_modified).toEqual(['tests/engine/protocols/acl.test.ts']);
+    expect(restoreFactoryWorktreeFiles).toHaveBeenCalledWith(
+      'C:/repo/.worktrees/feature',
+      [
+        'tests/engine/protocols/bgp-route-reflector.test.ts',
+        'tests/engine/protocols/ospf-multi-area.test.ts',
+      ],
+    );
+    expect(handleAutoVerifyRetry).toHaveBeenCalledTimes(1);
+    expect(logFactoryDecision).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'restored_unscoped_worktree_changes',
+      work_item_id: '2530',
+      outcome: expect.objectContaining({
+        restored_files: [
+          'tests/engine/protocols/bgp-route-reflector.test.ts',
+          'tests/engine/protocols/ospf-multi-area.test.ts',
+        ],
+      }),
+    }));
+    expect(storedTask.metadata.finalization.validation_stage_outcomes.factory_worktree_hygiene)
+      .toEqual(expect.objectContaining({ outcome: 'no_change' }));
+  });
+
   it('schedules retry after factory no-file-change reclassification', async () => {
     const dbBundle = createTaskDb({
       provider: 'codex',

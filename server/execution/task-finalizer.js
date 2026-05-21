@@ -59,6 +59,7 @@ const DEFAULT_STAGE_TIMEOUT_MS = 120000;
 const STAGE_TIMEOUT_MS = {
   build_test_style_commit: 300000,
   auto_verify_retry: 31 * 60 * 1000,
+  factory_worktree_hygiene: 120000,
   verification_ledger: 120000,
   adversarial_review: 120000,
   smart_diagnosis: 60000,
@@ -373,6 +374,201 @@ function readActualChangedFiles(task) {
     logger.debug(`[finalizer] Git status modified-file probe failed for ${task?.id || 'unknown'}: ${err.message}`);
     return [];
   }
+}
+
+function normalizeFactoryGitPath(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/\\/g, '/')
+    .replace(/^\.\/+/, '')
+    .replace(/\/+/g, '/');
+}
+
+function collectMetadataFileList(metadata, keys) {
+  const files = [];
+  for (const key of keys) {
+    const value = metadata?.[key];
+    if (Array.isArray(value)) {
+      files.push(...value);
+    } else if (typeof value === 'string' && value.trim()) {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          files.push(...parsed);
+          continue;
+        }
+      } catch {
+        // Fall through to line/comma splitting below.
+      }
+      files.push(...value.split(/[\r\n,]+/));
+    }
+  }
+  return files;
+}
+
+function collectFactoryTaskAllowedFiles(ctx) {
+  const task = ctx?.task || {};
+  const metadata = mergeTaskMetadata(task, ctx);
+  const allowed = new Set();
+  const add = (candidate) => {
+    const normalized = normalizeFactoryGitPath(candidate);
+    if (normalized) allowed.add(normalized);
+  };
+
+  for (const file of Array.isArray(ctx?.filesModified) ? ctx.filesModified : []) {
+    add(file);
+  }
+  for (const file of collectMetadataFileList(metadata, [
+    'target_files',
+    'targetFiles',
+    'files',
+    'files_modified',
+    'filesModified',
+    'plan_target_files',
+    'planTargetFiles',
+  ])) {
+    add(file);
+  }
+
+  try {
+    const { extractFileReferencesExpanded } = require('../utils/file-resolution');
+    for (const file of extractFileReferencesExpanded(task.task_description || '')) {
+      add(file);
+    }
+  } catch (err) {
+    logger.debug(`[finalizer] Factory target-file extraction failed for ${task.id || 'unknown'}: ${err.message}`);
+  }
+
+  return allowed;
+}
+
+function isAllowedFactoryDirtyFile(filePath, allowedFiles) {
+  const file = normalizeFactoryGitPath(filePath);
+  if (!file || allowedFiles.has(file)) return Boolean(file);
+  for (const allowed of allowedFiles) {
+    if (!allowed) continue;
+    if (file === allowed) return true;
+    if (!allowed.includes('/') && file.endsWith(`/${allowed}`)) return true;
+  }
+  return false;
+}
+
+function readTrackedDirtyFilesForFactoryHygiene(task) {
+  const workingDirectory = typeof task?.working_directory === 'string'
+    ? task.working_directory.trim()
+    : '';
+  if (!workingDirectory) return [];
+
+  if (typeof getDeps().getActualModifiedFilesForFactoryHygiene === 'function') {
+    try {
+      const files = getDeps().getActualModifiedFilesForFactoryHygiene(workingDirectory, task);
+      return Array.isArray(files) ? files.map(normalizeFactoryGitPath).filter(Boolean) : [];
+    } catch (err) {
+      logger.debug(`[finalizer] Factory hygiene modified-file probe failed for ${task.id}: ${err.message}`);
+      return [];
+    }
+  }
+
+  try {
+    const { getModifiedFiles } = require('../utils/git');
+    return getModifiedFiles(workingDirectory)
+      .filter((entry) => {
+        if (!entry || entry.isNew || entry.isRenamed) return false;
+        return entry.isModified || entry.isDeleted;
+      })
+      .map((entry) => normalizeFactoryGitPath(entry.filePath))
+      .filter(Boolean);
+  } catch (err) {
+    logger.debug(`[finalizer] Factory hygiene git status failed for ${task.id || 'unknown'}: ${err.message}`);
+    return [];
+  }
+}
+
+function restoreFactoryWorktreeFiles(workingDirectory, files) {
+  const normalizedFiles = Array.from(new Set(
+    (Array.isArray(files) ? files : [])
+      .map(normalizeFactoryGitPath)
+      .filter(Boolean)
+  ));
+  if (!workingDirectory || normalizedFiles.length === 0) return;
+
+  if (typeof getDeps().restoreFactoryWorktreeFiles === 'function') {
+    getDeps().restoreFactoryWorktreeFiles(workingDirectory, normalizedFiles);
+    return;
+  }
+
+  const { safeGitExec, invalidateFingerprintCache } = require('../utils/git');
+  const chunkSize = 40;
+  for (let index = 0; index < normalizedFiles.length; index += chunkSize) {
+    const chunk = normalizedFiles.slice(index, index + chunkSize);
+    safeGitExec(['restore', '--staged', '--worktree', '--', ...chunk], {
+      cwd: workingDirectory,
+      timeout: 30000,
+    });
+  }
+  if (typeof invalidateFingerprintCache === 'function') {
+    invalidateFingerprintCache(workingDirectory);
+  }
+}
+
+function logFactoryWorktreeHygieneDecision(ctx, restoredFiles, allowedFiles) {
+  if (typeof getDeps().logFactoryDecision !== 'function') return;
+  const tags = normalizeTaskTags(ctx.task?.tags);
+  const batchId = getFactoryTagValue(tags, 'factory:batch_id=');
+  const workItemId = getFactoryTagValue(tags, 'factory:work_item_id=');
+  const projectId = normalizeText(ctx.task?.factory_project_id)
+    || normalizeText(ctx.task?.project_id)
+    || normalizeText(mergeTaskMetadata(ctx.task, ctx).factory_project_id)
+    || (batchId ? batchId.match(/^factory-([0-9a-f-]{36})-/i)?.[1] : null)
+    || null;
+  try {
+    getDeps().logFactoryDecision({
+      project_id: projectId,
+      stage: 'execute',
+      actor: 'executor',
+      action: 'restored_unscoped_worktree_changes',
+      batch_id: batchId,
+      task_id: ctx.taskId,
+      work_item_id: workItemId,
+      reasoning: 'Factory execution task had dirty tracked files outside the task-reported or target-file scope before verification.',
+      outcome: {
+        restored_files: restoredFiles,
+        allowed_files: Array.from(allowedFiles),
+      },
+    });
+  } catch (err) {
+    logger.debug(`[finalizer] Failed to log factory worktree hygiene decision: ${err.message}`);
+  }
+}
+
+function sanitizeFactoryPlanWorktreeDirtyFiles(ctx) {
+  if (!ctx || ctx.status !== 'completed' || ctx.code !== 0) return;
+  const task = ctx.task || {};
+  const metadata = mergeTaskMetadata(task, ctx);
+  if (!isFactoryBatchExecutionTask(task, metadata)) return;
+  if (taskExplicitlyReadOnlyForNoFileDetection(task, metadata)) return;
+
+  const allowedFiles = collectFactoryTaskAllowedFiles(ctx);
+  if (allowedFiles.size === 0) return;
+
+  const dirtyFiles = readTrackedDirtyFilesForFactoryHygiene(task);
+  if (dirtyFiles.length === 0) return;
+
+  const staleFiles = dirtyFiles.filter(file => !isAllowedFactoryDirtyFile(file, allowedFiles));
+  if (staleFiles.length === 0) return;
+
+  restoreFactoryWorktreeFiles(task.working_directory, staleFiles);
+  const staleSet = new Set(staleFiles.map(normalizeFactoryGitPath));
+  ctx.filesModified = (Array.isArray(ctx.filesModified) ? ctx.filesModified : [])
+    .map(normalizeFactoryGitPath)
+    .filter(file => file && !staleSet.has(file));
+  ctx.factoryWorktreeHygiene = {
+    restoredFiles: staleFiles,
+    allowedFiles: Array.from(allowedFiles),
+  };
+  logger.info(`[finalizer] Task ${ctx.taskId}: restored ${staleFiles.length} unscoped factory worktree file(s) before verification`);
+  logFactoryWorktreeHygieneDecision(ctx, staleFiles, allowedFiles);
 }
 
 function augmentFactoryFilesModifiedFromGitStatus(ctx) {
@@ -1323,6 +1519,7 @@ async function finalizeTask(taskId, options = {}) {
     await runStage(ctx, 'compute_apply_creation', handleComputeApplyCreation, ctx.code === 0);
 
     await runStage(ctx, 'fuzzy_repair', getDeps().handleFuzzyRepair, typeof getDeps().handleFuzzyRepair === 'function');
+    await runStage(ctx, 'factory_worktree_hygiene', sanitizeFactoryPlanWorktreeDirtyFiles, ctx.status === 'completed');
     augmentFactoryFilesModifiedFromGitStatus(ctx);
     await runStage(ctx, 'no_file_change_detection', getDeps().handleNoFileChangeDetection, typeof getDeps().handleNoFileChangeDetection === 'function');
     await runStage(
@@ -1809,6 +2006,8 @@ function createTaskFinalizer(localDeps = {}) {
     _testing: {
       get finalizationLocks() { return finalizationLocks; },
       categorizeFailure,
+      sanitizeFactoryPlanWorktreeDirtyFiles,
+      collectFactoryTaskAllowedFiles,
       resetForTest,
     },
   };
@@ -1838,6 +2037,8 @@ module.exports = {
   _testing: {
     get finalizationLocks() { return finalizationLocks; },
     categorizeFailure,
+    sanitizeFactoryPlanWorktreeDirtyFiles,
+    collectFactoryTaskAllowedFiles,
     resetForTest,
   },
 };
