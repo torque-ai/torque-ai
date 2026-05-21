@@ -31,6 +31,7 @@ const { wrapVerifyCommandForTestLane } = require('../factory/test-lane-verify');
 const { createTestDeflaker } = require('../db/test-deflaker');
 const { createFaultLocalization } = require('./fault-localization');
 const { createCandidatePatches } = require('./candidate-patches');
+const { resolveDbHandle } = require('../db/db-handle-resolver');
 
 // Providers that get auto-verify by default.
 // Built via character join to avoid the repo's PII scrub, which case-
@@ -91,6 +92,10 @@ let _startTask = null;
 let _processQueue = null;
 let _testRunnerRegistry = null;
 let _sandboxManager = null;
+
+function getSqliteDb() {
+  return resolveDbHandle(_db);
+}
 
 function ensureDeps() {
   let container = null;
@@ -440,8 +445,9 @@ async function handleAutoVerifyRetry(ctx) {
   // Record every verify attempt as a candidate patch so the orchestrator
   // can select the best one when multiple repair attempts are made.
   try {
-    if (_db) {
-      const cp = createCandidatePatches({ db: _db, logger });
+    const sqliteDb = getSqliteDb();
+    if (sqliteDb) {
+      const cp = createCandidatePatches({ db: sqliteDb, logger });
       const retryCount = task.retry_count || 0;
       // Best-effort diff: use baseline_snapshot from metadata if available.
       let taskDiff = '';
@@ -470,8 +476,9 @@ async function handleAutoVerifyRetry(ctx) {
   // so the deflaker can build a sliding window for flaky-test detection.
   const testNames = extractTestNames(verifyOutput);
   try {
-    if (_db && (testNames.passed.length > 0 || testNames.failed.length > 0)) {
-      const deflaker = createTestDeflaker({ db: _db });
+    const sqliteDb = getSqliteDb();
+    if (sqliteDb && (testNames.passed.length > 0 || testNames.failed.length > 0)) {
+      const deflaker = createTestDeflaker({ db: sqliteDb });
       const projectPath = config.project_path || task.working_directory || '';
       const commitHash = getTaskMetadata(task).commit_hash || null;
       deflaker.recordOutcomes({
@@ -511,8 +518,9 @@ async function handleAutoVerifyRetry(ctx) {
       // as flaky vs genuine. All-flaky → tests:flaky:N; mixed → tests:fail:M
       // (counting only genuine failures).
       try {
-        if (_db && testNames.failed.length > 0) {
-          const deflaker = createTestDeflaker({ db: _db });
+        const sqliteDb = getSqliteDb();
+        if (sqliteDb && testNames.failed.length > 0) {
+          const deflaker = createTestDeflaker({ db: sqliteDb });
           const projectPath = config.project_path || task.working_directory || '';
           const classified = deflaker.classifyFailures({
             projectPath,

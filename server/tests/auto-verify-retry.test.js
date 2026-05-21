@@ -125,6 +125,25 @@ function createMockDb({ project = 'test-project', initialConfig = {}, projectExi
   };
 }
 
+function createRawSqliteMock() {
+  const statements = [];
+  const rawDb = {
+    prepare: vi.fn((sql) => {
+      const statement = {
+        sql,
+        run: vi.fn(() => ({ lastInsertRowid: statements.length + 1 })),
+        all: vi.fn(() => []),
+        get: vi.fn(() => ({ cnt: 0 })),
+      };
+      statements.push(statement);
+      return statement;
+    }),
+    transaction: vi.fn((fn) => vi.fn((...args) => fn(...args))),
+    _statements: statements,
+  };
+  return rawDb;
+}
+
 function makeTask(overrides = {}) {
   return {
     id: 'task-1',
@@ -651,6 +670,26 @@ describe('handleAutoVerifyRetry — verify execution', () => {
     expect(ctx.status).toBe('completed');
     expect(ctx.earlyExit).toBe(false);
     expect(mockDb.createTask).not.toHaveBeenCalled();
+  });
+
+  it('unwraps a database facade before recording verify candidates and test outcomes', async () => {
+    const rawDb = createRawSqliteMock();
+    const db = createMockDb({ initialConfig: { verify_command: 'npm test' } });
+    db.getDbInstance = vi.fn(() => rawDb);
+    const { handleAutoVerifyRetry, mockLoggerChild, mockRunVerifyCommand } = loadModuleWithMocks({ db });
+    mockRunVerifyCommand.mockResolvedValue(makeVerifyResult({
+      exitCode: 0,
+      output: '✓ DHCP lease renews at T1',
+      error: '',
+    }));
+    const ctx = makeCtx();
+
+    await handleAutoVerifyRetry(ctx);
+
+    expect(rawDb.prepare).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO candidate_patches'));
+    expect(rawDb.prepare).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO test_outcomes'));
+    expect(rawDb.transaction).toHaveBeenCalled();
+    expect(mockLoggerChild.warn).not.toHaveBeenCalledWith(expect.stringContaining('db.prepare is not a function'));
   });
 
   it('handles empty verify_command output', async () => {
