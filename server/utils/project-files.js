@@ -3,17 +3,31 @@
 const fs = require('fs');
 const path = require('path');
 const childProcess = require('child_process');
-// Use the real (unpatched) execFileSync when running under vitest's worker
-// setup, which monkey-patches child_process.execFileSync to stub git calls.
-// Without this, tryGitListFiles would get empty stub output instead of the
-// actual `git ls-files` results.
-const execFileSync = childProcess._realExecFileSync || childProcess.execFileSync;
 const logger = require('../logger').child({ component: 'project-files' });
 
-// Directories excluded from the project file census. Used as the non-git
-// fallback walk filter, and as a secondary filter even when git enumeration
-// succeeds (so the manual ignore_dirs arg keeps working and committed-but-
-// generated output stays excludable).
+// Resolve execFileSync with a guarded preference for the real (unpatched)
+// implementation. vitest's worker-setup.js monkey-patches
+// child_process.execFileSync to stub git calls — without bypassing that stub
+// tryGitListFiles would get empty output instead of real `git ls-files`
+// results. The guard mirrors git-worktree.js: only prefer _realExecFileSync
+// when the current export is the test guard (not an intentional test mock).
+function resolveExecFileSync() {
+  const current = childProcess.execFileSync;
+  const isMockFunction = Boolean(current && (current._isMockFunction || current.mock));
+  if (
+    childProcess._realExecFileSync
+    && current?.__torqueTestGuard === true
+    && !isMockFunction
+  ) {
+    return childProcess._realExecFileSync;
+  }
+  return current;
+}
+
+// Directories excluded from the project file census.
+// Applied as the primary filter in the non-git fallback walk only.
+// When git enumeration succeeds, its output is the authoritative file
+// list and no additional static filtering is applied.
 const DEFAULT_IGNORE_DIRS = [
   'node_modules', '.git', 'dist', 'build', 'coverage', '.next', '__pycache__', '.venv',
   '.cache', '.vitest-tmp', '.vitest-logs', '.tmp-vitest',
@@ -30,10 +44,15 @@ const DEFAULT_IGNORE_PREFIXES = ['.tmp', '.tmp-'];
 // Returns relative paths from `git ls-files`, or null when `rootDir` is not a
 // git repo / git is unavailable / the command fails.
 function tryGitListFiles(rootDir) {
-  const runGit = (args) => execFileSync('git', args, {
+  const execFileSync = resolveExecFileSync();
+  const runGit = (args) => execFileSync.call(childProcess, 'git', args, {
     cwd: rootDir,
+    encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
     maxBuffer: 256 * 1024 * 1024,
+    windowsHide: true,
+    timeout: 60_000,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' },
   });
   let tracked;
   let untracked;
@@ -45,23 +64,12 @@ function tryGitListFiles(rootDir) {
     return null;
   }
   const seen = new Set();
-  for (const buf of [tracked, untracked]) {
-    for (const part of buf.toString('utf8').split('\0')) {
+  for (const out of [tracked, untracked]) {
+    for (const part of String(out).split('\0')) {
       if (part) seen.add(part);
     }
   }
   return Array.from(seen);
-}
-
-// True when any *directory* segment of relPath is ignored.
-function isIgnoredRelPath(relPath, ignoreDirs, ignorePrefixes) {
-  const segments = relPath.split(/[\\/]/);
-  for (let i = 0; i < segments.length - 1; i++) {
-    const seg = segments[i];
-    if (ignoreDirs.has(seg)) return true;
-    if (ignorePrefixes.some(p => seg === p || seg.startsWith(p + '-'))) return true;
-  }
-  return false;
 }
 
 // Recursive filesystem walk used only when git enumeration is unavailable.
@@ -107,10 +115,10 @@ function listProjectFiles(rootDir, options = {}) {
 
   const gitRelPaths = tryGitListFiles(rootDir);
   // When git enumeration succeeds, its output is already gitignore-filtered
-  // and is the authoritative file list — do not apply the static dir filter
-  // on top of it (doing so would strip negation-rescued paths like
-  // `build/keep.txt` that git explicitly included). The dir filter is only
-  // used as the primary filter in the fallback (non-git) walk.
+  // and is the authoritative file list — the static dir filter is NOT applied
+  // (doing so would strip negation-rescued paths like `build/keep.txt` that
+  // git explicitly included). The dir filter is the primary filter in the
+  // fallback (non-git) walk only.
   const useGit = gitRelPaths !== null;
   const relPaths = useGit
     ? gitRelPaths
@@ -129,7 +137,11 @@ function listProjectFiles(rootDir, options = {}) {
     if (!stat.isFile()) continue;
     files.push({
       path: fullPath,
-      relativePath: path.relative(rootDir, fullPath),
+      // Both sources already produce a clean repo-relative path: git hands one
+      // back directly, and walkDirFallback uses path.relative. Recomputing it
+      // here via path.relative(rootDir, path.join(rootDir, relPath)) would only
+      // round-trip the value and can shift casing on Windows — use it as-is.
+      relativePath: relPath,
       name: path.basename(relPath),
       ext: path.extname(relPath).toLowerCase(),
       size: stat.size,
