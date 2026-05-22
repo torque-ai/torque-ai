@@ -26,6 +26,19 @@ const HEALTH_SCAN_IGNORED_DIRS = new Set([
   'build',
   'bin',
   'obj',
+  // Vendored / generated / build-output directories.
+  'library',
+  'packagecache',
+  'temp',
+  'logs',
+  'target',
+  'vendor',
+  'pods',
+  '.gradle',
+  'deriveddata',
+  '.next',
+  '__pycache__',
+  '.venv',
 ]);
 const HEALTH_SCAN_TEST_DIR_RE = /(?:^|[._-])(test|tests|spec|specs)(?:$|[._-])/i;
 const DOTNET_PROJECT_FILE_RE = /\.(?:sln|csproj)$/i;

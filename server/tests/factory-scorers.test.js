@@ -947,3 +947,20 @@ describe('scoreAll on real TORQUE codebase', () => {
     expect(results.build_ci.details.source).toBe('build_ci_signals');
   });
 });
+
+describe('resolveHealthScanSourceDirs - vendored directory filtering', () => {
+  test('resolveHealthScanSourceDirs ignores Unity vendored directories', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hsdirs-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'Library'));
+      fs.writeFileSync(path.join(dir, 'Library', 'gen.cs'), 'class G {}');
+      fs.mkdirSync(path.join(dir, 'server'));
+      fs.writeFileSync(path.join(dir, 'server', 'app.js'), 'const x = 1;');
+
+      const dirs = resolveHealthScanSourceDirs(dir);
+      expect(dirs).not.toContain('Library');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
