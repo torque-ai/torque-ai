@@ -627,6 +627,7 @@ function handleScanProject(args = {}) {
   const ignoreDirs = new Set(args.ignore_dirs || DEFAULT_IGNORE_DIRS);
   // Prefix-matched ignores for directories that follow a `.tmp-<suffix>` or
   // similar pattern (e.g. .tmp-study-repro created by scouting runs).
+  // Applied only in the non-git fallback walk; on git repos, .gitignore covers these.
   const ignorePrefixes = ['.tmp', '.tmp-'];
 
   // Count lines in a file
