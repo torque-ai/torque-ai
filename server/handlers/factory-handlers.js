@@ -2140,16 +2140,13 @@ async function handleProjectHealth(args) {
   return jsonResponse(result);
 }
 
-async function handleScanProjectHealth(args) {
-  const project = resolveProject(args.project);
-  const disabled = blockWhenFactoryProjectWorkDisabled('scan_project_health', project);
-  if (disabled) return disabled;
-  const dimensions = args.dimensions || [...factoryHealth.VALID_DIMENSIONS];
-  const scanType = args.scan_type || 'incremental';
+// Pure scan + score + snapshot for one project. No work-enabled guard — a
+// metric recompute is always safe. Returns structured results.
+function scoreProjectHealth(project, options = {}) {
+  const dimensions = options.dimensions || [...factoryHealth.VALID_DIMENSIONS];
+  const scanType = options.scanType || 'incremental';
+  const batchId = options.batchId;
 
-  // Run scan_project to get filesystem data
-  // scan_project returns { content: [{text: markdown}], scanResult: {structured data} }
-  // We need the scanResult object, not the markdown text
   let scanReport = {};
   try {
     const { handleScanProject } = require('../handlers/integration/infra');
@@ -2159,7 +2156,6 @@ async function handleScanProjectHealth(args) {
       scanArgs.source_dirs = sourceDirs;
     }
     const result = handleScanProject(scanArgs);
-    // Use the structured scanResult, not the markdown text
     if (result?.scanResult && typeof result.scanResult === 'object') {
       scanReport = result.scanResult;
     }
@@ -2167,7 +2163,6 @@ async function handleScanProjectHealth(args) {
     logger.warn(`scan_project failed for ${project.path}: ${err.message}`);
   }
 
-  // Resolve findings directory
   let findingsDir = null;
   const candidates = [
     path.join(project.path, 'docs', 'findings'),
@@ -2177,10 +2172,8 @@ async function handleScanProjectHealth(args) {
     if (fs.existsSync(dir)) { findingsDir = dir; break; }
   }
 
-  // Score all requested dimensions
   const scored = scoreAll(project.path, scanReport, findingsDir, dimensions);
 
-  // Record snapshots and findings
   const results = {};
   for (const [dim, result] of Object.entries(scored)) {
     const snap = factoryHealth.recordSnapshot({
@@ -2188,16 +2181,28 @@ async function handleScanProjectHealth(args) {
       dimension: dim,
       score: result.score,
       scan_type: scanType,
-      batch_id: args.batch_id,
+      batch_id: batchId,
       details: result.details,
     });
-
     if (result.findings && result.findings.length > 0) {
       factoryHealth.recordFindings(snap.id, result.findings);
     }
-
     results[dim] = { snapshot_id: snap.id, score: result.score, details: result.details };
   }
+
+  return { project_id: project.id, dimensions, scanType, results };
+}
+
+async function handleScanProjectHealth(args) {
+  const project = resolveProject(args.project);
+  const disabled = blockWhenFactoryProjectWorkDisabled('scan_project_health', project);
+  if (disabled) return disabled;
+
+  const { dimensions, scanType, results } = scoreProjectHealth(project, {
+    dimensions: args.dimensions,
+    scanType: args.scan_type,
+    batchId: args.batch_id,
+  });
 
   return jsonResponse({
     message: `Scanned ${dimensions.length} dimensions for "${project.name}" (${scanType})`,
