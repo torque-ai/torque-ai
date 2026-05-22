@@ -244,6 +244,25 @@ function listWorkItems({ project_id, status, source, limit } = {}) {
   return db.prepare(sql).all(...params).map(parseWorkItem);
 }
 
+// The three "positive resolution" statuses — item was completed or shipped.
+// Intentionally narrower than CLOSED_STATUSES (which also includes rejected,
+// unactionable, needs_review, superseded, escalation_exhausted). Used by the
+// architect stuck-dimension guardrail to find recent successful work items.
+const RESOLVED_WORK_ITEM_STATUSES = ['completed', 'shipped', 'shipped_stale'];
+
+function listResolvedWorkItems({ project_id, limit } = {}) {
+  const placeholders = RESOLVED_WORK_ITEM_STATUSES.map(() => '?').join(', ');
+  let sql = `SELECT * FROM factory_work_items WHERE status IN (${placeholders})`;
+  const params = [...RESOLVED_WORK_ITEM_STATUSES];
+  if (project_id) {
+    sql += ' AND project_id = ?';
+    params.push(project_id);
+  }
+  sql += ' ORDER BY updated_at DESC LIMIT ?';
+  params.push(limit || 500);
+  return db.prepare(sql).all(...params).map(parseWorkItem);
+}
+
 function listOpenWorkItems({ project_id, limit } = {}) {
   const requestedLimit = limit || 100;
   const closedStatuses = Array.from(CLOSED_STATUSES);
@@ -673,6 +692,7 @@ module.exports = {
   getWorkItemForProject,
   parseWorkItem,
   listWorkItems,
+  listResolvedWorkItems,
   listOpenWorkItems,
   updateWorkItem,
   claimWorkItem,
@@ -690,6 +710,7 @@ module.exports = {
   createFromFindings,
   VALID_SOURCES,
   VALID_STATUSES,
+  RESOLVED_WORK_ITEM_STATUSES,
   REJECT_REASONS,
   VALID_PRIORITIES,
   CLOSED_STATUSES,
