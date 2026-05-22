@@ -90,6 +90,20 @@ const tools = [
     },
   },
   {
+    name: 'rescore_all_projects',
+    description: 'Re-run health scoring for every registered factory project and report each dimension\'s score before vs after. Zero LLM cost. Use after a scanner change to land corrected health numbers immediately.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scan_type: {
+          type: 'string',
+          enum: ['full', 'incremental'],
+          description: 'Full = deep scan (expensive). Incremental = quick re-score. Default: incremental.',
+        },
+      },
+    },
+  },
+  {
     name: 'set_factory_trust_level',
     description: 'Change the trust level and/or config for a factory project. Higher trust = more autonomy. Config is merged into existing project config.',
     inputSchema: {

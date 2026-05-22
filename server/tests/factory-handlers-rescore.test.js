@@ -38,4 +38,17 @@ describe('rescore_all_projects', () => {
     expect(Array.isArray(entry.dimensions)).toBe(true);
     expect(entry.dimensions.length).toBe(VALID_DIMENSIONS.size);
   });
+
+  test('rescore_all_projects is a registered, annotated, tiered tool', () => {
+    const factoryDefs = require('../tool-defs/factory-defs');
+    expect(factoryDefs.some(t => t.name === 'rescore_all_projects')).toBe(true);
+
+    const coreTools = require('../core-tools');
+    const flat = JSON.stringify(coreTools);
+    expect(flat).toContain('rescore_all_projects');
+
+    const annotations = require('../tool-annotations');
+    const flatAnn = JSON.stringify(annotations);
+    expect(flatAnn).toContain('rescore_all_projects');
+  });
 });
