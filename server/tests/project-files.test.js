@@ -111,3 +111,29 @@ test('DEFAULT_IGNORE_DIRS includes Unity and common build directories', () => {
     expect(DEFAULT_IGNORE_DIRS).toContain(d);
   }
 });
+
+// ---------------------------------------------------------------------------
+// handleScanProject integration
+// ---------------------------------------------------------------------------
+
+const { handleScanProject } = require('../handlers/integration/infra');
+
+test('handleScanProject excludes gitignored directories from the census', () => {
+  const dir = createTestRepo('projfiles-scan');
+  try {
+    fs.writeFileSync(path.join(dir, '.gitignore'), 'Library/\n');
+    fs.writeFileSync(path.join(dir, 'main.cs'), 'class A {}\n');
+    fs.mkdirSync(path.join(dir, 'Library'));
+    for (let i = 0; i < 20; i++) {
+      fs.writeFileSync(path.join(dir, 'Library', `gen${i}.cs`), `class Gen${i} {}\n`);
+    }
+    commitAll(dir, 'init');
+
+    const result = handleScanProject({ path: dir, checks: ['summary'] });
+    const { summary } = result.scanResult;
+    expect(summary.totalFiles).toBe(2); // main.cs + .gitignore only
+    expect(Object.keys(summary.byDirectory).some(d => d.includes('Library'))).toBe(false);
+  } finally {
+    cleanupRepo(dir);
+  }
+});

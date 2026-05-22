@@ -17,6 +17,7 @@ const { COST_FREE_PROVIDERS } = require('../../execution/queue-scheduler');
 const { ErrorCodes, makeError } = require('../error-codes');
 const logger = require('../../logger').child({ component: 'integration-infra' });
 const { defaultContainer } = require('../../container');
+const { listProjectFiles, DEFAULT_IGNORE_DIRS } = require('../../utils/project-files');
 
 /**
  * Configure an external integration
@@ -623,56 +624,10 @@ function handleScanProject(args = {}) {
   }
   const todoLimit = Number.isInteger(args.todo_limit) ? args.todo_limit : 50;
   const todoCommentsOnly = args.todo_comments_only === true;
-  const ignoreDirs = new Set(args.ignore_dirs || [
-    'node_modules', '.git', 'dist', 'build', 'coverage', '.next', '__pycache__', '.venv',
-    // Hidden temp/cache dirs that inflate file counts and TODO noise:
-    '.cache', '.vitest-tmp', '.vitest-logs', '.tmp-vitest',
-    '.codex-temp', '.codex-context', '.codex-worktrees',
-    '.worktrees', '.aider.tags.cache.v4',
-  ]);
+  const ignoreDirs = new Set(args.ignore_dirs || DEFAULT_IGNORE_DIRS);
   // Prefix-matched ignores for directories that follow a `.tmp-<suffix>` or
   // similar pattern (e.g. .tmp-study-repro created by scouting runs).
   const ignorePrefixes = ['.tmp', '.tmp-'];
-
-  // Recursive file walker
-  function walkDir(dir, fileList = []) {
-    try {
-      const entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
-      for (const entry of entries) {
-        if (ignoreDirs.has(entry.name)) continue;
-        const fullPath = path.join(dir, entry.name);
-        let entryStat;
-        try {
-          entryStat = fs.lstatSync(fullPath);
-        } catch {
-          continue;
-        }
-        if (entryStat.isSymbolicLink()) continue;
-        if (entryStat.isDirectory() && ignorePrefixes.some(p => entry.name === p || entry.name.startsWith(p + '-'))) continue;
-        try {
-          const realFullPath = fs.realpathSync(fullPath);
-          if (!isPathInside(projectPath, realFullPath)) continue;
-        } catch {
-          continue;
-        }
-        if (entryStat.isDirectory()) {
-          walkDir(fullPath, fileList);
-        } else if (entryStat.isFile()) {
-          fileList.push({
-            path: fullPath,
-            relativePath: path.relative(projectPath, fullPath),
-            name: entry.name,
-            ext: path.extname(entry.name).toLowerCase(),
-            size: entryStat.size,
-            lines: null // lazy-loaded
-          });
-        }
-      }
-    } catch (err) {
-      logger.debug('[integration-infra] non-critical error walking directory tree:', err.message || err);
-    }
-    return fileList;
-  }
 
   // Count lines in a file
   function countLines(filePath) {
@@ -698,7 +653,7 @@ function handleScanProject(args = {}) {
     ));
   }
 
-  const allFiles = walkDir(projectPath);
+  const allFiles = listProjectFiles(projectPath, { ignoreDirs, ignorePrefixes });
   const report = {};
 
   // --- SUMMARY ---
