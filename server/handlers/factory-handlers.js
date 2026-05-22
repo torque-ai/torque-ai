@@ -2156,6 +2156,8 @@ function scoreProjectHealth(project, options = {}) {
       scanArgs.source_dirs = sourceDirs;
     }
     const result = handleScanProject(scanArgs);
+    // scan_project returns { content: [{text: markdown}], scanResult: {structured} }
+    // Use scanResult, not the markdown text in content[0].
     if (result?.scanResult && typeof result.scanResult === 'object') {
       scanReport = result.scanResult;
     }
@@ -2184,9 +2186,11 @@ function scoreProjectHealth(project, options = {}) {
       batch_id: batchId,
       details: result.details,
     });
+
     if (result.findings && result.findings.length > 0) {
       factoryHealth.recordFindings(snap.id, result.findings);
     }
+
     results[dim] = { snapshot_id: snap.id, score: result.score, details: result.details };
   }
 
