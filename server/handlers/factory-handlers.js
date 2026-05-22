@@ -2215,6 +2215,10 @@ async function handleScanProjectHealth(args) {
   });
 }
 
+// Re-scores every registered factory project and reports before/after scores.
+// Deliberately bypasses the work-enabled guard that single-project scan_project_health
+// applies — a pure metric recompute is always safe and is the recovery path operators
+// need after a scanner fix has been deployed.
 async function handleRescoreAllProjects(args = {}) {
   const scanType = args.scan_type || 'incremental';
   const projects = factoryHealth.listProjects();

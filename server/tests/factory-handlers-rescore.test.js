@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const factoryHealth = require('../db/factory/health');
+const { VALID_DIMENSIONS } = require('../db/factory/health');
 
 let projectDir;
 
@@ -35,6 +36,6 @@ describe('rescore_all_projects', () => {
     expect(entry).toBeTruthy();
     expect(entry.error).toBeFalsy();
     expect(Array.isArray(entry.dimensions)).toBe(true);
-    expect(entry.dimensions.length).toBe(10);
+    expect(entry.dimensions.length).toBe(VALID_DIMENSIONS.size);
   });
 });
