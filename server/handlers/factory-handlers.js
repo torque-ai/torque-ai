@@ -2215,6 +2215,41 @@ async function handleScanProjectHealth(args) {
   });
 }
 
+async function handleRescoreAllProjects(args = {}) {
+  const scanType = args.scan_type || 'incremental';
+  const projects = factoryHealth.listProjects();
+  const summary = [];
+
+  for (const project of projects) {
+    const before = factoryHealth.getLatestScores(project.id);
+    let error = null;
+    try {
+      scoreProjectHealth(project, { scanType });
+    } catch (err) {
+      error = err.message || String(err);
+      logger.warn(`rescore_all_projects: failed for ${project.name}: ${error}`);
+    }
+    const after = error ? before : factoryHealth.getLatestScores(project.id);
+    const dimensionNames = Array.from(new Set([...Object.keys(before), ...Object.keys(after)])).sort();
+    summary.push({
+      project: project.name,
+      project_id: project.id,
+      error,
+      dimensions: dimensionNames.map(dim => ({
+        dimension: dim,
+        before: before[dim] ?? null,
+        after: after[dim] ?? null,
+      })),
+    });
+  }
+
+  return jsonResponse({
+    message: `Re-scored ${summary.length} project(s)`,
+    scan_type: scanType,
+    summary,
+  });
+}
+
 async function handleSetFactoryTrustLevel(args) {
   const project = resolveProject(args.project);
   const updates = { trust_level: args.trust_level };
@@ -4147,6 +4182,7 @@ module.exports = {
   handleArmFactoryTick,
   handleProjectHealth,
   handleScanProjectHealth,
+  handleRescoreAllProjects,
   handleSetFactoryTrustLevel,
   handleGetProjectPolicy,
   handleSetProjectPolicy,
