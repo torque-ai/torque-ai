@@ -119,6 +119,46 @@ describe('provider-exhaustion recovery', () => {
     expect(getNoProviderChainEvidence(unrelated)).toBeNull();
   });
 
+  it('does NOT treat intrinsic-failure shapes as provider-chain exhaustion', () => {
+    // plan-quality / empty-branch failures mean the provider produced output
+    // that was rejected on content grounds — not a capacity failure. A
+    // recovered provider will not change that, so these must NOT be reopened
+    // by provider_exhaustion_reopen (they re-grind to the same rejection).
+    const project = createProject();
+    const planQuality = createExhaustedItem(project.id, {
+      kind: 'chain_exhausted',
+      reasonShape: 'plan_quality_gate_rejected_after_intrabatch_retries',
+      rejectReason: 'escalation_exhausted: chain_exhausted after 3x same-shape (plan_quality_gate_rejected_after_intrabatch_retries)',
+    });
+    const emptyBranch = createExhaustedItem(project.id, {
+      kind: 'no_provider_chain',
+      reasonShape: 'empty_branch_after_execute',
+      rejectReason: 'escalation_exhausted: no_provider_chain after 3x same-shape (empty_branch_after_execute)',
+    });
+    // last_escalation path: reject_reason doesn't match the regex, but the
+    // origin.last_escalation shape is intrinsic — must also be skipped.
+    const intrinsicViaOrigin = createExhaustedItem(project.id, {
+      kind: 'no_provider_chain',
+      reasonShape: 'plan_lint_rejected',
+      rejectReason: 'escalation_exhausted: manual_review_required',
+    });
+    // Genuine capacity failure — the provider could not produce a plan at
+    // all. This one must still be reopenable.
+    const capacityFailure = createExhaustedItem(project.id, {
+      kind: 'chain_exhausted',
+      reasonShape: 'cannot_generate_plan',
+      rejectReason: 'escalation_exhausted: chain_exhausted after 3x same-shape (cannot_generate_plan)',
+    });
+
+    expect(getNoProviderChainEvidence(planQuality)).toBeNull();
+    expect(getNoProviderChainEvidence(emptyBranch)).toBeNull();
+    expect(getNoProviderChainEvidence(intrinsicViaOrigin)).toBeNull();
+    expect(getNoProviderChainEvidence(capacityFailure)).toMatchObject({
+      exhaustion_kind: 'chain_exhausted',
+      reason_shape: 'cannot_generate_plan',
+    });
+  });
+
   it('reopens provider-chain exhausted items when intake is empty and provider capacity recovered', () => {
     const project = createProject();
     const first = createExhaustedItem(project.id, { priority: 80 });

@@ -15,6 +15,23 @@ const DEFAULT_SCAN_LIMIT = 250;
 const RECOVERY_HISTORY_LIMIT = 10;
 const PROVIDER_CHAIN_EXHAUSTION_REJECT_REASON_RE =
   /^escalation_exhausted:\s*(?:restored terminal\s+)?(no_provider_chain|chain_exhausted)\b/i;
+// `no_provider_chain` / `chain_exhausted` only mean the recovery chain ran
+// out — NOT that a provider was unavailable. The reason_shape in parens is
+// the real recurring failure. These shapes mean the provider DID produce
+// output and it was rejected on content/quality grounds (the provider
+// worked); a recovered provider will not change that, so reopening just
+// re-grinds to the same rejection (observed on DLPhone 2026-05-22: ~16
+// plan-quality reopens, all re-failed). Such items belong in replan / human
+// triage (the recovery inbox), not a blind provider retry — so the
+// reopen predicate skips them and leaves them escalation_exhausted.
+const INTRINSIC_FAILURE_REASON_SHAPE_RE =
+  /plan_quality|plan_lint|description_quality|empty_branch|off_scope/i;
+
+function isIntrinsicFailureShape(reasonShape) {
+  return typeof reasonShape === 'string'
+    && reasonShape.length > 0
+    && INTRINSIC_FAILURE_REASON_SHAPE_RE.test(reasonShape);
+}
 
 function parseJsonObject(value) {
   if (!value) return {};
@@ -36,10 +53,14 @@ function getRejectReasonEvidence(rejectReason) {
   const normalized = String(rejectReason || '').trim();
   const match = PROVIDER_CHAIN_EXHAUSTION_REJECT_REASON_RE.exec(normalized);
   if (!match) return null;
+  const reasonShape = normalized.match(/\(([^)]+)\)/)?.[1] || null;
+  // Tightening: skip items whose recurring failure is intrinsic (provider
+  // produced output, output was rejected) rather than a capacity failure.
+  if (isIntrinsicFailureShape(reasonShape)) return null;
   return {
     source: 'reject_reason',
     exhaustion_kind: normalizeProviderName(match[1]),
-    reason_shape: normalized.match(/\(([^)]+)\)/)?.[1] || null,
+    reason_shape: reasonShape,
   };
 }
 
@@ -87,12 +108,15 @@ function getNoProviderChainEvidence(workItem) {
   const lastEscalation = origin.last_escalation;
   const lastEscalationKind = normalizeProviderName(lastEscalation?.kind);
   if (lastEscalationKind === 'no_provider_chain' || lastEscalationKind === 'chain_exhausted') {
+    const reasonShape = typeof lastEscalation.reason_shape === 'string'
+      ? lastEscalation.reason_shape
+      : null;
+    // Tightening: same intrinsic-failure skip as the reject_reason path.
+    if (isIntrinsicFailureShape(reasonShape)) return null;
     return {
       source: 'origin_last_escalation',
       exhaustion_kind: lastEscalationKind,
-      reason_shape: typeof lastEscalation.reason_shape === 'string'
-        ? lastEscalation.reason_shape
-        : null,
+      reason_shape: reasonShape,
     };
   }
 
