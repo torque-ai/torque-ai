@@ -2155,6 +2155,12 @@ function scoreProjectHealth(project, options = {}) {
     if (Array.isArray(sourceDirs) && sourceDirs.length > 0) {
       scanArgs.source_dirs = sourceDirs;
     }
+    // Count only comment-style debt markers, not string literals (e.g. test
+    // fixtures like 'src/FixMe.cs') or regex pattern declarations in the
+    // scanner's own code. Bump the items cap so the HACK/FIXME score input
+    // is comprehensive, not a noisy 50-item sample.
+    scanArgs.todo_comments_only = true;
+    scanArgs.todo_limit = 500;
     const result = handleScanProject(scanArgs);
     // scan_project returns { content: [{text: markdown}], scanResult: {structured} }
     // Use scanResult, not the markdown text in content[0].
