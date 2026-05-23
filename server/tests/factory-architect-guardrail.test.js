@@ -174,4 +174,34 @@ describe('architect stuck-dimension guardrail', () => {
     const findings = factoryHealth.getFindingsForSnapshots([history[0].id]);
     expect(findings[history[0].id][0].severity).toBe('high');
   });
+
+  test('emitStuckDimensionFindings deduplicates within a stuck episode and resets after a real scan', () => {
+    const { emitStuckDimensionFindings } = require('../factory/architect-runner');
+    const dp = factoryHealth.registerProject({
+      name: 'DedupProj', path: '/tmp/dedup-proj', trust_level: 'supervised',
+    });
+
+    // First call: writes one architect_guard snapshot + one finding.
+    emitStuckDimensionFindings({ id: dp.id, name: 'DedupProj' }, new Set(['test_coverage']), { test_coverage: 12 });
+    let history = factoryHealth.getScoreHistory(dp.id, 'test_coverage', 10, { order: 'DESC' });
+    const guardCountAfterFirst = history.filter(s => s.scan_type === 'architect_guard').length;
+    expect(guardCountAfterFirst).toBe(1);
+
+    // Second call (same stuck episode — latest snapshot IS architect_guard):
+    // must SKIP. No new architect_guard snapshot should be written.
+    emitStuckDimensionFindings({ id: dp.id, name: 'DedupProj' }, new Set(['test_coverage']), { test_coverage: 12 });
+    history = factoryHealth.getScoreHistory(dp.id, 'test_coverage', 10, { order: 'DESC' });
+    expect(history.filter(s => s.scan_type === 'architect_guard').length).toBe(1);
+
+    // Now simulate a real scan landing — a non-architect_guard snapshot
+    // becomes the latest. The dedup should reset.
+    factoryHealth.recordSnapshot({
+      project_id: dp.id, dimension: 'test_coverage', score: 12, scan_type: 'incremental',
+    });
+
+    // Third call: latest snapshot is now 'incremental', so emit must fire again.
+    emitStuckDimensionFindings({ id: dp.id, name: 'DedupProj' }, new Set(['test_coverage']), { test_coverage: 12 });
+    history = factoryHealth.getScoreHistory(dp.id, 'test_coverage', 10, { order: 'DESC' });
+    expect(history.filter(s => s.scan_type === 'architect_guard').length).toBe(2);
+  });
 });
