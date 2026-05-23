@@ -20,6 +20,7 @@ const {
   SHARED_FACTORY_DB_ENV,
 } = require('../db/shared-factory-store');
 const logger = require('../logger').child({ component: 'architect-runner' });
+const serverConfig = require('../config');
 const CLOSED_WORK_ITEM_STATUSES = new Set(['completed', 'rejected', 'shipped']);
 const PRIORITIZABLE_WORK_ITEM_STATUSES = new Set([
   'pending',
@@ -69,6 +70,41 @@ const DIMENSION_KEYWORDS = {
   performance: ['performance', 'slow', 'latency', 'throughput', 'optimize', 'optimization', 'cache', 'caching', 'speed'],
   debt_ratio: ['debt', 'cleanup', 'clean up', 'simplify', 'simplification', 'maintainability', 'legacy'],
 };
+
+const DEFAULT_STUCK_K = 8;
+const DEFAULT_STUCK_EPSILON = 3;
+
+// K = how many completed, aligned work items must exist before a dimension can
+// be judged stuck. EPSILON = minimum score gain over that span to count as
+// "moving". Overridable via the global config table.
+function getStuckThresholds() {
+  const k = Number(serverConfig.get('factory_dimension_stuck_k'));
+  const epsilon = Number(serverConfig.get('factory_dimension_stuck_epsilon'));
+  return {
+    k: Number.isFinite(k) && k > 0 ? k : DEFAULT_STUCK_K,
+    epsilon: Number.isFinite(epsilon) && epsilon >= 0 ? epsilon : DEFAULT_STUCK_EPSILON,
+  };
+}
+
+// Best-effort attribution of a work item to one health dimension by keyword
+// overlap with DIMENSION_KEYWORDS. Returns null when nothing matches.
+function matchItemToDimension(item) {
+  const text = `${item && item.title ? item.title : ''} ${item && item.description ? item.description : ''}`.toLowerCase();
+  if (!text.trim()) return null;
+  let best = null;
+  let bestCount = 0;
+  for (const [dimension, keywords] of Object.entries(DIMENSION_KEYWORDS)) {
+    let count = 0;
+    for (const kw of keywords) {
+      if (text.includes(kw)) count++;
+    }
+    if (count > bestCount) {
+      bestCount = count;
+      best = dimension;
+    }
+  }
+  return bestCount > 0 ? best : null;
+}
 
 const SCOPE_BUDGET_RULES = [
   { budget: 8, keywords: ['refactor', 'rewrite', 'overhaul'] },
@@ -1310,6 +1346,8 @@ module.exports = {
   // Phase P (2026-04-30): expose pure helpers for unit testing.
   buildRewritePrompt,
   getFailureModeGuidance,
+  getStuckThresholds,
+  matchItemToDimension,
   _internalForTests: {
     runArchitectLLM,
     loadActiveVerifyFailureLearnings,

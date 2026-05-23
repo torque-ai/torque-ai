@@ -36,4 +36,16 @@ describe('architect stuck-dimension guardrail', () => {
     expect(titles).not.toContain('pending item');
     expect(titles).not.toContain('rejected item');
   });
+
+  test('matchItemToDimension maps an item to its dominant dimension', () => {
+    const { matchItemToDimension } = require('../factory/architect-runner');
+    expect(matchItemToDimension({ title: 'Add unit test for coverage', description: '' })).toBe('test_coverage');
+    expect(matchItemToDimension({ title: 'Fix the CI build pipeline', description: '' })).toBe('build_ci');
+    expect(matchItemToDimension({ title: 'wibble wobble', description: '' })).toBe(null);
+  });
+
+  test('getStuckThresholds returns defaults', () => {
+    const { getStuckThresholds } = require('../factory/architect-runner');
+    expect(getStuckThresholds()).toEqual({ k: 8, epsilon: 3 });
+  });
 });
