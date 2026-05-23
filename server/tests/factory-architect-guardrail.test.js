@@ -139,4 +139,39 @@ describe('architect stuck-dimension guardrail', () => {
     // NOT be < 3, so this test would fail.
     expect(stuck.has('test_coverage')).toBe(true);
   });
+
+  test('getSortedWeakDimensions sorts stuck dimensions last', () => {
+    const { getSortedWeakDimensions } = require('../factory/architect-runner');
+    const scores = { test_coverage: 12, build_ci: 32, security: 50 };
+    const sorted = getSortedWeakDimensions(scores, new Set(['test_coverage']));
+    // test_coverage has the lowest score but is stuck, so it must not be first.
+    expect(sorted[0].dimension).toBe('build_ci');
+    expect(sorted[sorted.length - 1].dimension).toBe('test_coverage');
+  });
+
+  test('prioritizeByHealth ranks stuck-dimension work below non-stuck work', () => {
+    const { prioritizeByHealth } = require('../factory/architect-runner');
+    const items = [
+      { id: '1', title: 'Add unit test coverage', created_at: '2026-01-01T00:00:00Z' },
+      { id: '2', title: 'Fix the CI build pipeline', created_at: '2026-01-01T00:00:00Z' },
+    ];
+    const scores = { test_coverage: 12, build_ci: 32 };
+    const backlog = prioritizeByHealth(items, scores, { stuckDimensions: new Set(['test_coverage']) });
+    // build_ci item should rank first because test_coverage is demoted.
+    expect(backlog[0].work_item_id).toBe('2');
+  });
+
+  test('emitStuckDimensionFindings records a high-severity finding', () => {
+    const { emitStuckDimensionFindings } = require('../factory/architect-runner');
+    const fp = factoryHealth.registerProject({
+      name: 'FindingProj', path: '/tmp/finding-proj', trust_level: 'supervised',
+    });
+    emitStuckDimensionFindings({ id: fp.id, name: 'FindingProj' }, new Set(['test_coverage']), { test_coverage: 12 });
+
+    const history = factoryHealth.getScoreHistory(fp.id, 'test_coverage', 5, { order: 'DESC' });
+    expect(history.length).toBeGreaterThan(0);
+    expect(history[0].scan_type).toBe('architect_guard');
+    const findings = factoryHealth.getFindingsForSnapshots([history[0].id]);
+    expect(findings[history[0].id][0].severity).toBe('high');
+  });
 });

@@ -164,6 +164,39 @@ function detectStuckDimensions(projectId, weakDimensions, options = {}) {
   return stuck;
 }
 
+// Records a high-severity, persisted finding for each stuck dimension. Deduped:
+// skips a dimension whose latest snapshot is already an architect_guard snapshot.
+function emitStuckDimensionFindings(project, stuckDimensions, healthScores) {
+  if (!project || !project.id || !stuckDimensions || stuckDimensions.size === 0) return;
+  const scoreMap = {};
+  for (const entry of normalizeHealthScores(healthScores)) {
+    scoreMap[entry.dimension] = entry.score;
+  }
+  const { k } = getStuckThresholds();
+  for (const dimension of stuckDimensions) {
+    try {
+      const recent = factoryHealth.getScoreHistory(project.id, dimension, 1, { order: 'DESC' });
+      if (recent.length > 0 && recent[0].scan_type === 'architect_guard') continue;
+      const score = toFiniteNumber(scoreMap[dimension]) ?? 0;
+      const snap = factoryHealth.recordSnapshot({
+        project_id: project.id,
+        dimension,
+        score,
+        scan_type: 'architect_guard',
+      });
+      factoryHealth.recordFindings(snap.id, [{
+        severity: 'high',
+        message: `Dimension "${dimension}" is not responding to completed work — `
+          + `its score has not improved despite ${k}+ aligned completed work items. `
+          + `Likely a metric error or genuine saturation; needs human review.`,
+      }]);
+      logger.warn(`[architect-runner] stuck dimension "${dimension}" for project ${project.name || project.id}`);
+    } catch (err) {
+      logger.warn(`[architect-runner] failed to emit stuck-dimension finding for "${dimension}": ${err.message || err}`);
+    }
+  }
+}
+
 const SCOPE_BUDGET_RULES = [
   { budget: 8, keywords: ['refactor', 'rewrite', 'overhaul'] },
   { budget: 3, keywords: ['fix', 'bug'] },
@@ -277,13 +310,18 @@ function normalizeIntakeItems(intakeItems) {
   throw new TypeError('intakeItems must be an array, { items: [] }, or null');
 }
 
-function getSortedWeakDimensions(healthScores) {
+function getSortedWeakDimensions(healthScores, stuckDimensions = new Set()) {
   return normalizeHealthScores(healthScores)
     .map((entry) => ({
       dimension: entry.dimension,
       score: toFiniteNumber(entry.score),
     }))
     .sort((left, right) => {
+      const leftStuck = stuckDimensions.has(left.dimension);
+      const rightStuck = stuckDimensions.has(right.dimension);
+      if (leftStuck !== rightStuck) {
+        return leftStuck ? 1 : -1; // stuck dimensions sort last
+      }
       const leftScore = left.score === null ? Number.POSITIVE_INFINITY : left.score;
       const rightScore = right.score === null ? Number.POSITIVE_INFINITY : right.score;
       if (leftScore !== rightScore) {
@@ -656,7 +694,8 @@ function prioritizeByHealth(intakeItems, healthScores, options = {}) {
     throw new TypeError('intakeItems must be an array');
   }
 
-  const weakDimensions = getSortedWeakDimensions(healthScores);
+  const stuckDimensions = options.stuckDimensions instanceof Set ? options.stuckDimensions : new Set();
+  const weakDimensions = getSortedWeakDimensions(healthScores, stuckDimensions);
   const sharedLearnings = Array.isArray(options.sharedLearnings)
     ? options.sharedLearnings
       .map((learning) => (learning && Array.isArray(learning.categories) ? learning : normalizeVerifyLearningRow(learning)))
@@ -1342,9 +1381,15 @@ async function runArchitectCycle(project_id, trigger = 'manual') {
   }
 
   if (!llmUsed) {
+    const stuckDimensions = detectStuckDimensions(
+      project_id,
+      getSortedWeakDimensions(healthScores),
+    );
+    emitStuckDimensionFindings(project, stuckDimensions, healthScores);
     backlog = prioritizeByHealth(intakeItems, healthScores, {
       project,
       sharedLearnings: sharedVerifyFailureLearnings,
+      stuckDimensions,
     });
     reasoning = buildReasoning({
       project,
@@ -1407,6 +1452,8 @@ module.exports = {
   getStuckThresholds,
   matchItemToDimension,
   detectStuckDimensions,
+  getSortedWeakDimensions,
+  emitStuckDimensionFindings,
   _internalForTests: {
     runArchitectLLM,
     loadActiveVerifyFailureLearnings,
