@@ -130,6 +130,7 @@ function detectStuckDimensions(projectId, weakDimensions, options = {}) {
   const thresholds = getStuckThresholds();
   const k = Number.isFinite(options.k) ? options.k : thresholds.k;
   const epsilon = Number.isFinite(options.epsilon) ? options.epsilon : thresholds.epsilon;
+  if (k < 1) return stuck;
 
   const resolved = factoryIntake.listResolvedWorkItems({ project_id: projectId, limit: 500 });
 
