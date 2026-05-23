@@ -78,8 +78,10 @@ const DEFAULT_STUCK_EPSILON = 3;
 // be judged stuck. EPSILON = minimum score gain over that span to count as
 // "moving". Overridable via the global config table.
 function getStuckThresholds() {
-  const k = Number(serverConfig.get('factory_dimension_stuck_k'));
-  const epsilon = Number(serverConfig.get('factory_dimension_stuck_epsilon'));
+  const rawK = serverConfig.get('factory_dimension_stuck_k');
+  const rawEpsilon = serverConfig.get('factory_dimension_stuck_epsilon');
+  const k = rawK != null ? Number(rawK) : NaN;
+  const epsilon = rawEpsilon != null ? Number(rawEpsilon) : NaN;
   return {
     k: Number.isFinite(k) && k > 0 ? k : DEFAULT_STUCK_K,
     epsilon: Number.isFinite(epsilon) && epsilon >= 0 ? epsilon : DEFAULT_STUCK_EPSILON,
