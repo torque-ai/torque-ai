@@ -79,7 +79,8 @@ function walkDirFallback(rootDir, ignoreDirs, ignorePrefixes) {
     let entries;
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
-    } catch {
+    } catch (err) {
+      if (dir === rootDir) throw err;
       return;
     }
     for (const entry of entries) {

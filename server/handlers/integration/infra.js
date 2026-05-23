@@ -654,7 +654,13 @@ function handleScanProject(args = {}) {
     ));
   }
 
-  const allFiles = listProjectFiles(projectPath, { ignoreDirs, ignorePrefixes });
+  let allFiles;
+  try {
+    allFiles = listProjectFiles(projectPath, { ignoreDirs, ignorePrefixes });
+  } catch (err) {
+    logger.debug('[integration-infra] non-critical error walking directory tree:', err.message);
+    allFiles = [];
+  }
   const report = {};
 
   // --- SUMMARY ---

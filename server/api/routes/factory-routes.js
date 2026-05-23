@@ -174,6 +174,7 @@ const FACTORY_V2_ROUTES = [
     mapBody: true,
   },
   { method: 'POST', path: '/api/v2/factory/pause-all', tool: 'pause_all_projects' },
+  { method: 'POST', path: '/api/v2/factory/rescore-all', tool: 'rescore_all_projects', mapBody: true },
   // Intake
   { method: 'GET', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/intake$/, tool: 'list_work_items', mapParams: ['project'], mapQuery: true },
   { method: 'POST', path: /^\/api\/v2\/factory\/projects\/([^/]+)\/intake$/, tool: 'create_work_item', mapParams: ['project'], mapBody: true },

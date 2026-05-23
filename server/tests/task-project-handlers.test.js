@@ -432,6 +432,7 @@ const AUTOMATION_MODULES = [
 
 const INTEGRATION_MODULES = [
   '../handlers/integration/infra',
+  '../utils/project-files',
   '../db/backup-core',
   '../db/config-core',
   '../db/email-peek',
