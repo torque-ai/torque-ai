@@ -152,7 +152,13 @@ function createVirtualFs(initialEntries = {}) {
         error.code = 'ENOENT';
         throw error;
       }
-      return { size: Buffer.byteLength(files.get(resolved), 'utf8') };
+      const fileSize = Buffer.byteLength(files.get(resolved), 'utf8');
+      return {
+        size: fileSize,
+        isFile: () => true,
+        isDirectory: () => false,
+        isSymbolicLink: () => false,
+      };
     }),
     lstatSync: vi.fn((filePath) => {
       const resolved = normalizePath(filePath);
