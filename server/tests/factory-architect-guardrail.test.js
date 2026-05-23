@@ -48,4 +48,43 @@ describe('architect stuck-dimension guardrail', () => {
     const { getStuckThresholds } = require('../factory/architect-runner');
     expect(getStuckThresholds()).toEqual({ k: 8, epsilon: 3 });
   });
+
+  test('detectStuckDimensions flags a dimension whose score has not moved', () => {
+    const { detectStuckDimensions } = require('../factory/architect-runner');
+
+    const stuckProject = factoryHealth.registerProject({
+      name: 'StuckProj', path: '/tmp/stuck-proj', trust_level: 'supervised',
+    });
+
+    // 9 completed, test-coverage-aligned work items.
+    for (let i = 0; i < 9; i++) {
+      factoryIntake.createWorkItem({
+        project_id: stuckProject.id, source: 'manual',
+        title: `Add unit test coverage ${i}`, status: 'completed',
+      });
+    }
+    // Flat score history for test_coverage: 12 -> 13 (gain 1, below epsilon 3).
+    factoryHealth.recordSnapshot({ project_id: stuckProject.id, dimension: 'test_coverage', score: 12, scan_type: 'incremental' });
+    factoryHealth.recordSnapshot({ project_id: stuckProject.id, dimension: 'test_coverage', score: 13, scan_type: 'incremental' });
+
+    const weak = [{ dimension: 'test_coverage', score: 13 }];
+    const stuck = detectStuckDimensions(stuckProject.id, weak, { k: 8, epsilon: 3 });
+    expect(stuck.has('test_coverage')).toBe(true);
+  });
+
+  test('detectStuckDimensions does not flag a dimension with too few items', () => {
+    const { detectStuckDimensions } = require('../factory/architect-runner');
+    const thinProject = factoryHealth.registerProject({
+      name: 'ThinProj', path: '/tmp/thin-proj', trust_level: 'supervised',
+    });
+    factoryIntake.createWorkItem({
+      project_id: thinProject.id, source: 'manual',
+      title: 'Add unit test coverage', status: 'completed',
+    });
+    factoryHealth.recordSnapshot({ project_id: thinProject.id, dimension: 'test_coverage', score: 12, scan_type: 'incremental' });
+
+    const weak = [{ dimension: 'test_coverage', score: 12 }];
+    const stuck = detectStuckDimensions(thinProject.id, weak, { k: 8, epsilon: 3 });
+    expect(stuck.has('test_coverage')).toBe(false);
+  });
 });

@@ -108,6 +108,61 @@ function matchItemToDimension(item) {
   return bestCount > 0 ? best : null;
 }
 
+// Normalizes SQLite timestamps (both 'YYYY-MM-DD HH:MM:SS' and ISO-8601 with a
+// trailing Z) to epoch milliseconds, treating space-form timestamps as UTC.
+function timestampToEpochMs(ts) {
+  if (!ts) return 0;
+  let s = String(ts).trim();
+  if (s.includes(' ') && !s.includes('T')) s = s.replace(' ', 'T');
+  if (!/[zZ]$|[+-]\d\d:?\d\d$/.test(s)) s += 'Z';
+  const ms = Date.parse(s);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+// A dimension is "stuck" when the K most recent completed work items aligned to
+// it exist, yet its score gained less than EPSILON between the snapshot at/before
+// the oldest of those K items and the latest snapshot.
+function detectStuckDimensions(projectId, weakDimensions, options = {}) {
+  const stuck = new Set();
+  if (!projectId || !Array.isArray(weakDimensions) || weakDimensions.length === 0) {
+    return stuck;
+  }
+  const thresholds = getStuckThresholds();
+  const k = Number.isFinite(options.k) ? options.k : thresholds.k;
+  const epsilon = Number.isFinite(options.epsilon) ? options.epsilon : thresholds.epsilon;
+
+  const resolved = factoryIntake.listResolvedWorkItems({ project_id: projectId, limit: 500 });
+
+  for (const entry of weakDimensions) {
+    const dimension = entry && entry.dimension;
+    if (!dimension) continue;
+
+    const aligned = resolved.filter(item => matchItemToDimension(item) === dimension);
+    if (aligned.length < k) continue;
+
+    // resolved is ORDER BY updated_at DESC, so the Kth most recent is index k-1.
+    const kthTs = timestampToEpochMs(aligned[k - 1].updated_at);
+
+    const history = factoryHealth.getScoreHistory(projectId, dimension, 200, { order: 'ASC' });
+    if (history.length === 0) continue;
+
+    const currentScore = history[history.length - 1].score;
+    let pastScore = history[0].score;
+    for (const row of history) {
+      if (timestampToEpochMs(row.scanned_at) <= kthTs) {
+        pastScore = row.score;
+      } else {
+        break;
+      }
+    }
+
+    if (currentScore - pastScore < epsilon) {
+      stuck.add(dimension);
+    }
+  }
+  return stuck;
+}
+
 const SCOPE_BUDGET_RULES = [
   { budget: 8, keywords: ['refactor', 'rewrite', 'overhaul'] },
   { budget: 3, keywords: ['fix', 'bug'] },
@@ -1350,6 +1405,7 @@ module.exports = {
   getFailureModeGuidance,
   getStuckThresholds,
   matchItemToDimension,
+  detectStuckDimensions,
   _internalForTests: {
     runArchitectLLM,
     loadActiveVerifyFailureLearnings,
