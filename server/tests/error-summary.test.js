@@ -314,6 +314,146 @@ describe('summarizeTaskError', () => {
     expect(result.summary).toMatch(/…$|\.\.\.$|x{20,}/);
   });
 
+  // ── Drift-gap patterns added 2026-05-17 ──────────────────────────────────
+
+  it('classifies operator-intervention cancellation (apply_intervention handler)', () => {
+    // intelligence.js:597 writes this exact format when an operator applies a
+    // cancel intervention. Before this fix the line had no error keyword, so
+    // it fell all the way through to category "unknown".
+    const result = summarizeTaskError({
+      status: 'cancelled',
+      provider: 'codex',
+      exit_code: null,
+      error_output: 'Cancelled via intervention: {"reason":"manual-stop","requested_by":"user@example.com"}',
+    });
+    expect(result).not.toBeNull();
+    expect(result.category).toBe('cancelled');
+    expect(result.summary).toMatch(/Cancelled by operator/i);
+    expect(result.summary).toMatch(/operator intervention/i);
+    expect(result.evidence).toContain('Cancelled via intervention:');
+  });
+
+  it('classifies the [phantom-success] sentinel (phantom-success-detector.js)', () => {
+    // phantom-success-detector.js appends "[phantom-success] <reason>" to
+    // error_output when Codex exits 0 but output was empty or carried an
+    // overload signal. The auto-recovery-core phantom_completion_detected rule
+    // (added 2026-05-06) routes these but the summarizer lacked a corresponding
+    // path — they fell to unknown_nonzero_exit.
+    const result = summarizeTaskError({
+      status: 'failed',
+      provider: 'codex',
+      exit_code: 1,
+      started_at: '2026-05-06T10:00:00Z',
+      completed_at: '2026-05-06T10:02:00Z',
+      error_output: [
+        'OpenAI Codex v0.125.0 (research preview)',
+        'workdir: C:/repo',
+        'model: gpt-5.5',
+        'exec ["PowerShell","-Command","ls"]',
+        ' succeeded in 45ms',
+        '[phantom-success] Codex exited 0 but stdout was empty (overload signal detected)',
+      ].join('\n'),
+    });
+    expect(result).not.toBeNull();
+    expect(result.category).toBe('codex_phantom');
+    expect(result.summary).toMatch(/phantom completion/i);
+    expect(result.summary).toMatch(/overload signal/i);
+    expect(result.summary).toMatch(/after 2m/);
+    expect(result.evidence).toContain('[phantom-success]');
+  });
+
+  it('classifies the [no-file-change] sentinel (task-finalizer.js)', () => {
+    // task-finalizer.js appends "[no-file-change] Factory execution ..." when
+    // the provider exited 0 but modified no files. Previously fell through to
+    // unknown_nonzero_exit because "[no-file-change]" contains no error keyword.
+    const result = summarizeTaskError({
+      status: 'failed',
+      provider: 'codex',
+      exit_code: 1,
+      started_at: '2026-05-10T09:00:00Z',
+      completed_at: '2026-05-10T09:05:00Z',
+      error_output: [
+        'OpenAI Codex v0.125.0 (research preview)',
+        'workdir: C:/repo',
+        'model: gpt-5.5',
+        'exec ["PowerShell"] ...',
+        ' succeeded',
+        '[no-file-change] Factory execution plan task 3 completed with exit code 0 but reported no modified files.',
+      ].join('\n'),
+    });
+    expect(result).not.toBeNull();
+    expect(result.category).toBe('no_file_change');
+    expect(result.summary).toMatch(/no file changes/i);
+    expect(result.summary).toMatch(/after 5m/);
+    expect(result.evidence).toContain('[no-file-change]');
+  });
+
+  it('classifies Windows native crash via [process-exit] structured line', () => {
+    // Windows NTSTATUS codes (e.g. 0xC0000005 ACCESS_VIOLATION) appear as
+    // large positive exit codes. process-exit-codes.js (added 4c3c01a
+    // 2026-05-15) and classifyError in fallback-retry.js already handled
+    // these; the summarizer lacked a matching path and returned nonzero_exit_silent.
+    const result = summarizeTaskError({
+      status: 'failed',
+      provider: 'codex',
+      exit_code: 3221225477,
+      started_at: '2026-05-15T08:00:00Z',
+      completed_at: '2026-05-15T08:01:00Z',
+      error_output: [
+        'OpenAI Codex v0.125.0 (research preview)',
+        'workdir: C:/repo',
+        'model: gpt-5.5',
+        '[process-exit] code=3221225477 signal=none duration_ms=60000 provider=codex model=gpt-5.5',
+      ].join('\n'),
+    });
+    expect(result).not.toBeNull();
+    expect(result.category).toBe('windows_native_crash');
+    expect(result.summary).toMatch(/Windows native process crash/i);
+    expect(result.summary).toMatch(/0xC0000005/);
+    expect(result.summary).toMatch(/ACCESS_VIOLATION/);
+    expect(result.summary).toMatch(/after 1m/);
+  });
+
+  it('classifies Windows native crash via exit code alone (no [process-exit] line)', () => {
+    // Same shape but without a structured exit line — the exit_code field
+    // alone carries the NTSTATUS code. Previously fell through to unknown_nonzero_exit.
+    const result = summarizeTaskError({
+      status: 'failed',
+      provider: 'codex',
+      exit_code: 3221225725,
+      error_output: '',
+    });
+    expect(result).not.toBeNull();
+    expect(result.category).toBe('windows_native_crash');
+    expect(result.summary).toMatch(/Windows native process crash/i);
+    expect(result.summary).toMatch(/0xC00000FD/);
+    expect(result.summary).toMatch(/STACK_OVERFLOW/);
+  });
+
+  it('classifies Codex overload/reconnect pattern (phantom-success-detector OVERLOAD_PATTERNS)', () => {
+    // phantom-success-detector.js tracks "ERROR: Reconnecting..." and
+    // "currently experiencing high demand" as OVERLOAD_PATTERNS. For tasks
+    // that don't go through the factory pipeline (no [phantom-success] sentinel
+    // appended), these previously had no dedicated category — findLastErrorLine
+    // would catch ERROR: Reconnecting... via the "error" keyword but return
+    // generic_error_line. This gives them a specific codex_overload category.
+    const result = summarizeTaskError({
+      status: 'failed',
+      provider: 'codex',
+      exit_code: 1,
+      error_output: [
+        'OpenAI Codex v0.125.0 (research preview)',
+        'workdir: C:/repo',
+        'ERROR: Reconnecting... (attempt 3/5)',
+        '[process-exit] code=1 signal=none duration_ms=90000 provider=codex',
+      ].join('\n'),
+    });
+    expect(result).not.toBeNull();
+    expect(result.category).toBe('codex_overload');
+    expect(result.summary).toMatch(/overloaded or disconnected/i);
+    expect(result.summary).toMatch(/Reconnecting/i);
+  });
+
   it('finds the structured exit line in a 5MB tail-of-buffer scenario without OOM/slowness', () => {
     // Synthesize a multi-megabyte error_output where the actionable signal
     // lives in the final ~200 bytes. This is the worst case for the old
